@@ -1,0 +1,102 @@
+@using studyhub.domain.Entities
+
+<div class="modal-overlay" @onclick="HandleOverlayClick">
+    <div class="modal-content glass-strong p-xl rounded-xl w-full max-w-md animate-scale-in" @onclick:stopPropagation="true">
+        <div class="modal-header flex justify-between items-center mb-lg">
+            <h2 class="text-xl font-bold">Configurar Metas de Estudo</h2>
+            <button class="nav-add-course-button" title="Fechar" type="button" @onclick="OnClose">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+
+        <div class="modal-body mb-xl">
+            <div class="form-group mb-lg">
+                <label class="block text-sm font-semibold mb-sm">Meta diária (em minutos)</label>
+                <div class="flex items-center gap-md">
+                    <input type="number" min="10" max="1440" step="10" @bind="draftSettings.DailyGoalMinutes" class="input-field flex-1" />
+                    <span class="text-sm text-secondary w-24">@FormatDraftMinutes()</span>
+                </div>
+                <p class="text-xs text-tertiary mt-xs">Escolha o quanto você gostaria de focar a cada dia de estudo planejado.</p>
+            </div>
+
+            <div class="form-group">
+                <label class="block text-sm font-semibold mb-sm">Dias da semana</label>
+                <div class="grid grid-cols-2 gap-sm">
+                    @foreach (var day in allDays)
+                    {
+                        var isChecked = draftSettings.SelectedDaysOfWeek.Contains(day.Value);
+                        <label class="checkbox-label flex items-center gap-sm cursor-pointer p-sm rounded bg-surface hover:bg-surface-hover transition-colors">
+                            <input type="checkbox" checked="@isChecked" @onchange="@(e => ToggleDay(day.Value, (bool?)e.Value ?? false))" />
+                            <span class="text-sm">@day.Key</span>
+                        </label>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer flex justify-end gap-md">
+            <button class="btn btn-secondary px-lg" @onclick="OnClose">Cancelar</button>
+            <button class="btn btn-primary px-lg" @onclick="SaveChanges">Salvar Meta</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid CourseId { get; set; }
+    [Parameter] public RoutineSettings Settings { get; set; } = new();
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<RoutineSettings> OnSave { get; set; }
+
+    private RoutineSettings draftSettings = new();
+
+    private readonly Dictionary<string, DayOfWeek> allDays = new()
+    {
+        { "Segunda-feira", DayOfWeek.Monday },
+        { "Terça-feira", DayOfWeek.Tuesday },
+        { "Quarta-feira", DayOfWeek.Wednesday },
+        { "Quinta-feira", DayOfWeek.Thursday },
+        { "Sexta-feira", DayOfWeek.Friday },
+        { "Sábado", DayOfWeek.Saturday },
+        { "Domingo", DayOfWeek.Sunday }
+    };
+
+    protected override void OnInitialized()
+    {
+        // Copy state so we don't mutate parent's instance until saved
+        draftSettings = new RoutineSettings
+        {
+            DailyGoalMinutes = Settings.DailyGoalMinutes,
+            SelectedDaysOfWeek = new List<DayOfWeek>(Settings.SelectedDaysOfWeek),
+            LastUpdatedAt = Settings.LastUpdatedAt
+        };
+    }
+
+    private void ToggleDay(DayOfWeek day, bool isChecked)
+    {
+        if (isChecked && !draftSettings.SelectedDaysOfWeek.Contains(day))
+        {
+            draftSettings.SelectedDaysOfWeek.Add(day);
+        }
+        else if (!isChecked && draftSettings.SelectedDaysOfWeek.Contains(day))
+        {
+            draftSettings.SelectedDaysOfWeek.Remove(day);
+        }
+    }
+
+    private string FormatDraftMinutes()
+    {
+        var h = draftSettings.DailyGoalMinutes / 60;
+        var m = draftSettings.DailyGoalMinutes % 60;
+        return (h > 0 ? $"{h}h " : "") + (m > 0 || h == 0 ? $"{m}m" : "");
+    }
+
+    private async Task SaveChanges()
+    {
+        await OnSave.InvokeAsync(draftSettings);
+    }
+
+    private async Task HandleOverlayClick()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

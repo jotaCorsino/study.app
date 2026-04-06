@@ -1,0 +1,73 @@
+@using studyhub.domain.Entities
+@using studyhub.shared.Enums
+@using studyhub.shared.Helpers
+
+<div class="lesson-list">
+    @if (!string.IsNullOrEmpty(TopicTitle))
+    {
+        <div class="topic-title">@TopicTitle</div>
+    }
+    
+    @foreach (var lesson in Lessons)
+    {
+        <div class="lesson-item @GetItemClass(lesson)"
+             data-lesson-anchor="@lesson.Id"
+             @onclick="() => OnLessonClick(lesson)">
+            <div class="lesson-status-icon">
+                @if (GetStatus(lesson.Id) == LessonStatus.Completed)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                }
+                else if (GetStatus(lesson.Id) == LessonStatus.InProgress)
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                }
+                else
+                {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
+                }
+            </div>
+            
+            <div class="lesson-info">
+                <div class="lesson-title">@lesson.Title</div>
+            </div>
+            
+            <div class="lesson-duration">
+                @((int)lesson.Duration.TotalMinutes)m
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string TopicTitle { get; set; } = string.Empty;
+    [Parameter] public List<Lesson> Lessons { get; set; } = new();
+    [Parameter] public Dictionary<Guid, LessonStatus> LessonStatuses { get; set; } = new();
+    [Parameter] public Guid? ActiveLessonId { get; set; }
+    [Parameter] public EventCallback<Lesson> OnLessonSelected { get; set; }
+
+    private LessonStatus GetStatus(Guid lessonId)
+    {
+        return LessonStatuses.TryGetValue(lessonId, out var status) ? status : LessonStatus.NotStarted;
+    }
+
+    private string GetItemClass(Lesson lesson)
+    {
+        var status = GetStatus(lesson.Id);
+        var classes = new List<string>();
+        
+        if (ActiveLessonId == lesson.Id) classes.Add("active");
+        if (status == LessonStatus.Completed) classes.Add("completed");
+        if (status == LessonStatus.InProgress) classes.Add("in-progress");
+        
+        return string.Join(" ", classes);
+    }
+
+    private async Task OnLessonClick(Lesson lesson)
+    {
+        if (OnLessonSelected.HasDelegate)
+        {
+            await OnLessonSelected.InvokeAsync(lesson);
+        }
+    }
+}

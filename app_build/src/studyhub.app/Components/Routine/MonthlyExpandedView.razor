@@ -1,0 +1,113 @@
+@using studyhub.application.Interfaces
+@using studyhub.domain.Entities
+@inject IRoutineService RoutineService
+
+<div class="modal-overlay" @onclick="HandleOverlayClick">
+    <div class="modal-content glass-strong p-xl rounded-xl w-full max-w-2xl animate-scale-in" @onclick:stopPropagation="true">
+        <div class="modal-header flex justify-between items-center mb-lg">
+            <h2 class="text-xl font-bold">Visão de Longo Prazo (@DateTime.Now.Year)</h2>
+            <button class="nav-add-course-button" title="Fechar" type="button" @onclick="OnClose">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+
+        <div class="modal-body mb-xl">
+            @if (isLoading)
+            {
+                <div class="flex justify-center items-center py-xl">
+                    <div class="text-tertiary">Carregando histórico...</div>
+                </div>
+            }
+            else
+            {
+                <div class="grid grid-cols-4 gap-md">
+                    @for (int month = 1; month <= 12; month++)
+                    {
+                        if (monthAverages.TryGetValue(month, out var avg))
+                        {
+                            <div class="month-block @GetColorClassForAverage(avg, month) flex flex-col items-center justify-center rounded-lg p-md">
+                                <span class="font-bold text-lg pointer-events-none">@GetMonthAbbreviation(month)</span>
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public Guid CourseId { get; set; }
+    [Parameter] public RoutineSettings Settings { get; set; } = new();
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private bool isLoading = true;
+    private Dictionary<int, double> monthAverages = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        isLoading = true;
+
+        var currentYear = DateTime.Now.Year;
+        for (int month = 1; month <= 12; month++)
+        {
+            var records = await RoutineService.GetMonthlyRecordsAsync(CourseId, currentYear, month);
+            var plannedRecords = records
+                .Where(record => record.Status != DailyStudyStatus.Unplanned)
+                .ToList();
+
+            if (month == DateTime.Now.Month)
+            {
+                plannedRecords = plannedRecords
+                    .Where(record => record.Date <= DateTime.Now.Date)
+                    .ToList();
+            }
+
+            if (plannedRecords.Count == 0 || month > DateTime.Now.Month)
+            {
+                monthAverages[month] = double.NaN;
+                continue;
+            }
+
+            monthAverages[month] = plannedRecords.Average(record => record.CompliancePercentage);
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private string GetMonthAbbreviation(int month)
+    {
+        return month switch
+        {
+            1 => "Jan",
+            2 => "Fev",
+            3 => "Mar",
+            4 => "Abr",
+            5 => "Mai",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Ago",
+            9 => "Set",
+            10 => "Out",
+            11 => "Nov",
+            12 => "Dez",
+            _ => string.Empty
+        };
+    }
+
+    private string GetColorClassForAverage(double percentage, int month)
+    {
+        if (double.IsNaN(percentage) || month > DateTime.Now.Month) return "bg-neutral opacity-50";
+
+        if (percentage < 25) return "bg-level-1";
+        if (percentage < 50) return "bg-level-2";
+        if (percentage < 75) return "bg-level-3";
+        return "bg-level-4";
+    }
+
+    private async Task HandleOverlayClick()
+    {
+        await OnClose.InvokeAsync();
+    }
+}

@@ -1,0 +1,20 @@
+@using Microsoft.AspNetCore.Components.Web
+
+<ErrorBoundary>
+    <ChildContent>
+        <Router AppAssembly="typeof(MauiProgram).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+            <Found Context="routeData">
+                <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+                <FocusOnNavigate RouteData="routeData" Selector="h1" />
+            </Found>
+        </Router>
+    </ChildContent>
+    <ErrorContent Context="ex">
+        <div style="color: red; padding: 20px; font-family: monospace; background: #222; width: 100vw; height: 100vh;">
+            <h2>🚨 Exception Caught</h2>
+            <strong>@ex.GetType().Name:</strong> @ex.Message
+            <hr />
+            <pre>@ex.StackTrace</pre>
+        </div>
+    </ErrorContent>
+</ErrorBoundary>

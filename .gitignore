@@ -1,0 +1,27 @@
+# build outputs
+**/bin/
+**/obj/
+
+# IDE / tooling
+.vs/
+*.user
+*.suo
+.dotnet/
+.dotnet-cli/
+.nuget/
+
+# local diagnostics and temporary logs
+*.log
+tmp-*.log
+build*.log
+restore*.log
+msbuild*.log
+
+# local distribution zips created manually
+*.zip
+
+# generated clean distribution output
+dist/
+
+# local release package staging
+production_artifacts/releases/

@@ -1,0 +1,56 @@
+@using studyhub.domain.Entities
+
+<div class="roadmap-level mb-2xl">
+    <div class="flex items-start gap-md mb-lg border-l-4 border-accent pl-md">
+        <div class="flex-1">
+            <span class="text-xs font-bold text-accent uppercase tracking-wider">@Level.Kicker</span>
+            <h2 class="text-2xl font-bold text-primary m-0 mt-xs">@Level.Title</h2>
+
+            <div class="roadmap-level-objective">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="3" x2="12" y2="7"></line><line x1="21" y1="12" x2="17" y2="12"></line><line x1="12" y1="21" x2="12" y2="17"></line><line x1="3" y1="12" x2="7" y2="12"></line></svg>
+                <span>@Level.Objective</span>
+            </div>
+            <p class="text-sm text-tertiary m-0">@Level.DetailedGoal</p>
+
+            @if (Level.FocusTags.Any())
+            {
+                <div class="flex flex-wrap gap-xs mt-md">
+                    @foreach (var tag in Level.FocusTags)
+                    {
+                        <span class="px-sm py-1 bg-surface border border-subtle rounded-md text-xs font-medium text-secondary">@tag</span>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="roadmap-level-progress">
+            <span class="text-xs text-secondary uppercase font-bold mb-sm">Progresso</span>
+            <div class="text-3xl font-bold @(Level.OverallProgress == 100 ? "text-success" : "text-accent")">
+                @Level.OverallProgress%
+            </div>
+        </div>
+    </div>
+
+    <div class="pl-md relative">
+        <div class="absolute left-1.5 top-8 bottom-8 w-px bg-subtle"></div>
+
+        @foreach (var stage in Level.Stages.OrderBy(s => s.Order))
+        {
+            <div class="relative pl-xl">
+                <div class="absolute left-0 top-6 w-3 h-3 rounded-full transform -translate-x-1.5 ring-4 ring-bg-surface @(stage.Progress == 100 ? "bg-success" : (stage.Progress > 0 ? "bg-accent" : "bg-subtle"))"></div>
+
+                <RoadmapStage Stage="stage" OnProgressChanged="HandleProgressUpdate" />
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public studyhub.domain.Entities.RoadmapLevel Level { get; set; } = new();
+    [Parameter] public EventCallback OnProgressChanged { get; set; }
+
+    private async Task HandleProgressUpdate()
+    {
+        await OnProgressChanged.InvokeAsync();
+    }
+}

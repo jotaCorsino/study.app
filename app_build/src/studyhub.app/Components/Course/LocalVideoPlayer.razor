@@ -1,0 +1,155 @@
+@using Microsoft.JSInterop
+@using studyhub.app.services
+@using studyhub.domain.Entities
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject NativeLessonPlaybackService PlaybackService
+
+<div @ref="hostAnchor" class="local-video-player-shell">
+    <PlayerPlaceholder />
+    @if (ShouldRenderOverlay)
+    {
+        <div class="local-video-status-overlay @StatusCssClass">
+            <div class="local-video-status-title">@statusTitle</div>
+            <div class="local-video-status-message">@statusMessage</div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Guid CourseId { get; set; }
+    [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
+    [Parameter] public EventCallback OnLessonCompleted { get; set; }
+
+    private ElementReference hostAnchor;
+    private DotNetObjectReference<LocalVideoPlayer>? dotNetReference;
+    private NativeLessonPlaybackSnapshot snapshot = NativeLessonPlaybackSnapshot.Hidden;
+    private long currentSessionToken;
+    private Guid currentLessonId;
+    private string currentFilePath = string.Empty;
+    private bool viewportObserverInitialized;
+
+    private string statusTitle => snapshot.StatusTitle;
+    private string statusMessage => snapshot.StatusMessage;
+    private bool ShouldRenderOverlay => snapshot.ShouldShowStatusOverlay && !snapshot.ShouldShowNativeHost;
+    private string StatusCssClass => snapshot.Status switch
+    {
+        NativeLessonPlaybackStatus.Ready => "is-ready",
+        NativeLessonPlaybackStatus.Playing => "is-playing",
+        NativeLessonPlaybackStatus.Error => "is-error",
+        _ => "is-pending"
+    };
+
+    protected override void OnInitialized()
+    {
+        snapshot = PlaybackService.Snapshot;
+        PlaybackService.StateChanged += HandlePlaybackStateChanged;
+        PlaybackService.LessonCompleted += HandleLessonCompleted;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Lesson == null)
+        {
+            return;
+        }
+
+        if (currentLessonId == Lesson.Id &&
+            string.Equals(currentFilePath, Lesson.FilePath, StringComparison.OrdinalIgnoreCase) &&
+            currentSessionToken > 0)
+        {
+            return;
+        }
+
+        currentLessonId = Lesson.Id;
+        currentFilePath = Lesson.FilePath;
+        currentSessionToken = await PlaybackService.ActivateAsync(CourseId, Lesson);
+        snapshot = PlaybackService.Snapshot;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (viewportObserverInitialized)
+        {
+            return;
+        }
+
+        dotNetReference = DotNetObjectReference.Create(this);
+        try
+        {
+            await JS.InvokeVoidAsync("studyHubNativePlayerHost.observe", hostAnchor, dotNetReference);
+            viewportObserverInitialized = true;
+        }
+        catch (JSException)
+        {
+            if (currentSessionToken > 0)
+            {
+                await PlaybackService.ReportBridgeFailureAsync(
+                    currentSessionToken,
+                    "Falha ao posicionar o player nativo",
+                    "O app nao conseguiu sincronizar a area aprovada do player com o host nativo do Windows.");
+            }
+        }
+    }
+
+    [JSInvokable]
+    public Task HandleViewportChanged(double leftRatio, double topRatio, double widthRatio, double heightRatio, bool isVisible)
+    {
+        if (currentSessionToken <= 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        return PlaybackService.UpdateViewportAsync(
+            currentSessionToken,
+            new NativeLessonPlaybackViewport(leftRatio, topRatio, widthRatio, heightRatio, isVisible));
+    }
+
+    private void HandlePlaybackStateChanged(NativeLessonPlaybackSnapshot updatedSnapshot)
+    {
+        if (updatedSnapshot.SessionToken != 0 && updatedSnapshot.SessionToken != currentSessionToken)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(() =>
+        {
+            snapshot = updatedSnapshot;
+            StateHasChanged();
+        });
+    }
+
+    private async void HandleLessonCompleted(object? sender, NativeLessonPlaybackCompletedEventArgs e)
+    {
+        if (e.SessionToken != currentSessionToken || !OnLessonCompleted.HasDelegate)
+        {
+            return;
+        }
+
+        await InvokeAsync(() => OnLessonCompleted.InvokeAsync());
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        PlaybackService.StateChanged -= HandlePlaybackStateChanged;
+        PlaybackService.LessonCompleted -= HandleLessonCompleted;
+
+        if (viewportObserverInitialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("studyHubNativePlayerHost.dispose", hostAnchor);
+            }
+            catch
+            {
+            }
+        }
+
+        dotNetReference?.Dispose();
+
+        if (currentSessionToken > 0)
+        {
+            await PlaybackService.DeactivateAsync(currentSessionToken);
+        }
+    }
+}

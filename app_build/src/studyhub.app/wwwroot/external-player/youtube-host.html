@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>StudyHub External Player</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+
+        #player-shell, #player {
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+    </style>
+</head>
+<body>
+    <div id="player-shell">
+        <div id="player"></div>
+    </div>
+
+    <script>
+        const query = new URLSearchParams(window.location.search);
+        const studyHubPlayerConfig = {
+            sessionToken: query.get("session") || "0",
+            videoId: query.get("videoId") || "",
+            courseId: query.get("courseId") || "",
+            lessonId: query.get("lessonId") || "",
+            externalUrl: query.get("externalUrl") || "",
+            provider: query.get("provider") || "YouTube"
+        };
+
+        const schemeBase = "studyhub-external://event";
+        const widgetReferrer = `${window.location.origin}/course/${studyHubPlayerConfig.courseId}/lesson/${studyHubPlayerConfig.lessonId}`;
+        let player = null;
+        let progressTimerId = 0;
+        let apiTimeoutId = 0;
+
+        function notify(type, payload) {
+            const message = Object.assign({
+                session: String(studyHubPlayerConfig.sessionToken),
+                type
+            }, payload || {});
+
+            if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === "function") {
+                window.chrome.webview.postMessage(JSON.stringify(message));
+                return;
+            }
+
+            try {
+                const url = new URL(schemeBase);
+                Object.entries(message).forEach(([key, value]) => {
+                    if (value !== undefined && value !== null && value !== "") {
+                        url.searchParams.set(key, String(value));
+                    }
+                });
+
+                window.location.href = url.toString();
+            } catch (error) {
+            }
+        }
+
+        function clearProgressTimer() {
+            if (progressTimerId !== 0) {
+                window.clearInterval(progressTimerId);
+                progressTimerId = 0;
+            }
+        }
+
+        function emitProgress() {
+            if (!player || typeof player.getCurrentTime !== "function" || typeof player.getDuration !== "function") {
+                return;
+            }
+
+            const position = Number(player.getCurrentTime() || 0);
+            const duration = Number(player.getDuration() || 0);
+            if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0) {
+                return;
+            }
+
+            notify("progress", {
+                position: position.toFixed(3),
+                duration: duration.toFixed(3)
+            });
+        }
+
+        function startProgressTimer() {
+            clearProgressTimer();
+            progressTimerId = window.setInterval(emitProgress, 10000);
+        }
+
+        function onYouTubeIframeAPIReady() {
+            clearTimeout(apiTimeoutId);
+
+            player = new YT.Player("player", {
+                width: "100%",
+                height: "100%",
+                host: "https://www.youtube.com",
+                videoId: studyHubPlayerConfig.videoId,
+                playerVars: {
+                    autoplay: 0,
+                    controls: 1,
+                    enablejsapi: 1,
+                    origin: window.location.origin,
+                    widget_referrer: widgetReferrer,
+                    rel: 0,
+                    playsinline: 1,
+                    modestbranding: 1,
+                    fs: 1,
+                    iv_load_policy: 3
+                },
+                events: {
+                    onReady: function (event) {
+                        const duration = Number(event.target.getDuration() || 0);
+                        notify("ready", {
+                            duration: Number.isFinite(duration) ? duration.toFixed(3) : "0"
+                        });
+                    },
+                    onStateChange: function (event) {
+                        notify("state", { state: event.data });
+
+                        switch (event.data) {
+                            case YT.PlayerState.PLAYING:
+                                startProgressTimer();
+                                break;
+                            case YT.PlayerState.PAUSED:
+                                emitProgress();
+                                clearProgressTimer();
+                                break;
+                            case YT.PlayerState.ENDED:
+                                clearProgressTimer();
+                                notify("ended", {
+                                    duration: Number(event.target.getDuration() || 0).toFixed(3)
+                                });
+                                break;
+                            default:
+                                clearProgressTimer();
+                                break;
+                        }
+                    },
+                    onError: function (event) {
+                        clearProgressTimer();
+                        notify("error", { code: event.data });
+                    }
+                }
+            });
+        }
+
+        if (!studyHubPlayerConfig.videoId) {
+            notify("error", { code: "missing-video-id" });
+        } else {
+            window.onYouTubeIframeAPIReady = onYouTubeIframeAPIReady;
+            window.onerror = function (message) {
+                notify("bridge-error", {
+                    message: String(message || "Unexpected external player bridge error")
+                });
+                return false;
+            };
+
+            apiTimeoutId = window.setTimeout(function () {
+                notify("error", { code: "api-timeout" });
+            }, 15000);
+
+            const apiScript = document.createElement("script");
+            apiScript.src = "https://www.youtube.com/iframe_api";
+            apiScript.async = true;
+            apiScript.onerror = function () {
+                notify("error", { code: "api-script-load-failed" });
+            };
+            document.head.appendChild(apiScript);
+        }
+    </script>
+</body>
+</html>

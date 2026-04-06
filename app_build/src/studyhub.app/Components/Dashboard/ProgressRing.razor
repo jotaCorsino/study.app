@@ -1,0 +1,34 @@
+<div class="progress-ring" style="width: @(Diameter)px; height: @(Diameter)px;">
+    <svg width="@Diameter" height="@Diameter" viewBox="0 0 @Diameter @Diameter">
+        <defs>
+            <linearGradient id="progressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#6c5ce7" />
+                <stop offset="100%" stop-color="#00cec9" />
+            </linearGradient>
+        </defs>
+        <circle class="progress-ring-track" 
+                cx="@Center" cy="@Center" r="@Radius" stroke-width="@StrokeWidth" />
+        <circle class="progress-ring-fill" 
+                cx="@Center" cy="@Center" r="@Radius" stroke-width="@StrokeWidth" 
+                stroke-dasharray="@Circumference" stroke-dashoffset="@DashOffset" />
+    </svg>
+    <div class="progress-ring-text">
+        <div class="progress-ring-value">@Percentage%</div>
+        @if (!string.IsNullOrEmpty(Label))
+        {
+            <div class="progress-ring-label">@Label</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Percentage { get; set; } = 0;
+    [Parameter] public int Diameter { get; set; } = 160;
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public int StrokeWidth { get; set; } = 12;
+
+    private int Center => Diameter / 2;
+    private int Radius => Center - StrokeWidth;
+    private double Circumference => 2 * Math.PI * Radius;
+    private double DashOffset => Circumference - (Percentage / 100.0) * Circumference;
+}

@@ -1,0 +1,225 @@
+@page "/course/{CourseId:guid}"
+@using studyhub.application.Interfaces
+@using studyhub.domain.Entities
+@using studyhub.shared.Enums
+@using studyhub.app.Components.Course
+@using studyhub.app.Components.Shared
+@using studyhub.app.Components.Routine
+@inject ICourseService CourseService
+@inject IProgressService ProgressService
+@inject ICourseResumeService CourseResumeService
+@inject NavigationManager nav
+
+<div class="page-container">
+    @if (isLoading)
+    {
+        <div class="flex justify-center items-center py-2xl">
+            <div class="text-tertiary">Carregando curso...</div>
+        </div>
+    }
+    else if (course == null)
+    {
+        <div class="flex flex-col items-center justify-center py-2xl">
+            <div class="empty-state-icon-shell mb-md">
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="15" y1="9" x2="9" y2="15"></line>
+                    <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+            </div>
+            <h3 class="text-lg font-medium mb-xs">Curso não encontrado</h3>
+            <button class="btn btn-secondary mt-md" @onclick='() => nav.NavigateTo("/")'>Voltar para o catálogo</button>
+        </div>
+    }
+    else
+    {
+        <Breadcrumb Items="breadcrumbItems" />
+        
+        <div class="page-header flex gap-2xl items-stretch">
+            <div class="flex-1 min-w-0 flex flex-col justify-between">
+                <div>
+                    <div class="flex items-center gap-sm mb-xs">
+                        <span class="text-xs font-semibold text-accent uppercase tracking-wider">@course.Category</span>
+                    @if (progress != null && progress.OverallPercentage == 100)
+                    {
+                        <StatusBadge Status="LessonStatus.Completed" />
+                    }
+                    else if (progress != null && progress.OverallPercentage > 0)
+                    {
+                        <StatusBadge Status="LessonStatus.InProgress" />
+                    }
+                </div>
+                
+                <h1>@course.Title</h1>
+                <p class="page-subtitle mb-xl">@course.Description</p>
+                </div>
+                
+                <div class="mt-auto">
+                    <GoalsDashboard CourseId="@CourseId" />
+                </div>
+            </div>
+            
+            <div class="flex-shrink-0 w-80 flex flex-col justify-end gap-md">
+                @if (progress != null)
+                {
+                    <div class="course-progress-card">
+                        <div class="course-progress-header">
+                            <div>
+                                <div class="text-xs text-secondary uppercase tracking-wider font-semibold mb-xs">Meu desempenho</div>
+                                <div class="text-xs text-tertiary">@progress.CompletedLessons de @progress.TotalLessons aulas concluídas</div>
+                            </div>
+                            <div class="text-2xl font-bold text-primary">@((int)progress.OverallPercentage)%</div>
+                        </div>
+
+                        <ProgressBar Percentage="(int)progress.OverallPercentage" ShowText="false" Size="lg" />
+
+                        <div class="course-progress-meta">
+                            <span>Em andamento: @progress.InProgressLessons</span>
+                            <span>@(progress.CurrentStreak > 0 ? $"{progress.CurrentStreak} dias seguidos" : "Progresso salvo localmente")</span>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary w-full py-md shadow-lg transition-transform hover:scale-105" @onclick="ResumeCourseAsync">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>
+                        <span>@(progress.OverallPercentage == 0 ? "Começar curso" : "Continuar estudando")</span>
+                    </button>
+                    
+                    <div class="grid grid-cols-1 gap-md mt-sm">
+                        <button class="btn btn-secondary py-md flex-col text-sm border-subtle hover:border-accent hover:text-accent h-auto rounded-xl" @onclick="GoToMaterials">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"></polygon></svg>
+                            <span>Vídeos Gratuitos</span>
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="mt-2xl max-w-4xl">
+            <div class="flex justify-between items-center mb-md">
+                <h2 class="text-lg font-semibold text-primary mb-0">Conteúdo do curso</h2>
+                <div class="flex items-center gap-md text-sm text-secondary">
+                    <div class="flex items-center gap-xs font-medium">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        @(FormatDuration((int)course.TotalDuration.TotalMinutes))
+                    </div>
+                    <div class="flex items-center gap-xs font-medium">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                        @TotalLessons aulas
+                    </div>
+                    @if (progress != null && progress.CurrentStreak > 0)
+                    {
+                        <div class="flex items-center gap-xs text-warning font-semibold">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2s-4 4.35-4 8.07A4 4 0 0 0 12 14a4 4 0 0 0 4-3.93C16 6.35 12 2 12 2z"></path><path d="M8 14h8a4 4 0 0 1 0 8H8a4 4 0 0 1 0-8z"></path></svg>
+                            @progress.CurrentStreak dias seguidos
+                        </div>
+                    }
+                </div>
+            </div>
+            
+            @if (course.Modules != null)
+            {
+                var moduleNumber = 1;
+                @foreach (var module in course.Modules.OrderBy(m => m.Order))
+                {
+                    <ModuleAccordion 
+                        ModuleNumber="moduleNumber" 
+                        Module="@module" 
+                        LessonStatuses="@lessonStatuses"
+                        ActiveLessonId="@(progress?.LastLessonId)"
+                        EnableInternalScroll="true"
+                        IsOpen="@(moduleNumber == 1)"
+                        OnLessonSelected="PlayLesson" />
+                    moduleNumber++;
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid CourseId { get; set; }
+    
+    private Course? course;
+    private Progress? progress;
+    private bool isLoading = true;
+    private List<Breadcrumb.BreadcrumbItem> breadcrumbItems = new();
+    private Dictionary<Guid, LessonStatus> lessonStatuses = new();
+    private int TotalLessons => course?.Modules?.Sum(module => module.Topics?.Sum(topic => topic.Lessons?.Count ?? 0) ?? 0) ?? 0;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadCourseAsync();
+    }
+    
+    private async Task LoadCourseAsync()
+    {
+        isLoading = true;
+        course = await CourseService.GetCourseByIdAsync(CourseId);
+        progress = null;
+        breadcrumbItems = new List<Breadcrumb.BreadcrumbItem>();
+        lessonStatuses = new Dictionary<Guid, LessonStatus>();
+        
+        if (course != null)
+        {
+            progress = await ProgressService.GetProgressByCourseAsync(CourseId);
+            
+            breadcrumbItems = new List<Breadcrumb.BreadcrumbItem>
+            {
+                new Breadcrumb.BreadcrumbItem("Catálogo", "/"),
+                new Breadcrumb.BreadcrumbItem(course.Title)
+            };
+            
+            BuildLessonStatuses();
+        }
+        
+        isLoading = false;
+    }
+    
+    private void BuildLessonStatuses()
+    {
+        lessonStatuses = new Dictionary<Guid, LessonStatus>();
+
+        if (course?.Modules == null) return;
+
+        foreach (var module in course.Modules.OrderBy(m => m.Order))
+        {
+            if (module.Topics == null) continue;
+            foreach (var topic in module.Topics.OrderBy(t => t.Order))
+            {
+                if (topic.Lessons == null) continue;
+                foreach (var lesson in topic.Lessons.OrderBy(l => l.Order))
+                {
+                    lessonStatuses[lesson.Id] = lesson.Status;
+                }
+            }
+        }
+    }
+
+    private async Task ResumeCourseAsync()
+    {
+        var targetLesson = await CourseResumeService.ResolveResumeLessonAsync(CourseId);
+        if (targetLesson != null)
+        {
+            nav.NavigateTo($"/course/{CourseId}/lesson/{targetLesson.Id}");
+        }
+    }
+
+    private void PlayLesson(Lesson lesson)
+    {
+        nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
+    }
+    
+    private void GoToRoadmap() => nav.NavigateTo($"/course/{CourseId}/roadmap");
+    private void GoToMaterials() => nav.NavigateTo($"/course/{CourseId}/materials");
+
+    private string FormatDuration(int totalMinutes)
+    {
+        var hours = totalMinutes / 60;
+        var minutes = totalMinutes % 60;
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+        return $"{minutes}m";
+    }
+}

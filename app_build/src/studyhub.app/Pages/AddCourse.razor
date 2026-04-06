@@ -1,0 +1,279 @@
+@page "/add-course"
+@using Microsoft.Extensions.Logging
+@using studyhub.application.Contracts.CourseBuilding
+@using studyhub.application.Contracts.LocalImport
+@using studyhub.application.Interfaces
+@using studyhub.app.services
+@using studyhub.app.state
+@inject NavigationManager nav
+@inject IFolderPickerService FolderPickerService
+@inject ILocalCourseImportService LocalCourseImportService
+@inject IOnlineCourseCreationOrchestrator OnlineCourseCreationOrchestrator
+@inject CourseIntentPromptService CourseIntentPromptService
+@inject CourseCatalogState CourseCatalogState
+@inject ILogger<AddCourse> Logger
+
+@if (statusState != null)
+{
+    <div class="import-status-toast @GetStatusCssClass()"
+         role="status"
+         aria-live="polite"
+         aria-busy="@(statusState.Kind == ImportStatusKind.Loading)">
+        <div class="import-status-icon-shell">
+            @if (statusState.Kind == ImportStatusKind.Loading)
+            {
+                <span class="spinner"></span>
+            }
+            else if (statusState.Kind == ImportStatusKind.Success)
+            {
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            }
+            else
+            {
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            }
+        </div>
+
+        <div class="import-status-body">
+            <div class="import-status-title">@statusState.Title</div>
+            <div class="import-status-message">@statusState.Message</div>
+        </div>
+
+        @if (statusState.Kind != ImportStatusKind.Loading)
+        {
+            <button class="btn-icon import-status-close" type="button" title="Fechar aviso" @onclick="ClearStatus">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        }
+    </div>
+}
+
+<div class="page-container">
+    <div class="page-header mb-xl">
+        <button class="btn btn-secondary mb-lg" @onclick='() => nav.NavigateTo("/")'>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            <span>Voltar ao Cat&aacute;logo</span>
+        </button>
+        <h1>Adicionar um Novo Curso</h1>
+        <p class="page-subtitle">Escolha a origem do material para iniciarmos a estrutura&ccedil;&atilde;o do seu novo plano de estudos.</p>
+    </div>
+
+    <div class="grid grid-cols-2 gap-xl max-w-4xl">
+        <div class="bg-surface border border-subtle rounded-xl p-xl flex flex-col hover:border-accent hover:shadow-lg transition-all cursor-pointer group"
+             @onclick="ImportLocalCourseAsync">
+            <div class="bg-elevated w-16 h-16 rounded-full flex items-center justify-center mb-lg group-hover:bg-accent group-hover:text-white transition-colors">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+            </div>
+            <h2 class="text-xl font-semibold text-primary mb-sm">A partir de uma Pasta Local</h2>
+            <p class="text-sm text-secondary mb-xl flex-1">
+                Se voc&ecirc; j&aacute; possui os v&iacute;deos baixados no seu computador, basta selecionar a pasta principal. O aplicativo vai varrer a pasta para encontrar a hierarquia de m&oacute;dulos e aulas automaticamente.
+            </p>
+            <button class="btn btn-secondary w-full" style="border-color: inherit;" disabled="@IsBusy" @onclick="ImportLocalCourseAsync" @onclick:stopPropagation="true">
+                @if (isImporting)
+                {
+                    <span class="spinner"></span>
+                    <span>Processando...</span>
+                }
+                else
+                {
+                    <span>Selecionar Diret&oacute;rio</span>
+                }
+            </button>
+        </div>
+
+        <div class="bg-surface border border-subtle rounded-xl p-xl flex flex-col hover:border-accent hover:shadow-lg transition-all cursor-pointer group relative overflow-hidden"
+             @onclick="CreateOnlineCourseAsync">
+            <div class="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold uppercase tracking-wider px-sm py-1 rounded-bl-lg">NOVO</div>
+            <div class="bg-elevated w-16 h-16 rounded-full flex items-center justify-center mb-lg group-hover:bg-accent group-hover:text-white transition-colors">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+            </div>
+            <h2 class="text-xl font-semibold text-primary mb-sm">Curadoria por IA (YouTube)</h2>
+            <p class="text-sm text-secondary mb-xl flex-1">
+                Ainda n&atilde;o tem o conte&uacute;do? Descreva o que voc&ecirc; quer aprender e n&oacute;s buscaremos as melhores playlists do YouTube para estruturar um curso de ponta a ponta.
+            </p>
+            <button class="btn btn-secondary w-full" style="border-color: inherit;" disabled="@IsBusy" @onclick="CreateOnlineCourseAsync" @onclick:stopPropagation="true">
+                @if (isCreatingOnline)
+                {
+                    <span class="spinner"></span>
+                    <span>Montando curso...</span>
+                }
+                else
+                {
+                    <span>Descrever Curso</span>
+                }
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private bool isImporting;
+    private bool isCreatingOnline;
+    private ImportStatusState? statusState;
+
+    private bool IsBusy => isImporting || isCreatingOnline;
+
+    private async Task ImportLocalCourseAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        isImporting = true;
+        ClearStatus();
+
+        try
+        {
+            string? selectedFolder;
+
+            try
+            {
+                selectedFolder = await FolderPickerService.PickFolderAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Folder picker failed in AddCourse page.");
+                SetStatus(ImportStatusKind.Error, "Erro na selecao da pasta", "Nao foi possivel abrir o seletor de pastas.");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(selectedFolder))
+            {
+                return;
+            }
+
+            SetStatus(ImportStatusKind.Loading, "Processando pasta", "Estamos lendo a estrutura e importando o curso selecionado.");
+            await InvokeAsync(StateHasChanged);
+            await Task.Yield();
+
+            var result = await LocalCourseImportService.ImportFromFolderAsync(selectedFolder);
+
+            if (!result.Success || result.CourseId == null)
+            {
+                Logger.LogWarning("Local course import failed. ErrorKind: {ErrorKind}. Message: {Message}", result.ErrorKind, result.Message);
+                SetStatus(ImportStatusKind.Error, GetErrorTitle(result.ErrorKind), result.Message ?? "Nao foi possivel importar a pasta selecionada.");
+                return;
+            }
+
+            var successTitle = result.Status == LocalCourseImportStatus.Updated
+                ? "Curso atualizado com sucesso"
+                : "Importacao concluida com sucesso";
+            var successMessage = $"{result.CourseTitle ?? "Curso"} carregado com {result.LessonCount} aulas.";
+
+            SetStatus(ImportStatusKind.Success, successTitle, successMessage);
+            CourseCatalogState.NotifyChanged();
+            nav.NavigateTo($"/course/{result.CourseId.Value}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Unexpected failure during local course import flow.");
+            SetStatus(ImportStatusKind.Error, "Erro na importacao", "Ocorreu um erro inesperado ao importar o curso.");
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    private async Task CreateOnlineCourseAsync()
+    {
+        if (IsBusy)
+        {
+            return;
+        }
+
+        isCreatingOnline = true;
+        ClearStatus();
+
+        try
+        {
+            var promptResult = await CourseIntentPromptService.PromptAsync();
+            if (promptResult == null)
+            {
+                return;
+            }
+
+            SetStatus(ImportStatusKind.Loading, "Montando curso online", "Estamos planejando a trilha, buscando fontes no YouTube e persistindo o curso.");
+            await InvokeAsync(StateHasChanged);
+            await Task.Yield();
+
+            var result = await OnlineCourseCreationOrchestrator.CreateCourseAsync(new OnlineCourseIntentRequest
+            {
+                Topic = promptResult.Topic,
+                Objective = promptResult.Objective,
+                PreferredProvider = "YouTube"
+            });
+
+            if (!result.Success || result.CourseId == null)
+            {
+                SetStatus(ImportStatusKind.Error, "Erro na curadoria online", string.IsNullOrWhiteSpace(result.Message) ? "Nao foi possivel criar o curso online." : result.Message);
+                return;
+            }
+
+            SetStatus(ImportStatusKind.Success, "Curso online criado", string.IsNullOrWhiteSpace(result.CourseTitle) ? "Curso criado com sucesso." : $"{result.CourseTitle} foi adicionado ao catalogo.");
+            CourseCatalogState.NotifyChanged();
+            nav.NavigateTo($"/course/{result.CourseId.Value}");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Unexpected failure during online course creation flow.");
+            SetStatus(ImportStatusKind.Error, "Erro na curadoria online", "Ocorreu um erro inesperado ao criar o curso online.");
+        }
+        finally
+        {
+            isCreatingOnline = false;
+        }
+    }
+
+    private void SetStatus(ImportStatusKind kind, string title, string message)
+    {
+        statusState = new ImportStatusState(kind, title, message);
+    }
+
+    private void ClearStatus()
+    {
+        statusState = null;
+    }
+
+    private string GetStatusCssClass()
+    {
+        return statusState?.Kind switch
+        {
+            ImportStatusKind.Loading => "is-loading",
+            ImportStatusKind.Success => "is-success",
+            ImportStatusKind.Error => "is-error",
+            _ => string.Empty
+        };
+    }
+
+    private static string GetErrorTitle(LocalCourseImportErrorKind errorKind)
+    {
+        return errorKind switch
+        {
+            LocalCourseImportErrorKind.InvalidFolder => "Pasta invalida",
+            LocalCourseImportErrorKind.NoVideosFound => "Nenhum video encontrado",
+            LocalCourseImportErrorKind.ScanFailed => "Erro ao escanear a estrutura",
+            LocalCourseImportErrorKind.PersistenceFailed => "Erro ao persistir o curso",
+            _ => "Erro na importacao"
+        };
+    }
+
+    private sealed record ImportStatusState(ImportStatusKind Kind, string Title, string Message);
+
+    private enum ImportStatusKind
+    {
+        Loading,
+        Success,
+        Error
+    }
+}

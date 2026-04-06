@@ -1,0 +1,171 @@
+@using studyhub.application.Interfaces
+@using studyhub.domain.Entities
+@inject IRoutineService RoutineService
+
+<div class="goals-dashboard">
+    <div class="flex justify-between items-start mb-lg">
+        <div>
+            <h2 class="text-lg font-bold">Minha Rotina neste Curso</h2>
+            <p class="text-sm text-secondary">
+                @if (IsConfigured)
+                {
+                    <text>Meta diária: @FormatMinutes(settings.DailyGoalMinutes) &nbsp;|&nbsp; Dias: @FormatDays(settings.SelectedDaysOfWeek)</text>
+                }
+                else
+                {
+                    <text>Meta não configurada. Defina sua rotina para acompanhar o desempenho.</text>
+                }
+            </p>
+        </div>
+        <div class="flex gap-sm">
+            <button class="btn btn-secondary py-xs px-sm text-sm" @onclick="ToggleExpandedView">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                <span class="ml-xs">Histórico</span>
+            </button>
+            <button class="btn btn-secondary py-xs px-sm text-sm" @onclick="OpenSettings" title="Configurar metas">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            </button>
+        </div>
+    </div>
+
+    <div class="flex gap-lg items-center mt-md flex-wrap">
+        <div class="flex-shrink-0 text-center">
+            <div class="text-sm text-secondary mb-xs">Hoje</div>
+            <div class="text-3xl font-bold flex items-baseline gap-xs justify-center">
+                <span class="@GetTodayMinutesTextClass()">@FormatMinutes(todayRecord?.MinutesStudied ?? 0)</span>
+            </div>
+        </div>
+
+        <div class="flex-1 flex flex-col items-center">
+            <div class="text-xs text-tertiary mb-sm uppercase tracking-wider">Desempenho neste mês (@DateTime.Now.ToString("MMMM/yyyy"))</div>
+            <div class="month-grid">
+                @foreach (var record in monthlyRecords)
+                {
+                    <div class="day-box @GetColorClassForDay(record, settings)"
+                         title="@record.Date.ToString("dd/MM/yyyy"): @record.MinutesStudied min (Meta: @record.DailyGoalMinutesAtTheTime min)">
+                    </div>
+                }
+            </div>
+            <div class="month-legend flex gap-md mt-sm text-xs text-tertiary">
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-neutral"></div> Não planejado</span>
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-0"></div> 0%</span>
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-1"></div> 25%</span>
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-2"></div> 50%</span>
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-3"></div> 75%</span>
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-4"></div> 100%+</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (showSettings)
+{
+    <GoalsSettingsModal CourseId="CourseId" Settings="settings" OnClose="CloseSettings" OnSave="SaveSettings" />
+}
+
+@if (showExpandedView)
+{
+    <MonthlyExpandedView CourseId="CourseId" Settings="settings" OnClose="ToggleExpandedView" />
+}
+
+@code {
+    [Parameter] public Guid CourseId { get; set; }
+
+    private RoutineSettings settings = new();
+    private DailyStudyRecord? todayRecord;
+    private List<DailyStudyRecord> monthlyRecords = new();
+    private bool showSettings = false;
+    private bool showExpandedView = false;
+    private System.Timers.Timer? refreshTimer;
+
+    private bool IsConfigured => settings.DailyGoalMinutes > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+
+        refreshTimer = new System.Timers.Timer(60000);
+        refreshTimer.Elapsed += async (_, _) => { await InvokeAsync(LoadDataAsync); };
+        refreshTimer.Start();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        settings = await RoutineService.GetSettingsAsync(CourseId);
+        todayRecord = await RoutineService.GetDailyRecordAsync(CourseId, DateTime.Now.Date);
+        monthlyRecords = await RoutineService.GetMonthlyRecordsAsync(CourseId, DateTime.Now.Year, DateTime.Now.Month);
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        refreshTimer?.Stop();
+        refreshTimer?.Dispose();
+    }
+
+    private void OpenSettings() => showSettings = true;
+    private void CloseSettings() => showSettings = false;
+    private void ToggleExpandedView() => showExpandedView = !showExpandedView;
+
+    private async Task SaveSettings(RoutineSettings updatedSettings)
+    {
+        await RoutineService.SaveSettingsAsync(CourseId, updatedSettings);
+        showSettings = false;
+        await LoadDataAsync();
+    }
+
+    private string FormatMinutes(int minutes)
+    {
+        if (minutes < 60) return $"{minutes}m";
+        var h = minutes / 60;
+        var m = minutes % 60;
+        return m > 0 ? $"{h}h {m}m" : $"{h}h";
+    }
+
+    private string FormatDays(List<DayOfWeek> days)
+    {
+        if (days == null || days.Count == 0) return "Nenhum";
+        if (days.Count == 7) return "Todos os dias";
+
+        var mapping = new Dictionary<DayOfWeek, string>
+        {
+            { DayOfWeek.Sunday, "Dom" }, { DayOfWeek.Monday, "Seg" }, { DayOfWeek.Tuesday, "Ter" },
+            { DayOfWeek.Wednesday, "Qua" }, { DayOfWeek.Thursday, "Qui" }, { DayOfWeek.Friday, "Sex" }, { DayOfWeek.Saturday, "Sáb" }
+        };
+
+        var sorted = days.OrderBy(d => d == DayOfWeek.Sunday ? 7 : (int)d).Select(d => mapping[d]);
+        return string.Join(", ", sorted);
+    }
+
+    private string GetColorTextForPercentage(double percentage)
+    {
+        if (percentage >= 100) return "text-success";
+        if (percentage >= 75) return "text-success";
+        if (percentage >= 50) return "text-warning";
+        return "text-error";
+    }
+
+    private string GetTodayMinutesTextClass()
+    {
+        if (!IsConfigured || todayRecord is null || todayRecord.Status == DailyStudyStatus.Unplanned)
+        {
+            return "text-tertiary";
+        }
+
+        return GetColorTextForPercentage(todayRecord.CompliancePercentage);
+    }
+
+    private string GetColorClassForDay(DailyStudyRecord record, RoutineSettings currentSettings)
+    {
+        if (record.Date > DateTime.Now.Date) return "bg-neutral opacity-50";
+        if (currentSettings.DailyGoalMinutes == 0) return "bg-neutral";
+        if (record.Status == DailyStudyStatus.Unplanned) return "bg-neutral";
+
+        var percentage = record.CompliancePercentage;
+        if (record.MinutesStudied == 0) return "bg-level-0";
+        if (percentage < 25) return "bg-level-1";
+        if (percentage < 50) return "bg-level-2";
+        if (percentage < 75) return "bg-level-3";
+        return "bg-level-4";
+    }
+}

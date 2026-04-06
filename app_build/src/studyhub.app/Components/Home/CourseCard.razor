@@ -1,0 +1,91 @@
+@using studyhub.domain.Entities
+
+<div class="course-card" @onclick="OnClick">
+    <div class="course-card-body">
+        <div class="course-card-head">
+            <div class="course-card-category">@Course.Category</div>
+            <div class="course-card-status @GetStatusClass()">@GetStatusLabel()</div>
+        </div>
+
+        <h3 class="course-card-title">@Course.Title</h3>
+
+        <div class="course-card-meta">
+            <span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                @(FormatDuration((int)Course.TotalDuration.TotalMinutes))
+            </span>
+            <span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
+                @(Course.Modules.Sum(module => module.Topics.Sum(topic => topic.Lessons.Count))) aulas
+            </span>
+        </div>
+        
+        @if (Progress != null)
+        {
+            <ProgressBar Percentage="(int)Progress.OverallPercentage" ShowText="false" Size="sm" />
+            <div class="progress-info mt-xs text-xs text-tertiary">
+                <span>@Progress.CompletedLessons / @Progress.TotalLessons aulas</span>
+                <span>@((int)Progress.OverallPercentage)%</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Course Course { get; set; } = default!;
+    [Parameter] public Progress? Progress { get; set; }
+    [Parameter] public EventCallback<Guid> OnCourseSelected { get; set; }
+    
+    private async Task OnClick()
+    {
+        if (OnCourseSelected.HasDelegate)
+        {
+            await OnCourseSelected.InvokeAsync(Course.Id);
+        }
+    }
+
+    private string GetStatusLabel()
+    {
+        if (Progress?.OverallPercentage == 100)
+        {
+            return "Concluído";
+        }
+
+        if (Progress?.OverallPercentage > 0)
+        {
+            return "Em progresso";
+        }
+
+        return "Novo";
+    }
+
+    private string GetStatusClass()
+    {
+        if (Progress?.OverallPercentage == 100)
+        {
+            return "completed";
+        }
+
+        if (Progress?.OverallPercentage > 0)
+        {
+            return "in-progress";
+        }
+
+        return "new";
+    }
+
+    private string FormatDuration(int totalMinutes)
+    {
+        if (totalMinutes == 0) return "0h";
+
+        var hours = totalMinutes / 60;
+        var minutes = totalMinutes % 60;
+
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+
+        return $"{minutes}m";
+    }
+}

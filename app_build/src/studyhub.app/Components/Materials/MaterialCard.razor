@@ -1,0 +1,57 @@
+@using studyhub.domain.Entities
+
+<div class="material-card bg-surface border border-subtle rounded-xl overflow-hidden hover:border-accent hover:-translate-y-1 transition-all shadow-sm hover:shadow-md cursor-pointer flex flex-col h-full" @onclick="OpenMaterial">
+    <div class="relative h-48 w-full bg-elevated">
+        @if (!string.IsNullOrEmpty(Item.ThumbnailUrl))
+        {
+            <img src="@Item.ThumbnailUrl" alt="@Item.Title" class="w-full h-full object-cover" />
+        }
+        else
+        {
+            <div class="material-preview-fallback" style="background: repeating-linear-gradient(45deg, var(--bg-surface), var(--bg-surface) 10px, var(--bg-elevated) 10px, var(--bg-elevated) 20px);">
+                <div class="material-preview-play-shell" aria-hidden="true">
+                    <svg class="material-preview-play-icon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 6 18 12 8 18 8 6"></polygon></svg>
+                </div>
+            </div>
+        }
+
+        <div class="absolute top-sm right-sm px-xs py-xs text-white text-xs font-semibold rounded border border-subtle" style="background-color: rgba(22, 25, 33, 0.8); backdrop-filter: blur(4px);">
+            @Item.Type
+        </div>
+    </div>
+
+    <div class="p-md flex-1 flex flex-col">
+        <div class="flex items-center gap-xs mb-xs">
+            <span class="text-xs px-sm py-xs bg-elevated text-secondary rounded-md border border-subtle flex items-center gap-xs">
+                @if (Item.Source?.ToLowerInvariant().Contains("youtube") == true)
+                {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" class="text-error" stroke="currentColor" stroke-width="2"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33 2.78 2.78 0 0 0 1.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.33 29 29 0 0 0-.46-5.33z"></path><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"></polygon></svg>
+                }
+                @Item.Source
+            </span>
+            <span class="text-xs text-tertiary">@Item.ChannelName</span>
+        </div>
+
+        <h3 class="text-primary font-semibold text-base mb-xs line-clamp-2">@Item.Title</h3>
+        <p class="text-secondary text-sm line-clamp-3 mb-md flex-1">@Item.Description</p>
+
+        <div class="mt-auto pt-sm border-t border-subtle flex justify-between items-center text-xs text-tertiary">
+            <div class="flex items-center gap-xs" title="Score de relevância curado pela IA">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                @(Item.RelevanceScore)% Relevante
+            </div>
+            <a href="@Item.Url" target="_blank" class="text-accent hover:text-accent-hover flex items-center gap-xs font-medium" @onclick:stopPropagation="true">
+                Acessar
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+            </a>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Material Item { get; set; } = default!;
+
+    private void OpenMaterial()
+    {
+    }
+}

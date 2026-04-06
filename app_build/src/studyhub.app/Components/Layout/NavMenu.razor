@@ -1,0 +1,208 @@
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Routing
+@using studyhub.application.Interfaces
+@using studyhub.app.state
+@using studyhub.domain.Entities
+@inject ICourseService CourseService
+@inject CourseCatalogState CourseCatalogState
+@inject NavigationManager Navigation
+
+<div class="nav-brand">
+    <div class="nav-brand-title text-gradient">StudyHub</div>
+    <div class="nav-brand-subtitle">Centro de Estudos</div>
+</div>
+
+<div class="nav-section">
+    <div class="nav-section-title">Principal</div>
+    
+    <NavLink class="nav-item" href="" Match="NavLinkMatch.All">
+        <span class="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7"></rect>
+                <rect x="14" y="3" width="7" height="7"></rect>
+                <rect x="14" y="14" width="7" height="7"></rect>
+                <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+        </span>
+        Catálogo
+    </NavLink>
+</div>
+
+<div class="nav-section mt-md flex-1 overflow-y-auto">
+    <div class="flex justify-between items-center mb-xs px-md">
+        <div class="nav-section-title mb-0">Meus Cursos</div>
+        <button class="nav-add-course-button" title="Adicionar curso" type="button" @onclick="AddCourse">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+        </button>
+    </div>
+    
+    @if (courses.Count > 0)
+    {
+        @foreach (var course in courses)
+        {
+            var isActive = IsCourseActive(course.Id);
+
+            <div class="nav-course-row">
+                <button type="button"
+                        class="nav-item nav-course-link @(isActive ? "active" : string.Empty)"
+                        @onclick="() => NavigateToCourse(course.Id)">
+                    <span class="nav-icon text-tertiary">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                    </span>
+                    <span class="truncate text-sm">@course.Title</span>
+                </button>
+
+                <button type="button"
+                        class="nav-course-action @(openCourseMenuId == course.Id ? "visible" : string.Empty)"
+                        title="Gerenciar curso"
+                        @onclick="() => ToggleCourseMenu(course.Id)"
+                        @onclick:stopPropagation="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="1"></circle>
+                        <circle cx="19" cy="12" r="1"></circle>
+                        <circle cx="5" cy="12" r="1"></circle>
+                    </svg>
+                </button>
+
+                @if (openCourseMenuId == course.Id)
+                {
+                    <div class="nav-course-menu">
+                        <button type="button"
+                                class="nav-course-menu-item danger"
+                                @onclick="() => ConfirmRemoveCourseAsync(course)"
+                                @onclick:stopPropagation="true">
+                            Remover curso
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    }
+    else
+    {
+        <div class="nav-empty-state px-md py-md text-sm text-tertiary">
+            Nenhum curso disponível.
+        </div>
+    }
+</div>
+
+<div class="nav-footer">
+    <NavLink class="nav-item" href="settings">
+        <span class="nav-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+        </span>
+        Configurações
+    </NavLink>
+</div>
+
+@code {
+    private List<Course> courses = [];
+    private Guid? openCourseMenuId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += HandleLocationChanged;
+        CourseCatalogState.Changed += HandleCatalogChanged;
+        await LoadCoursesAsync();
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= HandleLocationChanged;
+        CourseCatalogState.Changed -= HandleCatalogChanged;
+    }
+
+    private async Task LoadCoursesAsync()
+    {
+        courses = await CourseService.GetAllCoursesAsync();
+        StateHasChanged();
+    }
+
+    private void AddCourse()
+    {
+        openCourseMenuId = null;
+        Navigation.NavigateTo("/add-course");
+    }
+
+    private void NavigateToCourse(Guid courseId)
+    {
+        openCourseMenuId = null;
+        Navigation.NavigateTo($"/course/{courseId}");
+    }
+
+    private void ToggleCourseMenu(Guid courseId)
+    {
+        openCourseMenuId = openCourseMenuId == courseId ? null : courseId;
+    }
+
+    private bool IsCourseActive(Guid courseId)
+    {
+        return TryGetCurrentCourseId(out var currentCourseId) && currentCourseId == courseId;
+    }
+
+    private bool TryGetCurrentCourseId(out Guid courseId)
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri).Trim('/');
+        var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length >= 2 && string.Equals(segments[0], "course", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(segments[1], out courseId))
+        {
+            return true;
+        }
+
+        courseId = Guid.Empty;
+        return false;
+    }
+
+    private async Task ConfirmRemoveCourseAsync(Course course)
+    {
+        openCourseMenuId = null;
+
+        var currentPage = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (currentPage == null)
+        {
+            return;
+        }
+
+        var confirmed = await currentPage.DisplayAlertAsync(
+            "Remover curso",
+            $"Deseja remover \"{course.Title}\" do aplicativo? Esta ação é irreversível no contexto do StudyHub e excluirá progresso, roadmap, materiais e demais dados persistidos do curso. Os arquivos físicos do disco não serão apagados.",
+            "Remover",
+            "Cancelar");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var removedCourseId = course.Id;
+        await CourseService.DeleteCourseAsync(removedCourseId);
+
+        if (TryGetCurrentCourseId(out var currentCourseId) && currentCourseId == removedCourseId)
+        {
+            Navigation.NavigateTo("/");
+        }
+
+        await LoadCoursesAsync();
+        CourseCatalogState.NotifyChanged();
+    }
+
+    private void HandleLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        openCourseMenuId = null;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleCatalogChanged()
+    {
+        _ = InvokeAsync(LoadCoursesAsync);
+    }
+}

@@ -1,0 +1,39 @@
+.goals-dashboard {
+    position: relative;
+    padding: var(--space-xl);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+}
+
+.day-box {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    transition: transform 0.2s;
+}
+
+.day-box:hover {
+    transform: scale(1.15);
+}
+
+.day-box.size-sm {
+    width: 12px;
+    height: 12px;
+}
+
+/* 5 Discrete Levels for Routing Colors */
+.bg-neutral { background-color: rgba(255, 255, 255, 0.08); /* Cinza discreto */ }
+.bg-level-0 { background-color: #d32f2f; /* Laranja forte / Vermelho (0%) */ }
+.bg-level-1 { background-color: #ff9800; /* Laranja (< 25%) */ }
+.bg-level-2 { background-color: #ffc107; /* Âmbar (< 50%) */ }
+.bg-level-3 { background-color: #8bc34a; /* Verde claro (< 75%) */ }
+.bg-level-4 { background-color: #388e3c; /* Verde forte (>= 100%) */ }
+
+/* Ensure tooltips or specific flex behaviors */
+.month-grid {
+    display: grid;
+    grid-template-rows: repeat(2, auto);
+    grid-auto-flow: column;
+    gap: 5px;
+}

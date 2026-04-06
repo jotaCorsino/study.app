@@ -1,0 +1,50 @@
+@using studyhub.app.services
+@using studyhub.domain.Entities
+@inject NativeLessonPlaybackService NativePlaybackService
+@inject ExternalLessonPlaybackService ExternalPlaybackService
+
+@if (Lesson?.SourceType == LessonSourceType.ExternalVideo)
+{
+    <ExternalVideoPlayer @key="@($"{Lesson.Id}:external")"
+                         CourseId="CourseId"
+                         Lesson="Lesson"
+                         OnLessonCompleted="OnLessonCompleted" />
+}
+else
+{
+    <LocalVideoPlayer @key="@($"{Lesson?.Id}:local")"
+                      CourseId="CourseId"
+                      Lesson="Lesson"
+                      OnLessonCompleted="OnLessonCompleted" />
+}
+
+@code {
+    [Parameter, EditorRequired] public Guid CourseId { get; set; }
+    [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
+    [Parameter] public EventCallback OnLessonCompleted { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Lesson == null)
+        {
+            return;
+        }
+
+        if (Lesson.SourceType == LessonSourceType.ExternalVideo)
+        {
+            var nativeSessionToken = NativePlaybackService.Snapshot.SessionToken;
+            if (nativeSessionToken > 0)
+            {
+                await NativePlaybackService.DeactivateAsync(nativeSessionToken);
+            }
+        }
+        else
+        {
+            var externalSessionToken = ExternalPlaybackService.Snapshot.SessionToken;
+            if (externalSessionToken > 0)
+            {
+                await ExternalPlaybackService.DeactivateAsync(externalSessionToken);
+            }
+        }
+    }
+}

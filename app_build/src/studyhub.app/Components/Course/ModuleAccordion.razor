@@ -1,0 +1,70 @@
+@using studyhub.domain.Entities
+@using studyhub.shared.Enums
+
+<div class="module-accordion @(IsOpen ? "open" : "") @(IsActive ? "active" : "")">
+    <div class="module-accordion-header" @onclick="Toggle">
+        <div class="module-accordion-left">
+            <div class="module-accordion-number">@ModuleNumber</div>
+            <div>
+                <div class="module-accordion-title">@Module?.Title</div>
+                <div class="module-accordion-meta">
+                    @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) aulas • @(FormatDuration(Module?.Topics?.Sum(t => t.Lessons?.Sum(l => (int)l.Duration.TotalMinutes) ?? 0) ?? 0))
+                </div>
+            </div>
+        </div>
+        <div class="module-accordion-right">
+            <span class="text-xs text-tertiary">@GetCompletedLessons() / @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) concluídas</span>
+            <svg class="module-accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </div>
+    </div>
+    
+    <div class="module-accordion-body @(EnableInternalScroll ? "scrollable" : string.Empty)">
+        @if (Module?.Topics != null)
+        {
+            @foreach (var topic in Module.Topics.OrderBy(t => t.Order))
+            {
+                <LessonList TopicTitle="@topic.Title" 
+                            Lessons="@topic.Lessons" 
+                            LessonStatuses="@LessonStatuses"
+                            ActiveLessonId="@ActiveLessonId"
+                            OnLessonSelected="@OnLessonSelected" />
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public int ModuleNumber { get; set; }
+    [Parameter, EditorRequired] public Module Module { get; set; } = default!;
+    [Parameter] public Dictionary<Guid, LessonStatus> LessonStatuses { get; set; } = new();
+    [Parameter] public Guid? ActiveLessonId { get; set; }
+    [Parameter] public EventCallback<Lesson> OnLessonSelected { get; set; }
+    [Parameter] public bool IsOpen { get; set; } = false;
+    [Parameter] public bool EnableInternalScroll { get; set; }
+    
+    private bool IsActive => ActiveLessonId.HasValue && Module?.Topics != null && Module.Topics.Any(t => t.Lessons != null && t.Lessons.Any(l => l.Id == ActiveLessonId.Value));
+
+    private void Toggle()
+    {
+        IsOpen = !IsOpen;
+    }
+
+    private int GetCompletedLessons()
+    {
+        if (Module?.Topics == null) return 0;
+        
+        return Module.Topics.Sum(t => t.Lessons?.Count(l => 
+            LessonStatuses.TryGetValue(l.Id, out var status) && status == LessonStatus.Completed) ?? 0);
+    }
+
+    private string FormatDuration(int totalMinutes)
+    {
+        var hours = totalMinutes / 60;
+        var minutes = totalMinutes % 60;
+        if (hours > 0)
+        {
+            return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
+        }
+        return $"{minutes}m";
+    }
+}

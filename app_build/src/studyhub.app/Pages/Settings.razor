@@ -1,0 +1,173 @@
+@page "/settings"
+@using studyhub.application.Contracts.Settings
+@using studyhub.application.Interfaces
+@inject IIntegrationSettingsService IntegrationSettingsService
+@inject IProviderValidationService ProviderValidationService
+
+<div class="page-container">
+    <div class="page-header mb-xl">
+        <h1>Configura&ccedil;&otilde;es do Sistema</h1>
+        <p class="page-subtitle">Personalize chaves de API, idioma e prefer&ecirc;ncias do aplicativo.</p>
+    </div>
+
+    <div class="max-w-3xl">
+        <div class="bg-surface border border-subtle rounded-xl p-xl mb-xl">
+            <div class="flex items-center gap-sm mb-md">
+                <h2 class="text-lg font-semibold text-primary m-0">Integra&ccedil;&otilde;es de Intelig&ecirc;ncia Artificial</h2>
+            </div>
+            <p class="text-sm text-secondary mb-lg">
+                Para que o StudyHub consiga gerar nomes, curadoria de m&oacute;dulos, refinamentos textuais e o roadmap personalizado, forne&ccedil;a a chave de API do Gemini.
+                A chave ser&aacute; mantida localmente do seu lado.
+            </p>
+
+            <div class="mb-lg">
+                <div class="input-group">
+                    <label class="input-label">Chave da Google Gemini API</label>
+                    <div class="flex gap-sm">
+                        <input type="password" class="input-field flex-1" placeholder="AIzaSy..." @bind="geminiKey" @bind:event="oninput" disabled="@isTestingGemini" />
+                        <button class="btn btn-secondary" @onclick="TestGemini" disabled="@isTestingGemini">
+                            @if (isTestingGemini)
+                            {
+                                <span class="spinner"></span>
+                            }
+                            <span>Testar conex&atilde;o</span>
+                        </button>
+                    </div>
+                    @if (!string.IsNullOrEmpty(geminiError))
+                    {
+                        <div class="input-error">@geminiError</div>
+                    }
+                    else if (geminiSuccess)
+                    {
+                        <div class="feedback-badge feedback-success mt-sm">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>Conex&atilde;o estabelecida com sucesso!</span>
+                        </div>
+                    }
+                </div>
+                <div class="text-xs text-tertiary">Usado para: planejamento, enriquecimento textual, descri&ccedil;&otilde;es, t&iacute;tulos e roadmap.</div>
+            </div>
+        </div>
+
+        <div class="bg-surface border border-subtle rounded-xl p-xl mb-xl">
+            <div class="flex items-center gap-sm mb-md">
+                <h2 class="text-lg font-semibold text-primary m-0">Integra&ccedil;&atilde;o de V&iacute;deos Externos</h2>
+            </div>
+            <p class="text-sm text-secondary mb-lg">
+                Para a funcionalidade de curadoria inteligente e para recomenda&ccedil;&otilde;es de v&iacute;deos, a API do YouTube precisa estar configurada.
+            </p>
+
+            <div>
+                <div class="input-group">
+                    <label class="input-label">YouTube Data API v3 Key</label>
+                    <div class="flex gap-sm">
+                        <input type="password" class="input-field flex-1" placeholder="AIzaSy..." @bind="youtubeKey" @bind:event="oninput" disabled="@isTestingYoutube" />
+                        <button class="btn btn-secondary" @onclick="TestYoutube" disabled="@isTestingYoutube">
+                            @if (isTestingYoutube)
+                            {
+                                <span class="spinner"></span>
+                            }
+                            <span>Testar conex&atilde;o</span>
+                        </button>
+                    </div>
+                    @if (!string.IsNullOrEmpty(youtubeError))
+                    {
+                        <div class="input-error">@youtubeError</div>
+                    }
+                    else if (youtubeSuccess)
+                    {
+                        <div class="feedback-badge feedback-success mt-sm">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>Conex&atilde;o estabelecida com sucesso!</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-md">
+            <button class="btn btn-secondary" type="button">Cancelar</button>
+            <button class="btn btn-primary" type="button" @onclick="SaveSettings">
+                <span>Salvar configura&ccedil;&otilde;es</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string geminiKey = "";
+    private bool isTestingGemini;
+    private bool geminiSuccess;
+    private string geminiError = "";
+
+    private string youtubeKey = "";
+    private bool isTestingYoutube;
+    private bool youtubeSuccess;
+    private string youtubeError = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await IntegrationSettingsService.GetSettingsAsync();
+        geminiKey = settings.GeminiApiKey;
+        youtubeKey = settings.YouTubeApiKey;
+    }
+
+    private async Task TestGemini()
+    {
+        geminiSuccess = false;
+        geminiError = "";
+
+        if (string.IsNullOrWhiteSpace(geminiKey))
+        {
+            geminiError = "A chave da API Gemini nao pode estar vazia.";
+            return;
+        }
+
+        isTestingGemini = true;
+
+        try
+        {
+            var result = await ProviderValidationService.ValidateAsync(IntegrationProviderKind.Gemini, geminiKey);
+            geminiSuccess = result.IsValid;
+            geminiError = result.IsValid ? "" : result.Message;
+        }
+        finally
+        {
+            isTestingGemini = false;
+        }
+    }
+
+    private async Task TestYoutube()
+    {
+        youtubeSuccess = false;
+        youtubeError = "";
+
+        if (string.IsNullOrWhiteSpace(youtubeKey))
+        {
+            youtubeError = "A chave do YouTube nao pode estar vazia.";
+            return;
+        }
+
+        isTestingYoutube = true;
+
+        try
+        {
+            var result = await ProviderValidationService.ValidateAsync(IntegrationProviderKind.YouTube, youtubeKey);
+            youtubeSuccess = result.IsValid;
+            youtubeError = result.IsValid ? "" : result.Message;
+        }
+        finally
+        {
+            isTestingYoutube = false;
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        await IntegrationSettingsService.SaveSettingsAsync(new IntegrationSettings
+        {
+            GeminiApiKey = geminiKey,
+            YouTubeApiKey = youtubeKey
+        });
+    }
+}

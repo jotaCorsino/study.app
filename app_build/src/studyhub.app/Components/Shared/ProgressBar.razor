@@ -1,0 +1,26 @@
+<div class="progress-container">
+    <div class="progress-bar @SizeClass">
+        <div class="progress-bar-fill" style="width: @Percentage%"></div>
+    </div>
+    @if (ShowText)
+    {
+        <div class="progress-info">
+            <span>@Label</span>
+            <span>@Percentage%</span>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int Percentage { get; set; } = 0;
+    [Parameter] public bool ShowText { get; set; } = true;
+    [Parameter] public string Label { get; set; } = "Progresso";
+    [Parameter] public string Size { get; set; } = "md";
+    
+    private string SizeClass => Size switch
+    {
+        "sm" => "progress-bar-sm",
+        "lg" => "progress-bar-lg",
+        _ => ""
+    };
+}

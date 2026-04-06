@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="studyhub.app/studyhub.app.csproj" />
+  <Project Path="studyhub.application/studyhub.application.csproj" />
+  <Project Path="studyhub.domain/studyhub.domain.csproj" />
+  <Project Path="studyhub.infrastructure/studyhub.infrastructure.csproj" />
+  <Project Path="studyhub.shared/studyhub.shared.csproj" />
+  <Project Path="..\tests\studyhub.app.tests\studyhub.app.tests.csproj" />
+</Solution>

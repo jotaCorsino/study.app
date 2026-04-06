@@ -1,0 +1,155 @@
+@page "/"
+@implements IDisposable
+@using studyhub.application.Interfaces
+@using studyhub.app.state
+@using studyhub.domain.Entities
+@using studyhub.app.Components.Home
+@inject ICourseService CourseService
+@inject IProgressService ProgressService
+@inject CourseCatalogState CourseCatalogState
+@inject NavigationManager nav
+
+<div class="page-container">
+    <div class="page-header flex justify-between items-center mb-xl">
+        <div>
+            <h1>Catálogo de Cursos</h1>
+            <p class="page-subtitle">Bem-vindo(a) de volta! Pronto(a) para continuar seus estudos?</p>
+        </div>
+        <div>
+            <SearchBar Placeholder="Buscar curso..." OnSearch="HandleSearch" />
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="flex justify-center items-center py-2xl">
+            <div class="text-tertiary">Carregando catálogo...</div>
+        </div>
+    }
+    else if (filteredCourses.Count == 0)
+    {
+        <div class="flex flex-col items-center justify-center py-2xl">
+            <div class="empty-state-icon-shell mb-md">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+            </div>
+            <h3 class="text-lg font-medium mb-xs">Nenhum curso encontrado</h3>
+            <p class="text-secondary text-sm">Não encontramos nenhum curso correspondente à pesquisa.</p>
+        </div>
+    }
+    else
+    {
+        var inProgressCourses = filteredCourses.Where(course => GetProgress(course.Id)?.OverallPercentage > 0 && GetProgress(course.Id)?.OverallPercentage < 100).ToList();
+        var newCourses = filteredCourses.Where(course => GetProgress(course.Id)?.OverallPercentage == 0 || GetProgress(course.Id) == null).ToList();
+        var completedCourses = filteredCourses.Where(course => GetProgress(course.Id)?.OverallPercentage == 100).ToList();
+
+        if (inProgressCourses.Count > 0)
+        {
+            <div class="mb-2xl">
+                <h2 class="text-lg font-bold mb-md">Continuar Estudando</h2>
+                <div class="grid grid-cols-3 gap-lg">
+                    @foreach (var course in inProgressCourses)
+                    {
+                        <CourseCard Course="@course" Progress="@GetProgress(course.Id)" OnCourseSelected="NavigateToCourse" />
+                    }
+                </div>
+            </div>
+        }
+
+        if (newCourses.Count > 0)
+        {
+            <div class="mb-2xl">
+                <h2 class="text-lg font-bold mb-md">Novos Cursos</h2>
+                <div class="grid grid-cols-3 gap-lg">
+                    @foreach (var course in newCourses)
+                    {
+                        <CourseCard Course="@course" Progress="@GetProgress(course.Id)" OnCourseSelected="NavigateToCourse" />
+                    }
+                </div>
+            </div>
+        }
+
+        if (completedCourses.Count > 0)
+        {
+            <div class="mb-2xl">
+                <h2 class="text-lg font-bold mb-md">Cursos Concluídos</h2>
+                <div class="grid grid-cols-3 gap-lg opacity-80">
+                    @foreach (var course in completedCourses)
+                    {
+                        <CourseCard Course="@course" Progress="@GetProgress(course.Id)" OnCourseSelected="NavigateToCourse" />
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<Course> allCourses = [];
+    private List<Course> filteredCourses = [];
+    private readonly Dictionary<Guid, Progress?> courseProgress = new();
+    private bool isLoading = true;
+    private string searchTerm = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        CourseCatalogState.Changed += HandleCatalogChanged;
+        await LoadCoursesAsync();
+    }
+
+    public void Dispose()
+    {
+        CourseCatalogState.Changed -= HandleCatalogChanged;
+    }
+
+    private async Task LoadCoursesAsync()
+    {
+        isLoading = true;
+        courseProgress.Clear();
+
+        allCourses = await CourseService.GetAllCoursesAsync();
+
+        foreach (var course in allCourses)
+        {
+            courseProgress[course.Id] = await ProgressService.GetProgressByCourseAsync(course.Id);
+        }
+
+        ApplyFilter();
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private void HandleSearch(string value)
+    {
+        searchTerm = value;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        filteredCourses = string.IsNullOrWhiteSpace(searchTerm)
+            ? allCourses.ToList()
+            : allCourses
+                .Where(course =>
+                    course.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                    course.Category.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+    }
+
+    private Progress? GetProgress(Guid courseId)
+    {
+        return courseProgress.TryGetValue(courseId, out var progress) ? progress : null;
+    }
+
+    private void NavigateToCourse(Guid courseId)
+    {
+        nav.NavigateTo($"/course/{courseId}");
+    }
+
+    private void HandleCatalogChanged()
+    {
+        _ = InvokeAsync(LoadCoursesAsync);
+    }
+}
