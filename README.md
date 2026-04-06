@@ -110,7 +110,7 @@ dist\windows\studyhub-windows-x64\
 1. Run the clean distribution script.
 2. Zip the folder `dist\windows\studyhub-windows-x64\`.
 3. Share that zipped folder.
-4. The receiving user extracts it and runs `abrir-studyhub.cmd`.
+4. The receiving user extracts it and runs `studyhub.exe`.
 
 ### What must stay out of the zip
 
@@ -156,7 +156,7 @@ For the end user:
 1. Open the Releases page.
 2. Download `studyhub-windows-x64.zip` from the latest release.
 3. Extract the zip.
-4. Run `abrir-studyhub.cmd`.
+4. Run `studyhub.exe`.
 
 ## Local storage and user data
 
