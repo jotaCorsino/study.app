@@ -20,7 +20,7 @@ public sealed class ExternalLessonPlaybackService(
 
     private ExternalLessonPlaybackSnapshot _snapshot = ExternalLessonPlaybackSnapshot.Hidden;
     private long _nextSessionToken;
-    private int _lastPersistedPercentage = -1;
+    private int _lastPersistedSecond = -1;
     private bool _completionRaised;
 
     public event Action<ExternalLessonPlaybackSnapshot>? StateChanged;
@@ -38,9 +38,9 @@ public sealed class ExternalLessonPlaybackService(
         {
             var sessionToken = Interlocked.Increment(ref _nextSessionToken);
             _completionRaised = false;
-            _lastPersistedPercentage = lesson == null
+            _lastPersistedSecond = lesson == null
                 ? -1
-                : (int)Math.Round(Math.Clamp(lesson.WatchedPercentage, 0, 100));
+                : (int)Math.Round(Math.Max(0, lesson.LastPlaybackPosition.TotalSeconds));
 
             updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson);
             _snapshot = updatedSnapshot;
@@ -193,7 +193,7 @@ public sealed class ExternalLessonPlaybackService(
     {
         ExternalLessonPlaybackSnapshot snapshotForPersistence;
         bool shouldPersist;
-        double watchedPercentage;
+        TimeSpan resolvedPosition;
 
         await _gate.WaitAsync();
         try
@@ -206,15 +206,17 @@ public sealed class ExternalLessonPlaybackService(
             }
 
             var resolvedDuration = duration > TimeSpan.Zero ? duration : _snapshot.KnownDuration;
-            watchedPercentage = resolvedDuration > TimeSpan.Zero
-                ? Math.Clamp(position.TotalSeconds / resolvedDuration.TotalSeconds * 100, 0, 100)
-                : 0;
+            resolvedPosition = position < TimeSpan.Zero ? TimeSpan.Zero : position;
+            if (resolvedDuration > TimeSpan.Zero && resolvedPosition > resolvedDuration)
+            {
+                resolvedPosition = resolvedDuration;
+            }
 
-            var roundedPercentage = (int)Math.Round(watchedPercentage);
-            shouldPersist = roundedPercentage > 0 && ShouldPersistPercentage(roundedPercentage);
+            var roundedSecond = (int)Math.Round(Math.Max(0, resolvedPosition.TotalSeconds));
+            shouldPersist = roundedSecond > 0 && ShouldPersistSecond(roundedSecond);
             if (shouldPersist)
             {
-                _lastPersistedPercentage = roundedPercentage;
+                _lastPersistedSecond = roundedSecond;
             }
 
             snapshotForPersistence = _snapshot with
@@ -234,10 +236,11 @@ public sealed class ExternalLessonPlaybackService(
             return;
         }
 
-        await _progressService.UpdateLessonProgressAsync(
+        await _progressService.UpdateLessonPlaybackAsync(
             snapshotForPersistence.CourseId!.Value,
             snapshotForPersistence.LessonId!.Value,
-            watchedPercentage);
+            resolvedPosition,
+            snapshotForPersistence.KnownDuration);
     }
 
     public async Task HandlePlaybackEndedAsync(long sessionToken, TimeSpan duration)
@@ -264,7 +267,7 @@ public sealed class ExternalLessonPlaybackService(
             };
 
             _snapshot = snapshotAfterCompletion;
-            _lastPersistedPercentage = 100;
+            _lastPersistedSecond = (int)Math.Round(Math.Max(0, snapshotAfterCompletion.KnownDuration.TotalSeconds));
 
             if (!_completionRaised)
             {
@@ -381,7 +384,7 @@ public sealed class ExternalLessonPlaybackService(
             }
 
             _completionRaised = false;
-            _lastPersistedPercentage = -1;
+            _lastPersistedSecond = -1;
             changedSnapshot = ExternalLessonPlaybackSnapshot.Hidden;
             _snapshot = changedSnapshot;
         }
@@ -454,19 +457,19 @@ public sealed class ExternalLessonPlaybackService(
         };
     }
 
-    private bool ShouldPersistPercentage(int roundedPercentage)
+    private bool ShouldPersistSecond(int roundedSecond)
     {
-        if (roundedPercentage <= 0)
+        if (roundedSecond <= 0)
         {
             return false;
         }
 
-        if (_lastPersistedPercentage < 0)
+        if (_lastPersistedSecond < 0)
         {
             return true;
         }
 
-        return Math.Abs(roundedPercentage - _lastPersistedPercentage) >= 5;
+        return Math.Abs(roundedSecond - _lastPersistedSecond) >= 5;
     }
 
     private async Task PersistActivationRuntimeStateAsync(ExternalLessonPlaybackSnapshot snapshot, Lesson? lesson)

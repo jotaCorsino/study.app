@@ -77,6 +77,7 @@ public class PersistedProgressService(
             return;
         }
 
+        var previousCreditableMinutes = ResolveCreditableMinutes(lesson);
         lesson.Status = LessonStatus.Completed;
         lesson.WatchedPercentage = 100;
         lesson.LastPlaybackPositionSeconds = lesson.DurationMinutes > 0
@@ -86,7 +87,12 @@ public class PersistedProgressService(
         lesson.Topic.Module.Course.CurrentLessonId = lesson.Id;
 
         await context.SaveChangesAsync();
-        await ReconcileRoutineCreditAsync(courseId, lesson, markAsCompleted: true);
+
+        var currentCreditableMinutes = ResolveCreditableMinutes(lesson);
+        await ReconcileRoutineCreditAsync(
+            courseId,
+            lesson,
+            currentCreditableMinutes - previousCreditableMinutes);
     }
 
     public async Task UpdateLessonProgressAsync(Guid courseId, Guid lessonId, double watchedPercentage)
@@ -119,13 +125,12 @@ public class PersistedProgressService(
         await context.SaveChangesAsync();
 
         var currentCreditableMinutes = ResolveCreditableMinutes(lesson);
-        if (currentCreditableMinutes > previousCreditableMinutes || normalizedPercentage >= 100)
+        if (currentCreditableMinutes > previousCreditableMinutes)
         {
             await ReconcileRoutineCreditAsync(
                 courseId,
                 lesson,
-                desiredTotalMinutes: currentCreditableMinutes,
-                markAsCompleted: normalizedPercentage >= 100);
+                currentCreditableMinutes - previousCreditableMinutes);
         }
     }
 
@@ -185,13 +190,12 @@ public class PersistedProgressService(
         await context.SaveChangesAsync();
 
         var currentCreditableMinutes = ResolveCreditableMinutes(lesson);
-        if (markAsCompleted || currentCreditableMinutes > previousCreditableMinutes)
+        if (currentCreditableMinutes > previousCreditableMinutes)
         {
             await ReconcileRoutineCreditAsync(
                 courseId,
                 lesson,
-                desiredTotalMinutes: currentCreditableMinutes,
-                markAsCompleted: markAsCompleted);
+                currentCreditableMinutes - previousCreditableMinutes);
         }
     }
 
@@ -237,8 +241,7 @@ public class PersistedProgressService(
     private async Task ReconcileRoutineCreditAsync(
         Guid courseId,
         LessonRecord lesson,
-        int? desiredTotalMinutes = null,
-        bool markAsCompleted = false)
+        int creditedMinutes)
     {
         var totalLessonMinutes = ResolveLessonDurationMinutes(lesson);
         if (totalLessonMinutes <= 0)
@@ -246,16 +249,13 @@ public class PersistedProgressService(
             return;
         }
 
-        var targetMinutes = markAsCompleted
-            ? totalLessonMinutes
-            : Math.Clamp(desiredTotalMinutes ?? ResolveCreditableMinutes(lesson), 0, totalLessonMinutes);
-
-        if (targetMinutes <= 0)
+        var normalizedCreditedMinutes = Math.Clamp(creditedMinutes, 0, totalLessonMinutes);
+        if (normalizedCreditedMinutes <= 0)
         {
             return;
         }
 
-        await _routineService.CreditLessonProgressAsync(courseId, lesson.Id, totalLessonMinutes, targetMinutes);
+        await _routineService.CreditLessonProgressAsync(courseId, lesson.Id, normalizedCreditedMinutes);
     }
 
     private static int ResolveCreditableMinutes(LessonRecord lesson)

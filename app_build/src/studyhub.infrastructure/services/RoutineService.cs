@@ -116,21 +116,15 @@ public class RoutineService : IRoutineService
         await SaveAllRecordsAsync(courseId, allRecords);
     }
 
-    public async Task CreditLessonProgressAsync(Guid courseId, Guid lessonId, int totalLessonMinutes, int desiredTotalMinutes, DateTime? date = null)
+    public async Task CreditLessonProgressAsync(Guid courseId, Guid lessonId, int creditedMinutes, DateTime? date = null)
     {
         if (courseId == Guid.Empty || lessonId == Guid.Empty)
         {
             return;
         }
 
-        var normalizedDuration = Math.Max(0, totalLessonMinutes);
-        if (normalizedDuration <= 0)
-        {
-            return;
-        }
-
-        var targetMinutes = Math.Clamp(desiredTotalMinutes, 0, normalizedDuration);
-        if (targetMinutes <= 0)
+        var minutesToCredit = Math.Max(0, creditedMinutes);
+        if (minutesToCredit <= 0)
         {
             return;
         }
@@ -138,18 +132,6 @@ public class RoutineService : IRoutineService
         var studyDate = (date ?? DateTime.Now).Date;
         var allRecords = await GetAllRecordsAsync(courseId);
         var settings = await GetSettingsAsync(courseId);
-
-        var creditedAcrossCourse = allRecords
-            .SelectMany(record => record.LessonCredits)
-            .Where(credit => credit.LessonId == lessonId)
-            .Sum(credit => Math.Max(0, credit.MinutesCredited));
-
-        if (creditedAcrossCourse >= targetMinutes)
-        {
-            return;
-        }
-
-        var remainingMinutes = targetMinutes - creditedAcrossCourse;
         var recordItem = GetOrCreateRecord(allRecords, courseId, studyDate);
         var lessonCredit = recordItem.LessonCredits.FirstOrDefault(credit => credit.LessonId == lessonId);
         if (lessonCredit == null)
@@ -161,7 +143,7 @@ public class RoutineService : IRoutineService
             recordItem.LessonCredits.Add(lessonCredit);
         }
 
-        lessonCredit.MinutesCredited += remainingMinutes;
+        lessonCredit.MinutesCredited += minutesToCredit;
         NormalizeRecord(courseId, recordItem);
         ApplyStatus(recordItem, settings);
 
