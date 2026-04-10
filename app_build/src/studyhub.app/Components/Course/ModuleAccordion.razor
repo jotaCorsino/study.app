@@ -1,19 +1,19 @@
 @using studyhub.domain.Entities
 @using studyhub.shared.Enums
 
-<div class="module-accordion @(IsOpen ? "open" : "") @(IsActive ? "active" : "")">
+<div class="module-accordion @(isOpen ? "open" : "") @(IsActive ? "active" : "")">
     <div class="module-accordion-header" @onclick="Toggle">
         <div class="module-accordion-left">
             <div class="module-accordion-number">@ModuleNumber</div>
             <div>
                 <div class="module-accordion-title">@Module?.Title</div>
                 <div class="module-accordion-meta">
-                    @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) aulas • @(FormatDuration(Module?.Topics?.Sum(t => t.Lessons?.Sum(l => (int)l.Duration.TotalMinutes) ?? 0) ?? 0))
+                    @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) aulas - @(FormatDuration(Module?.Topics?.Sum(t => t.Lessons?.Sum(l => (int)l.Duration.TotalMinutes) ?? 0) ?? 0))
                 </div>
             </div>
         </div>
         <div class="module-accordion-right">
-            <span class="text-xs text-tertiary">@GetCompletedLessons() / @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) concluídas</span>
+            <span class="text-xs text-tertiary">@GetCompletedLessons() / @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) concluidas</span>
             <svg class="module-accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </div>
     </div>
@@ -39,14 +39,31 @@
     [Parameter] public Dictionary<Guid, LessonStatus> LessonStatuses { get; set; } = new();
     [Parameter] public Guid? ActiveLessonId { get; set; }
     [Parameter] public EventCallback<Lesson> OnLessonSelected { get; set; }
-    [Parameter] public bool IsOpen { get; set; } = false;
+    [Parameter] public bool IsOpen { get; set; }
     [Parameter] public bool EnableInternalScroll { get; set; }
+
+    private bool isOpen;
+    private Guid lastModuleId;
+    private Guid? lastActiveLessonId;
     
     private bool IsActive => ActiveLessonId.HasValue && Module?.Topics != null && Module.Topics.Any(t => t.Lessons != null && t.Lessons.Any(l => l.Id == ActiveLessonId.Value));
 
+    protected override void OnParametersSet()
+    {
+        var moduleChanged = lastModuleId != Module.Id;
+        var activeLessonChanged = lastActiveLessonId != ActiveLessonId;
+        if (moduleChanged || activeLessonChanged)
+        {
+            isOpen = IsOpen;
+        }
+
+        lastModuleId = Module.Id;
+        lastActiveLessonId = ActiveLessonId;
+    }
+
     private void Toggle()
     {
-        IsOpen = !IsOpen;
+        isOpen = !isOpen;
     }
 
     private int GetCompletedLessons()

@@ -111,6 +111,7 @@ It must transform locally organized video courses into a complete learning exper
 - Final distribution/readme closeout is now documented: the root `README.md` reflects the real final product state, Windows publish flow, local-data behavior, and the explicit AI-assisted origin disclaimer; the Windows runbook now explains the clean distribution path, which folder to zip, and which user-local files must stay out of a shared build
 - Windows sharing now also has a cleaner packaging helper: `scripts\publish-windows-clean.ps1` publishes into `dist\windows\studyhub-windows-x64\runtime`, writes `abrir-studyhub.cmd` plus `como-abrir.txt` in the package root, and gives the repository a friendlier first folder to zip/share without changing the app's runtime storage model
 - The official repository considered for final distribution/docs is `https://github.com/jotaCorsino/study.app.git`; local Windows release zips are staged at `production_artifacts\releases\studyhub-windows-x64.zip` before upload to GitHub Releases rather than being treated as tracked source files
+- Course detail isolation hotfix applied: switching `CourseId` now resets the page state before reload, ignores stale async responses from a previous course, recreates keyed course/routine UI subtrees, and disposes old routine timers correctly so modules, progress, and routine data no longer bleed between courses
 
 ## future integrations
 - SQLite for local persistence

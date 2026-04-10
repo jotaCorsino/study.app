@@ -1,5 +1,6 @@
 @using studyhub.application.Interfaces
 @using studyhub.domain.Entities
+@implements IDisposable
 @inject IRoutineService RoutineService
 
 <div class="goals-dashboard">
@@ -9,18 +10,18 @@
             <p class="text-sm text-secondary">
                 @if (IsConfigured)
                 {
-                    <text>Meta diária: @FormatMinutes(settings.DailyGoalMinutes) &nbsp;|&nbsp; Dias: @FormatDays(settings.SelectedDaysOfWeek)</text>
+                    <text>Meta diaria: @FormatMinutes(settings.DailyGoalMinutes) &nbsp;|&nbsp; Dias: @FormatDays(settings.SelectedDaysOfWeek)</text>
                 }
                 else
                 {
-                    <text>Meta não configurada. Defina sua rotina para acompanhar o desempenho.</text>
+                    <text>Meta nao configurada. Defina sua rotina para acompanhar o desempenho.</text>
                 }
             </p>
         </div>
         <div class="flex gap-sm">
             <button class="btn btn-secondary py-xs px-sm text-sm" @onclick="ToggleExpandedView">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                <span class="ml-xs">Histórico</span>
+                <span class="ml-xs">Historico</span>
             </button>
             <button class="btn btn-secondary py-xs px-sm text-sm" @onclick="OpenSettings" title="Configurar metas">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -37,7 +38,7 @@
         </div>
 
         <div class="flex-1 flex flex-col items-center">
-            <div class="text-xs text-tertiary mb-sm uppercase tracking-wider">Desempenho neste mês (@DateTime.Now.ToString("MMMM/yyyy"))</div>
+            <div class="text-xs text-tertiary mb-sm uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
             <div class="month-grid">
                 @foreach (var record in monthlyRecords)
                 {
@@ -47,7 +48,7 @@
                 }
             </div>
             <div class="month-legend flex gap-md mt-sm text-xs text-tertiary">
-                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-neutral"></div> Não planejado</span>
+                <span class="flex items-center gap-xs"><div class="day-box size-sm bg-neutral"></div> Nao planejado</span>
                 <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-0"></div> 0%</span>
                 <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-1"></div> 25%</span>
                 <span class="flex items-center gap-xs"><div class="day-box size-sm bg-level-2"></div> 50%</span>
@@ -74,33 +75,138 @@
     private RoutineSettings settings = new();
     private DailyStudyRecord? todayRecord;
     private List<DailyStudyRecord> monthlyRecords = new();
-    private bool showSettings = false;
-    private bool showExpandedView = false;
+    private bool showSettings;
+    private bool showExpandedView;
     private System.Timers.Timer? refreshTimer;
+    private Guid currentCourseId;
+    private int loadVersion;
+    private bool hasLoaded;
+    private bool isDisposed;
 
     private bool IsConfigured => settings.DailyGoalMinutes > 0;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnParametersSetAsync()
     {
-        await LoadDataAsync();
+        var courseChanged = currentCourseId != CourseId;
+        if (courseChanged)
+        {
+            currentCourseId = CourseId;
+            ResetDashboardState();
+            RestartRefreshTimer();
+        }
 
-        refreshTimer = new System.Timers.Timer(60000);
-        refreshTimer.Elapsed += async (_, _) => { await InvokeAsync(LoadDataAsync); };
+        if (!hasLoaded)
+        {
+            await LoadDataAsync(CourseId);
+        }
+    }
+
+    private async Task LoadDataAsync(Guid requestedCourseId)
+    {
+        if (isDisposed || requestedCourseId == Guid.Empty)
+        {
+            return;
+        }
+
+        var currentLoadVersion = System.Threading.Interlocked.Increment(ref loadVersion);
+        var loadedSettings = await RoutineService.GetSettingsAsync(requestedCourseId);
+        if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
+        {
+            return;
+        }
+
+        var loadedTodayRecord = await RoutineService.GetDailyRecordAsync(requestedCourseId, DateTime.Now.Date);
+        if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
+        {
+            return;
+        }
+
+        var loadedMonthlyRecords = await RoutineService.GetMonthlyRecordsAsync(requestedCourseId, DateTime.Now.Year, DateTime.Now.Month);
+        if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
+        {
+            return;
+        }
+
+        settings = loadedSettings;
+        todayRecord = loadedTodayRecord;
+        monthlyRecords = loadedMonthlyRecords;
+        hasLoaded = true;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private bool IsCurrentLoad(int currentLoadVersion, Guid requestedCourseId)
+    {
+        return !isDisposed &&
+            currentLoadVersion == loadVersion &&
+            requestedCourseId == currentCourseId &&
+            requestedCourseId == CourseId;
+    }
+
+    private void ResetDashboardState()
+    {
+        settings = new RoutineSettings();
+        todayRecord = null;
+        monthlyRecords = [];
+        showSettings = false;
+        showExpandedView = false;
+        hasLoaded = false;
+    }
+
+    private void RestartRefreshTimer()
+    {
+        if (refreshTimer != null)
+        {
+            refreshTimer.Elapsed -= HandleRefreshTimerElapsed;
+            refreshTimer.Stop();
+            refreshTimer.Dispose();
+            refreshTimer = null;
+        }
+
+        if (isDisposed || currentCourseId == Guid.Empty)
+        {
+            return;
+        }
+
+        refreshTimer = new System.Timers.Timer(60000)
+        {
+            AutoReset = true
+        };
+        refreshTimer.Elapsed += HandleRefreshTimerElapsed;
         refreshTimer.Start();
     }
 
-    private async Task LoadDataAsync()
+    private async void HandleRefreshTimerElapsed(object? sender, System.Timers.ElapsedEventArgs e)
     {
-        settings = await RoutineService.GetSettingsAsync(CourseId);
-        todayRecord = await RoutineService.GetDailyRecordAsync(CourseId, DateTime.Now.Date);
-        monthlyRecords = await RoutineService.GetMonthlyRecordsAsync(CourseId, DateTime.Now.Year, DateTime.Now.Month);
-        StateHasChanged();
+        var requestedCourseId = currentCourseId;
+        if (isDisposed || requestedCourseId == Guid.Empty)
+        {
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(() => LoadDataAsync(requestedCourseId));
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException) when (isDisposed)
+        {
+        }
     }
 
     public void Dispose()
     {
-        refreshTimer?.Stop();
-        refreshTimer?.Dispose();
+        isDisposed = true;
+
+        if (refreshTimer != null)
+        {
+            refreshTimer.Elapsed -= HandleRefreshTimerElapsed;
+            refreshTimer.Stop();
+            refreshTimer.Dispose();
+            refreshTimer = null;
+        }
     }
 
     private void OpenSettings() => showSettings = true;
@@ -109,9 +215,15 @@
 
     private async Task SaveSettings(RoutineSettings updatedSettings)
     {
-        await RoutineService.SaveSettingsAsync(CourseId, updatedSettings);
+        var requestedCourseId = currentCourseId;
+        if (requestedCourseId == Guid.Empty)
+        {
+            return;
+        }
+
+        await RoutineService.SaveSettingsAsync(requestedCourseId, updatedSettings);
         showSettings = false;
-        await LoadDataAsync();
+        await LoadDataAsync(requestedCourseId);
     }
 
     private string FormatMinutes(int minutes)
@@ -130,7 +242,7 @@
         var mapping = new Dictionary<DayOfWeek, string>
         {
             { DayOfWeek.Sunday, "Dom" }, { DayOfWeek.Monday, "Seg" }, { DayOfWeek.Tuesday, "Ter" },
-            { DayOfWeek.Wednesday, "Qua" }, { DayOfWeek.Thursday, "Qui" }, { DayOfWeek.Friday, "Sex" }, { DayOfWeek.Saturday, "Sáb" }
+            { DayOfWeek.Wednesday, "Qua" }, { DayOfWeek.Thursday, "Qui" }, { DayOfWeek.Friday, "Sex" }, { DayOfWeek.Saturday, "Sab" }
         };
 
         var sorted = days.OrderBy(d => d == DayOfWeek.Sunday ? 7 : (int)d).Select(d => mapping[d]);

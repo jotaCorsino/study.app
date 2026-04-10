@@ -10,7 +10,7 @@
 @inject ICourseResumeService CourseResumeService
 @inject NavigationManager nav
 
-<div class="page-container">
+<div class="page-container" @key="CourseId">
     @if (isLoading)
     {
         <div class="flex justify-center items-center py-2xl">
@@ -27,8 +27,8 @@
                     <line x1="9" y1="9" x2="15" y2="15"></line>
                 </svg>
             </div>
-            <h3 class="text-lg font-medium mb-xs">Curso não encontrado</h3>
-            <button class="btn btn-secondary mt-md" @onclick='() => nav.NavigateTo("/")'>Voltar para o catálogo</button>
+            <h3 class="text-lg font-medium mb-xs">Curso nao encontrado</h3>
+            <button class="btn btn-secondary mt-md" @onclick='() => nav.NavigateTo("/")'>Voltar para o catalogo</button>
         </div>
     }
     else
@@ -55,7 +55,7 @@
                 </div>
                 
                 <div class="mt-auto">
-                    <GoalsDashboard CourseId="@CourseId" />
+                    <GoalsDashboard @key="CourseId" CourseId="@CourseId" />
                 </div>
             </div>
             
@@ -66,7 +66,7 @@
                         <div class="course-progress-header">
                             <div>
                                 <div class="text-xs text-secondary uppercase tracking-wider font-semibold mb-xs">Meu desempenho</div>
-                                <div class="text-xs text-tertiary">@progress.CompletedLessons de @progress.TotalLessons aulas concluídas</div>
+                                <div class="text-xs text-tertiary">@progress.CompletedLessons de @progress.TotalLessons aulas concluidas</div>
                             </div>
                             <div class="text-2xl font-bold text-primary">@((int)progress.OverallPercentage)%</div>
                         </div>
@@ -81,13 +81,13 @@
                     
                     <button class="btn btn-primary w-full py-md shadow-lg transition-transform hover:scale-105" @onclick="ResumeCourseAsync">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>
-                        <span>@(progress.OverallPercentage == 0 ? "Começar curso" : "Continuar estudando")</span>
+                        <span>@(progress.OverallPercentage == 0 ? "Comecar curso" : "Continuar estudando")</span>
                     </button>
                     
                     <div class="grid grid-cols-1 gap-md mt-sm">
                         <button class="btn btn-secondary py-md flex-col text-sm border-subtle hover:border-accent hover:text-accent h-auto rounded-xl" @onclick="GoToMaterials">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"></polygon></svg>
-                            <span>Vídeos Gratuitos</span>
+                            <span>Videos Gratuitos</span>
                         </button>
                     </div>
                 }
@@ -96,7 +96,7 @@
 
         <div class="mt-2xl max-w-4xl">
             <div class="flex justify-between items-center mb-md">
-                <h2 class="text-lg font-semibold text-primary mb-0">Conteúdo do curso</h2>
+                <h2 class="text-lg font-semibold text-primary mb-0">Conteudo do curso</h2>
                 <div class="flex items-center gap-md text-sm text-secondary">
                     <div class="flex items-center gap-xs font-medium">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -121,7 +121,8 @@
                 var moduleNumber = 1;
                 @foreach (var module in course.Modules.OrderBy(m => m.Order))
                 {
-                    <ModuleAccordion 
+                    <ModuleAccordion
+                        @key="@($"{CourseId}:{module.Id}")"
                         ModuleNumber="moduleNumber" 
                         Module="@module" 
                         LessonStatuses="@lessonStatuses"
@@ -144,44 +145,83 @@
     private bool isLoading = true;
     private List<Breadcrumb.BreadcrumbItem> breadcrumbItems = new();
     private Dictionary<Guid, LessonStatus> lessonStatuses = new();
+    private int loadVersion;
     private int TotalLessons => course?.Modules?.Sum(module => module.Topics?.Sum(topic => topic.Lessons?.Count ?? 0) ?? 0) ?? 0;
 
     protected override async Task OnParametersSetAsync()
     {
-        await LoadCourseAsync();
+        await LoadCourseAsync(CourseId);
     }
     
-    private async Task LoadCourseAsync()
+    private async Task LoadCourseAsync(Guid requestedCourseId)
     {
+        var currentLoadVersion = System.Threading.Interlocked.Increment(ref loadVersion);
+
         isLoading = true;
-        course = await CourseService.GetCourseByIdAsync(CourseId);
-        progress = null;
-        breadcrumbItems = new List<Breadcrumb.BreadcrumbItem>();
-        lessonStatuses = new Dictionary<Guid, LessonStatus>();
-        
-        if (course != null)
+        ResetCourseState();
+
+        var loadedCourse = await CourseService.GetCourseByIdAsync(requestedCourseId);
+        if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
         {
-            progress = await ProgressService.GetProgressByCourseAsync(CourseId);
-            
-            breadcrumbItems = new List<Breadcrumb.BreadcrumbItem>
-            {
-                new Breadcrumb.BreadcrumbItem("Catálogo", "/"),
-                new Breadcrumb.BreadcrumbItem(course.Title)
-            };
-            
-            BuildLessonStatuses();
+            return;
         }
-        
+
+        Progress? loadedProgress = null;
+        var loadedBreadcrumbItems = new List<Breadcrumb.BreadcrumbItem>();
+        var loadedLessonStatuses = new Dictionary<Guid, LessonStatus>();
+
+        if (loadedCourse != null)
+        {
+            loadedProgress = await ProgressService.GetProgressByCourseAsync(requestedCourseId);
+            if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
+            {
+                return;
+            }
+
+            loadedBreadcrumbItems = new List<Breadcrumb.BreadcrumbItem>
+            {
+                new Breadcrumb.BreadcrumbItem("Catalogo", "/"),
+                new Breadcrumb.BreadcrumbItem(loadedCourse.Title)
+            };
+
+            loadedLessonStatuses = BuildLessonStatuses(loadedCourse);
+        }
+
+        if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
+        {
+            return;
+        }
+
+        course = loadedCourse;
+        progress = loadedProgress;
+        breadcrumbItems = loadedBreadcrumbItems;
+        lessonStatuses = loadedLessonStatuses;
         isLoading = false;
     }
     
-    private void BuildLessonStatuses()
+    private void ResetCourseState()
     {
-        lessonStatuses = new Dictionary<Guid, LessonStatus>();
+        course = null;
+        progress = null;
+        breadcrumbItems = [];
+        lessonStatuses = [];
+    }
 
-        if (course?.Modules == null) return;
+    private bool IsCurrentLoad(int currentLoadVersion, Guid requestedCourseId)
+    {
+        return currentLoadVersion == loadVersion && requestedCourseId == CourseId;
+    }
 
-        foreach (var module in course.Modules.OrderBy(m => m.Order))
+    private static Dictionary<Guid, LessonStatus> BuildLessonStatuses(Course loadedCourse)
+    {
+        var statuses = new Dictionary<Guid, LessonStatus>();
+
+        if (loadedCourse.Modules == null)
+        {
+            return statuses;
+        }
+
+        foreach (var module in loadedCourse.Modules.OrderBy(m => m.Order))
         {
             if (module.Topics == null) continue;
             foreach (var topic in module.Topics.OrderBy(t => t.Order))
@@ -189,10 +229,12 @@
                 if (topic.Lessons == null) continue;
                 foreach (var lesson in topic.Lessons.OrderBy(l => l.Order))
                 {
-                    lessonStatuses[lesson.Id] = lesson.Status;
+                    statuses[lesson.Id] = lesson.Status;
                 }
             }
         }
+
+        return statuses;
     }
 
     private async Task ResumeCourseAsync()
