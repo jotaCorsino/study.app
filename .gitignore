@@ -1,27 +1,70 @@
 # build outputs
 **/bin/
 **/obj/
+**/out/
+**/publish/
+.dev/
+dist/
+production_artifacts/
+production_artifacts/releases/
 
 # IDE / tooling
-.vs/
+**/.vs/
+.vscode/
+.idea/
 *.user
 *.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
 .dotnet/
 .dotnet-cli/
+.dotnet-cli-home/
 .nuget/
 
-# local diagnostics and temporary logs
+# local diagnostics and temporary files
 *.log
-tmp-*.log
-build*.log
-restore*.log
-msbuild*.log
+tmp-*
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.cache
+*.pid
+*.dmp
+tmp-*/
+tmp-*.*
+debug/
+debug-local/
 
-# local distribution zips created manually
+# archives and packaged outputs
 *.zip
+*.7z
+*.rar
+*.tar
+*.gz
 
-# generated clean distribution output
-dist/
+# exported data
+exports/
+export/
+exported/
+exported_data/
+data-export/
+data-exports/
+*.export.json
+*.export.csv
+*.export.tsv
+*.export.xlsx
 
-# local release package staging
-production_artifacts/releases/
+# local debug and environment files
+.env.local
+.env.*.local
+*.local
+launchSettings.local.json
+appsettings.local.json
+appsettings.Development.local.json
+
+# OS noise
+Thumbs.db
+.DS_Store

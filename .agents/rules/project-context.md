@@ -35,6 +35,12 @@ It must transform locally organized video courses into a complete learning exper
   - studyhub.application
   - studyhub.infrastructure
   - studyhub.shared
+- repository layout:
+  - .dev
+    - environment
+    - logs
+    - experiments
+    - artifacts
 
 ## current state
 - Phase 1 Block 1 (Scaffold & Design System): completed
@@ -106,6 +112,7 @@ It must transform locally organized video courses into a complete learning exper
 - A Windows runbook now documents local data paths, backup/restore/reset semantics, safe maintenance expectations, and build/publish commands for real execution and recovery workflows
 - Final product closeout removed residual mock-service files, removed artificial success-navigation delays from course creation, and replaced provisional runtime strings that were still visible in the real app flow
 - The MAUI app now uses the official `img_ref/book-icon-3.svg` as its icon source of truth, mirrored into the MAUI-compatible asset `Resources/AppIcon/book_icon.svg` with the official symbol color `#6666ff`; older competing icon assets were removed from `Resources/AppIcon`, the app `bin`/`obj` caches were cleared to avoid stale icon reuse, and the validated framework-dependent Windows publish path produces the final assets under `bin\Release\net10.0-windows10.0.19041.0\win-x64\publish`
+- Root-level local development files are now grouped under `.dev` to reduce visual noise: SDK/NuGet environments live in `.dev/environment`, transient logs in `.dev/logs`, exploratory folders in `.dev/experiments`, and generated local artifacts in `.dev/artifacts`
 - Course continuation is now resolved by a dedicated per-course resume service instead of using a raw `LastLessonId` jump: StudyHub opens the in-progress/current lesson first, otherwise the next lesson after the last completed one, otherwise the last lesson at course end, otherwise the first lesson
 - The lesson screen sidebar now anchors automatically to the active target lesson on load and re-entry using non-visual lesson-item anchors plus a small local JS scroll helper that centers the relevant module/item inside the existing lateral scroll areas
 - Final distribution/readme closeout is now documented: the root `README.md` reflects the real final product state, Windows publish flow, local-data behavior, and the explicit AI-assisted origin disclaimer; the Windows runbook now explains the clean distribution path, which folder to zip, and which user-local files must stay out of a shared build
