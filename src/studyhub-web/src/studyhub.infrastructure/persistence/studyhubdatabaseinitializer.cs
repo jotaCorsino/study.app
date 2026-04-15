@@ -13,7 +13,7 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 6;
+    private const int CurrentSchemaVersion = 7;
 
     private static readonly string[] RequiredTables =
     [
@@ -246,6 +246,8 @@ public class StudyHubDatabaseInitializer(
         await EnsureCourseGenerationRunsTableAsync(context);
         await EnsureCourseGenerationRunStateColumnsAsync(context);
         await EnsureExternalLessonRuntimeStatesTableAsync(context);
+        await EnsureExternalCourseImportsTableAsync(context);
+        await EnsureExternalAssessmentsTableAsync(context);
         await EnsureCoursePresentationColumnsAsync(context);
         await EnsureModuleDescriptionColumnAsync(context);
         await EnsureModulePresentationColumnsAsync(context);
@@ -346,6 +348,62 @@ public class StudyHubDatabaseInitializer(
                 last_failed_at TEXT NULL,
                 updated_at TEXT NOT NULL
             );
+            """);
+    }
+
+    private static async Task EnsureExternalCourseImportsTableAsync(StudyHubDbContext context)
+    {
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS external_course_imports (
+                course_id TEXT NOT NULL PRIMARY KEY,
+                schema_version TEXT NOT NULL DEFAULT '',
+                source_kind TEXT NOT NULL DEFAULT '',
+                source_system TEXT NOT NULL DEFAULT '',
+                provider TEXT NOT NULL DEFAULT '',
+                external_course_id TEXT NOT NULL DEFAULT '',
+                payload_fingerprint TEXT NOT NULL DEFAULT '',
+                origin_url TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL DEFAULT '',
+                imported_at TEXT NOT NULL,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+            );
+            """);
+    }
+
+    private static async Task EnsureExternalAssessmentsTableAsync(StudyHubDbContext context)
+    {
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE IF NOT EXISTS external_assessments (
+                id TEXT NOT NULL PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                discipline_external_id TEXT NOT NULL DEFAULT '',
+                assessment_external_id TEXT NOT NULL DEFAULT '',
+                assessment_type TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT '',
+                weight_percentage REAL NULL,
+                availability_start_at TEXT NULL,
+                availability_end_at TEXT NULL,
+                grade REAL NULL,
+                metadata_json TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+            );
+            """);
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX IF NOT EXISTS ix_external_assessments_course_id
+            ON external_assessments (course_id);
+            """);
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX IF NOT EXISTS ix_external_assessments_course_id_assessment_external_id
+            ON external_assessments (course_id, assessment_external_id);
             """);
     }
 
@@ -624,12 +682,18 @@ public class StudyHubDatabaseInitializer(
             {
                 RootPath = course.FolderPath,
                 ImportedAt = course.AddedAt == default ? DateTime.UtcNow : course.AddedAt,
-                ScanVersion = course.SourceType == CourseSourceType.OnlineCurated
-                    ? "legacy-online-curated-v1"
-                    : "legacy-local-folder-v1",
-                Provider = course.SourceType == CourseSourceType.OnlineCurated
-                    ? "YouTube"
-                    : "LocalFileSystem"
+                ScanVersion = course.SourceType switch
+                {
+                    CourseSourceType.OnlineCurated => "legacy-online-curated-v1",
+                    CourseSourceType.ExternalImport => "legacy-external-import-v1",
+                    _ => "legacy-local-folder-v1"
+                },
+                Provider = course.SourceType switch
+                {
+                    CourseSourceType.OnlineCurated => "YouTube",
+                    CourseSourceType.ExternalImport => "ExternalImport",
+                    _ => "LocalFileSystem"
+                }
             };
 
             course.SourceMetadataJson = PersistenceMapper.SerializeCourseSourceMetadata(metadata);

@@ -4,23 +4,27 @@
 
 1. Extraia o ZIP em uma pasta no seu computador (ex: `C:\studyhub-sync\`)
 2. Abra `chrome://extensions` (ou `edge://extensions`)
-3. Ative o **Modo de desenvolvedor** (canto superior direito)
-4. Clique em **Carregar sem compactação** e selecione a pasta extraída
-5. O ícone do StudyHub Sync aparecerá na barra do navegador
+3. Ative o **Modo de desenvolvedor**
+4. Clique em **Carregar sem compactacao** e selecione a pasta extraida
+5. O icone do StudyHub Sync aparecera na barra do navegador
 
-## Como usar
+## Fluxo atual
 
-- Na home do AVA → clique no ícone → exporta todas as disciplinas em andamento
-- No Roteiro de Estudo de uma disciplina → exporta todos os módulos e aulas com progresso
-- Na página de Avaliações → exporta as provas com datas e pesos
+Nesta etapa, a extensao usa apenas a pagina **Central de Midia** da disciplina para montar um **Curso por pasta**.
 
-O resultado é um arquivo `.json` estruturado que o StudyHub pode importar, com campos como:
+O fluxo e:
 
-- `tipo`
-- `disciplina`
-- `modulos`
-- `aulas`
-- `url`
-- `dataInicio`
-- `dataFim`
-- `peso`
+1. Abra a disciplina no Univirtus
+2. Entre na **Central de Midia**
+3. Abra o popup da extensao
+4. Clique em **Escanear Central**
+5. Revise disciplina, aulas e videos detectados
+6. Clique em **Baixar curso por pasta**
+
+Os downloads vao para a pasta padrao de **Downloads** do navegador com caminhos relativos como:
+
+- `<Nome do Curso>/Aula 01/videos/video-01-...`
+- `<Nome do Curso>/Aula 01/videos/pratica-01.mp4`
+- `<Nome do Curso>/studyhub-course.json` (opcional)
+
+Depois disso, voce pode mover a pasta manualmente para outro local e usa-la no StudyHub pelo fluxo existente de **curso por pasta**.

@@ -1,15 +1,11 @@
 @page "/add-course"
 @using Microsoft.Extensions.Logging
-@using studyhub.application.Contracts.CourseBuilding
 @using studyhub.application.Contracts.LocalImport
 @using studyhub.application.Interfaces
-@using studyhub.app.services
 @using studyhub.app.state
 @inject NavigationManager nav
 @inject IFolderPickerService FolderPickerService
 @inject ILocalCourseImportService LocalCourseImportService
-@inject IOnlineCourseCreationOrchestrator OnlineCourseCreationOrchestrator
-@inject CourseIntentPromptService CourseIntentPromptService
 @inject CourseCatalogState CourseCatalogState
 @inject ILogger<AddCourse> Logger
 
@@ -64,10 +60,10 @@
             <span>Voltar ao Cat&aacute;logo</span>
         </button>
         <h1>Adicionar um Novo Curso</h1>
-        <p class="page-subtitle">Escolha a origem do material para iniciarmos a estrutura&ccedil;&atilde;o do seu novo plano de estudos.</p>
+        <p class="page-subtitle">Selecione a pasta local do curso para importar a estrutura de m&oacute;dulos, aulas e v&iacute;deos.</p>
     </div>
 
-    <div class="grid grid-cols-2 gap-xl max-w-4xl">
+    <div class="grid grid-cols-1 gap-xl max-w-2xl">
         <div class="bg-surface border border-subtle rounded-xl p-xl flex flex-col hover:border-accent hover:shadow-lg transition-all cursor-pointer group"
              @onclick="ImportLocalCourseAsync">
             <div class="bg-elevated w-16 h-16 rounded-full flex items-center justify-center mb-lg group-hover:bg-accent group-hover:text-white transition-colors">
@@ -89,38 +85,14 @@
                 }
             </button>
         </div>
-
-        <div class="bg-surface border border-subtle rounded-xl p-xl flex flex-col hover:border-accent hover:shadow-lg transition-all cursor-pointer group relative overflow-hidden"
-             @onclick="CreateOnlineCourseAsync">
-            <div class="absolute top-0 right-0 bg-accent text-white text-[10px] font-bold uppercase tracking-wider px-sm py-1 rounded-bl-lg">NOVO</div>
-            <div class="bg-elevated w-16 h-16 rounded-full flex items-center justify-center mb-lg group-hover:bg-accent group-hover:text-white transition-colors">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
-            </div>
-            <h2 class="text-xl font-semibold text-primary mb-sm">Curadoria por IA (YouTube)</h2>
-            <p class="text-sm text-secondary mb-xl flex-1">
-                Ainda n&atilde;o tem o conte&uacute;do? Descreva o que voc&ecirc; quer aprender e n&oacute;s buscaremos as melhores playlists do YouTube para estruturar um curso de ponta a ponta.
-            </p>
-            <button class="btn btn-secondary w-full" style="border-color: inherit;" disabled="@IsBusy" @onclick="CreateOnlineCourseAsync" @onclick:stopPropagation="true">
-                @if (isCreatingOnline)
-                {
-                    <span class="spinner"></span>
-                    <span>Montando curso...</span>
-                }
-                else
-                {
-                    <span>Descrever Curso</span>
-                }
-            </button>
-        </div>
     </div>
 </div>
 
 @code {
     private bool isImporting;
-    private bool isCreatingOnline;
     private ImportStatusState? statusState;
 
-    private bool IsBusy => isImporting || isCreatingOnline;
+    private bool IsBusy => isImporting;
 
     private async Task ImportLocalCourseAsync()
     {
@@ -182,56 +154,6 @@
         finally
         {
             isImporting = false;
-        }
-    }
-
-    private async Task CreateOnlineCourseAsync()
-    {
-        if (IsBusy)
-        {
-            return;
-        }
-
-        isCreatingOnline = true;
-        ClearStatus();
-
-        try
-        {
-            var promptResult = await CourseIntentPromptService.PromptAsync();
-            if (promptResult == null)
-            {
-                return;
-            }
-
-            SetStatus(ImportStatusKind.Loading, "Montando curso online", "Estamos planejando a trilha, buscando fontes no YouTube e persistindo o curso.");
-            await InvokeAsync(StateHasChanged);
-            await Task.Yield();
-
-            var result = await OnlineCourseCreationOrchestrator.CreateCourseAsync(new OnlineCourseIntentRequest
-            {
-                Topic = promptResult.Topic,
-                Objective = promptResult.Objective,
-                PreferredProvider = "YouTube"
-            });
-
-            if (!result.Success || result.CourseId == null)
-            {
-                SetStatus(ImportStatusKind.Error, "Erro na curadoria online", string.IsNullOrWhiteSpace(result.Message) ? "Nao foi possivel criar o curso online." : result.Message);
-                return;
-            }
-
-            SetStatus(ImportStatusKind.Success, "Curso online criado", string.IsNullOrWhiteSpace(result.CourseTitle) ? "Curso criado com sucesso." : $"{result.CourseTitle} foi adicionado ao catalogo.");
-            CourseCatalogState.NotifyChanged();
-            nav.NavigateTo($"/course/{result.CourseId.Value}");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "Unexpected failure during online course creation flow.");
-            SetStatus(ImportStatusKind.Error, "Erro na curadoria online", "Ocorreu um erro inesperado ao criar o curso online.");
-        }
-        finally
-        {
-            isCreatingOnline = false;
         }
     }
 

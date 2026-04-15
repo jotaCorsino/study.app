@@ -3,7 +3,8 @@ namespace studyhub.domain.Entities;
 public enum CourseSourceType
 {
     LocalFolder = 0,
-    OnlineCurated = 1
+    OnlineCurated = 1,
+    ExternalImport = 2
 }
 
 public enum LessonSourceType
@@ -28,6 +29,13 @@ public class CourseSourceMetadata
     public List<string> CompletedSteps { get; set; } = [];
     public string GenerationSummary { get; set; } = string.Empty;
     public List<CuratedCourseSourceReference> CuratedSources { get; set; } = [];
+    public string ExternalSystem { get; set; } = string.Empty;
+    public string ExternalCourseId { get; set; } = string.Empty;
+    public string ExternalCourseSlug { get; set; } = string.Empty;
+    public List<string> ExternalDisciplineIds { get; set; } = [];
+    public string ImportPayloadFingerprint { get; set; } = string.Empty;
+    public string ImportSchemaVersion { get; set; } = string.Empty;
+    public string ImportSourceKind { get; set; } = string.Empty;
 }
 
 public class CuratedCourseSourceReference

@@ -228,9 +228,12 @@ public sealed class SupplementaryMaterialsService(
 
         var aiRequest = new CourseSupplementaryMaterialsRequestContract
         {
-            CurationGoal = course.SourceType == CourseSourceType.OnlineCurated
-                ? "Gerar conteudo gratuito complementar para um curso online curado, cobrindo lacunas, aprofundando temas relevantes e evitando repetir a trilha principal."
-                : "Gerar conteudo gratuito complementar para um curso local importado, aprofundando os temas detectados sem substituir a estrutura principal do disco.",
+            CurationGoal = course.SourceType switch
+            {
+                CourseSourceType.OnlineCurated => "Gerar conteudo gratuito complementar para um curso online curado, cobrindo lacunas, aprofundando temas relevantes e evitando repetir a trilha principal.",
+                CourseSourceType.ExternalImport => "Gerar conteudo gratuito complementar para um curso externo importado via JSON, enriquecendo a trilha atual sem sobrescrever sua estrutura original.",
+                _ => "Gerar conteudo gratuito complementar para um curso local importado, aprofundando os temas detectados sem substituir a estrutura principal do disco."
+            },
             CourseInformation = new SupplementaryMatchInformationContract
             {
                 SourceType = course.SourceType.ToString(),

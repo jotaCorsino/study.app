@@ -45,6 +45,17 @@ public sealed class CourseMaintenanceService(
             return MapOnlineOperationResult("regenerate-presentation", result);
         }
 
+        if (course.SourceType == CourseSourceType.ExternalImport)
+        {
+            return new CourseMaintenanceOperationResult
+            {
+                Success = false,
+                CourseId = courseId,
+                OperationKey = "regenerate-presentation",
+                Message = "A regeneracao de apresentacao para ExternalImport ainda nao foi habilitada."
+            };
+        }
+
         await _courseEnrichmentOrchestrator.EnrichLocalCourseAsync(new LocalCourseEnrichmentRequest
         {
             CourseId = courseId,
@@ -81,6 +92,17 @@ public sealed class CourseMaintenanceService(
         {
             var result = await _onlineCourseOperationsService.RetryStageAsync(courseId, OnlineCourseOperationalStage.TextRefinement, cancellationToken);
             return MapOnlineOperationResult("regenerate-text-refinement", result);
+        }
+
+        if (course.SourceType == CourseSourceType.ExternalImport)
+        {
+            return new CourseMaintenanceOperationResult
+            {
+                Success = false,
+                CourseId = courseId,
+                OperationKey = "regenerate-text-refinement",
+                Message = "O refinamento textual para ExternalImport ainda nao foi habilitado."
+            };
         }
 
         await _courseEnrichmentOrchestrator.EnrichLocalCourseAsync(new LocalCourseEnrichmentRequest

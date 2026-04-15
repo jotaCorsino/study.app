@@ -1,16 +1,20 @@
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
 using studyhub.application.Interfaces;
 using studyhub.domain.Entities;
+using studyhub.infrastructure.persistence;
 
 namespace studyhub.infrastructure.services;
 
 public class RoutineService : IRoutineService
 {
     private readonly string _baseDirectory;
+    private readonly IDbContextFactory<StudyHubDbContext> _contextFactory;
 
-    public RoutineService(IStoragePathsService storagePathsService)
+    public RoutineService(IStoragePathsService storagePathsService, IDbContextFactory<StudyHubDbContext> contextFactory)
     {
         _baseDirectory = storagePathsService.RoutineDirectory;
+        _contextFactory = contextFactory;
     }
     
     private string GetCourseDirectory(Guid courseId)
@@ -66,6 +70,7 @@ public class RoutineService : IRoutineService
     {
         var allRecords = await GetAllRecordsAsync(courseId);
         var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
         var record = allRecords.FirstOrDefault(r => r.Date.Date == date.Date) ?? new DailyStudyRecord
         {
             CourseId = courseId,
@@ -73,7 +78,7 @@ public class RoutineService : IRoutineService
         };
 
         NormalizeRecord(courseId, record);
-        ApplyStatus(record, settings);
+        ApplyStatus(record, settings, effectiveStartDate);
         return record;
     }
 
@@ -81,6 +86,7 @@ public class RoutineService : IRoutineService
     {
         var allRecords = await GetAllRecordsAsync(courseId);
         var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
         var records = new List<DailyStudyRecord>();
         int daysInMonth = DateTime.DaysInMonth(year, month);
 
@@ -93,7 +99,7 @@ public class RoutineService : IRoutineService
                 Date = date.Date
             };
             NormalizeRecord(courseId, record);
-            ApplyStatus(record, settings);
+            ApplyStatus(record, settings, effectiveStartDate);
             records.Add(record);
         }
 
@@ -107,11 +113,12 @@ public class RoutineService : IRoutineService
         var date = DateTime.Now.Date;
         var allRecords = await GetAllRecordsAsync(courseId);
         var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
 
         var recordItem = GetOrCreateRecord(allRecords, courseId, date);
         recordItem.NonLessonMinutesStudied += minutes;
         NormalizeRecord(courseId, recordItem);
-        ApplyStatus(recordItem, settings);
+        ApplyStatus(recordItem, settings, effectiveStartDate);
 
         await SaveAllRecordsAsync(courseId, allRecords);
     }
@@ -132,6 +139,7 @@ public class RoutineService : IRoutineService
         var studyDate = (date ?? DateTime.Now).Date;
         var allRecords = await GetAllRecordsAsync(courseId);
         var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
         var recordItem = GetOrCreateRecord(allRecords, courseId, studyDate);
         var lessonCredit = recordItem.LessonCredits.FirstOrDefault(credit => credit.LessonId == lessonId);
         if (lessonCredit == null)
@@ -145,7 +153,7 @@ public class RoutineService : IRoutineService
 
         lessonCredit.MinutesCredited += minutesToCredit;
         NormalizeRecord(courseId, recordItem);
-        ApplyStatus(recordItem, settings);
+        ApplyStatus(recordItem, settings, effectiveStartDate);
 
         await SaveAllRecordsAsync(courseId, allRecords);
     }
@@ -153,11 +161,13 @@ public class RoutineService : IRoutineService
     public async Task<int> GetCurrentStreakAsync(Guid courseId, DateTime? referenceDate = null)
     {
         var settings = await GetSettingsAsync(courseId);
-        var studiedDates = (await GetAllRecordsAsync(courseId))
+        var allRecords = await GetAllRecordsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
+        var studiedDates = allRecords
             .Select(record =>
             {
                 NormalizeRecord(courseId, record);
-                ApplyStatus(record, settings);
+                ApplyStatus(record, settings, effectiveStartDate);
                 return record;
             })
             .Where(record => record.Status != DailyStudyStatus.Unplanned && record.MinutesStudied > 0)
@@ -196,10 +206,11 @@ public class RoutineService : IRoutineService
     private async Task SaveAllRecordsAsync(Guid courseId, List<DailyStudyRecord> allRecords)
     {
         var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
         foreach (var record in allRecords)
         {
             NormalizeRecord(courseId, record);
-            ApplyStatus(record, settings);
+            ApplyStatus(record, settings, effectiveStartDate);
         }
 
         var json = JsonSerializer.Serialize(allRecords.OrderBy(record => record.Date).ToList(), new JsonSerializerOptions { WriteIndented = true });
@@ -252,9 +263,9 @@ public class RoutineService : IRoutineService
         record.MinutesStudied = record.NonLessonMinutesStudied + record.LessonCredits.Sum(credit => credit.MinutesCredited);
     }
 
-    private static void ApplyStatus(DailyStudyRecord recordItem, RoutineSettings settings)
+    private static void ApplyStatus(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
     {
-        var isPlannedDay = IsPlannedDay(recordItem, settings);
+        var isPlannedDay = IsPlannedDay(recordItem, settings, effectiveStartDate);
         var preservedHistoricalGoal = recordItem.Date.Date < settings.LastUpdatedAt.Date && recordItem.DailyGoalMinutesAtTheTime > 0
             ? recordItem.DailyGoalMinutesAtTheTime
             : settings.DailyGoalMinutes;
@@ -286,8 +297,14 @@ public class RoutineService : IRoutineService
         }
     }
 
-    private static bool IsPlannedDay(DailyStudyRecord recordItem, RoutineSettings settings)
+    private static bool IsPlannedDay(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
     {
+        // Days before the course effectively existed in StudyHub must stay outside the routine window.
+        if (effectiveStartDate.HasValue && recordItem.Date.Date < effectiveStartDate.Value.Date)
+        {
+            return false;
+        }
+
         if (settings.DailyGoalMinutes <= 0 || settings.SelectedDaysOfWeek.Count == 0)
         {
             return false;
@@ -307,5 +324,54 @@ public class RoutineService : IRoutineService
         }
 
         return settings.SelectedDaysOfWeek.Contains(recordItem.Date.DayOfWeek);
+    }
+
+    private async Task<DateTime?> ResolveEffectiveCourseStartDateAsync(
+        Guid courseId,
+        IReadOnlyCollection<DailyStudyRecord> allRecords,
+        RoutineSettings settings)
+    {
+        var addedAt = await GetCourseAddedAtAsync(courseId);
+        if (addedAt.HasValue)
+        {
+            return addedAt.Value.Date;
+        }
+
+        var firstRecordedDate = allRecords
+            .Where(record => record.Date != default)
+            .Select(record => record.Date.Date)
+            .OrderBy(date => date)
+            .FirstOrDefault();
+
+        if (firstRecordedDate != default)
+        {
+            return firstRecordedDate;
+        }
+
+        if (settings.LastUpdatedAt != DateTime.MinValue)
+        {
+            return settings.LastUpdatedAt.Date;
+        }
+
+        return null;
+    }
+
+    private async Task<DateTime?> GetCourseAddedAtAsync(Guid courseId)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return null;
+        }
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var addedAt = await context.Courses
+            .AsNoTracking()
+            .Where(course => course.Id == courseId)
+            .Select(course => (DateTime?)course.AddedAt)
+            .FirstOrDefaultAsync();
+
+        return addedAt.HasValue && addedAt.Value != default
+            ? addedAt.Value
+            : null;
     }
 }

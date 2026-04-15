@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICourseResumeService, CourseResumeService>();
         services.AddSingleton<ICourseGenerationHistoryService, CourseGenerationHistoryService>();
         services.AddSingleton<ICourseMaintenanceService, CourseMaintenanceService>();
+        services.AddSingleton<IExternalCourseJsonParser, ExternalCourseJsonParser>();
+        services.AddSingleton<IExternalCourseImportService, ExternalCourseImportService>();
         services.AddSingleton<ILocalFolderCourseBuilder, LocalFolderCourseBuilder>();
         services.AddSingleton<IOnlineCuratedCourseBuilder, OnlineCuratedCourseBuilder>();
         services.AddSingleton<IGeminiCourseProvider, GeminiCourseProvider>();

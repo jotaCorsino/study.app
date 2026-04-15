@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "StudyHub Sync",
+  "version": "1.1.0",
+  "description": "Gera curso por pasta a partir da Central de Midia do Univirtus",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://*.univirtus.com.br/*",
+    "https://*.uninter.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "StudyHub Sync",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.univirtus.com.br/*",
+        "https://*.uninter.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

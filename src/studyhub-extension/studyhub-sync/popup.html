@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StudyHub Sync</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="popup.js" defer></script>
+</head>
+<body>
+  <div class="header">
+    <div class="header-logo">S</div>
+    <div>
+      <h1>StudyHub Sync</h1>
+      <p>Curso por pasta via Central de Midia</p>
+    </div>
+  </div>
+
+  <main class="body">
+    <div id="status" class="status status-neutral" role="status" aria-live="polite" aria-busy="false" data-state="idle">
+      <span class="status-indicator" aria-hidden="true"></span>
+      <div class="status-copy">
+        <div id="status-title" class="status-title">Pronto para escanear</div>
+        <div id="status-detail" class="status-detail">Abra a Central de Midia da disciplina para iniciar.</div>
+      </div>
+    </div>
+
+    <section class="mode-note">
+      <div class="mode-note-title">Modalidade atual</div>
+      <p>Esta extensao gera um Curso por pasta em Downloads. Depois voce pode mover a pasta manualmente e seleciona-la no StudyHub.</p>
+    </section>
+
+    <section class="summary" aria-live="polite">
+      <div class="summary-row">
+        <span>Pagina</span>
+        <strong id="summary-page">Aguardando</strong>
+      </div>
+      <div class="summary-row">
+        <span>Secao de videos</span>
+        <strong id="summary-section">Aguardando</strong>
+      </div>
+      <div class="summary-row">
+        <span>Disciplina</span>
+        <strong id="summary-discipline">--</strong>
+      </div>
+      <div class="summary-row">
+        <span>Aulas detectadas</span>
+        <strong id="summary-lessons">0</strong>
+      </div>
+      <div class="summary-row">
+        <span>Videos detectados</span>
+        <strong id="summary-videos">0</strong>
+      </div>
+      <div class="summary-row">
+        <span>Downloads iniciados</span>
+        <strong id="summary-downloads">0/0</strong>
+      </div>
+    </section>
+
+    <section id="metrics-area" class="metrics is-hidden" aria-live="polite">
+      <div class="metrics-title">Diagnostico</div>
+      <div class="metrics-grid">
+        <div class="metrics-row">
+          <span>Blocos lnk-download</span>
+          <strong id="metrics-blocks">0</strong>
+        </div>
+        <div class="metrics-row">
+          <span>Secoes de video</span>
+          <strong id="metrics-video-sections">0</strong>
+        </div>
+        <div class="metrics-row">
+          <span>Anchors lidos</span>
+          <strong id="metrics-anchors">0</strong>
+        </div>
+        <div class="metrics-row">
+          <span>.mp4 aceitos</span>
+          <strong id="metrics-mp4">0</strong>
+        </div>
+        <div class="metrics-row">
+          <span>Libras ignorados</span>
+          <strong id="metrics-libras">0</strong>
+        </div>
+        <div class="metrics-row">
+          <span>Audios ignorados</span>
+          <strong id="metrics-audio">0</strong>
+        </div>
+      </div>
+    </section>
+
+    <section id="preview-area" class="preview-block is-hidden" aria-live="polite">
+      <h2 id="preview-title">Estrutura detectada</h2>
+      <div id="preview-list"></div>
+    </section>
+
+    <section class="options">
+      <label class="checkbox-row" for="include-metadata">
+        <input id="include-metadata" type="checkbox" checked>
+        <span>Gerar <code>studyhub-course.json</code> complementar</span>
+      </label>
+      <p class="options-help">Os caminhos enviados ao navegador sao sempre relativos a pasta padrao de Downloads.</p>
+    </section>
+
+    <section id="instructions" class="instructions is-hidden" aria-live="polite">
+      <div id="instructions-title" class="instructions-title"></div>
+      <ul id="instructions-list" class="instructions-list"></ul>
+    </section>
+
+    <div class="actions">
+      <button type="button" class="btn btn-secondary" id="btn-scan">Escanear Central</button>
+      <button type="button" class="btn btn-primary" id="btn-download" disabled>Baixar curso por pasta</button>
+    </div>
+  </main>
+</body>
+</html>

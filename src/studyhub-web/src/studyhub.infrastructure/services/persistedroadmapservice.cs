@@ -157,11 +157,16 @@ public sealed class PersistedRoadmapService(
 
     private static CourseRoadmapRequestContract BuildRoadmapRequest(Course course)
     {
+        var goal = course.SourceType switch
+        {
+            CourseSourceType.OnlineCurated => "Gerar um roadmap coerente para um curso online curado a partir de videos gratuitos.",
+            CourseSourceType.ExternalImport => "Gerar um roadmap coerente para um curso externo importado via JSON, preservando a estrutura academica original ja persistida.",
+            _ => "Gerar um roadmap coerente para um curso local importado do disco sem trocar sua estrutura principal."
+        };
+
         return new CourseRoadmapRequestContract
         {
-            Goal = course.SourceType == CourseSourceType.OnlineCurated
-                ? "Gerar um roadmap coerente para um curso online curado a partir de videos gratuitos."
-                : "Gerar um roadmap coerente para um curso local importado do disco sem trocar sua estrutura principal.",
+            Goal = goal,
             CourseInformation = new RoadmapCourseInformationContract
             {
                 Title = course.Title,
