@@ -54,30 +54,30 @@ Recommended order:
 Infrastructure build:
 
 ```powershell
-dotnet build .\app_build\src\studyhub.infrastructure\studyhub.infrastructure.csproj --no-restore -v minimal
+dotnet build .\src\studyhub-web\src\studyhub.infrastructure\studyhub.infrastructure.csproj --no-restore -v minimal
 ```
 
 Windows app build:
 
 ```powershell
-dotnet build .\app_build\src\studyhub.app\studyhub.app.csproj -f net10.0-windows10.0.19041.0 --no-restore -v minimal
+dotnet build .\src\studyhub-web\src\studyhub.app\studyhub.app.csproj -f net10.0-windows10.0.19041.0 --no-restore -v minimal
 ```
 
 Windows-targeted restore before publish:
 
 ```powershell
-dotnet restore .\app_build\src\studyhub.app\studyhub.app.csproj -p:TargetFramework=net10.0-windows10.0.19041.0
+dotnet restore .\src\studyhub-web\src\studyhub.app\studyhub.app.csproj -p:TargetFramework=net10.0-windows10.0.19041.0
 ```
 
 Validated Windows publish:
 
 ```powershell
-dotnet publish .\app_build\src\studyhub.app\studyhub.app.csproj -f net10.0-windows10.0.19041.0 -c Release --self-contained false -v minimal
+dotnet publish .\src\studyhub-web\src\studyhub.app\studyhub.app.csproj -f net10.0-windows10.0.19041.0 -c Release --self-contained false -v minimal
 ```
 
 Validated publish output:
 
-- `app_build\src\studyhub.app\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\`
+- `src\studyhub-web\src\studyhub.app\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\`
 - Clean distribution wrapper: `dist\windows\studyhub-windows-x64\`
 - Distribution script: `powershell -ExecutionPolicy Bypass -File .\scripts\publish-windows-clean.ps1`
 

@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$appProject = Join-Path $repoRoot 'app_build\src\studyhub.app\studyhub.app.csproj'
+$appProject = Join-Path $repoRoot 'src\studyhub-web\src\studyhub.app\studyhub.app.csproj'
 $distRoot = Join-Path $repoRoot 'dist\windows\studyhub-windows-x64'
 $runtimeOutput = Join-Path $distRoot 'runtime'
 $guidePath = Join-Path $distRoot 'como-abrir.txt'

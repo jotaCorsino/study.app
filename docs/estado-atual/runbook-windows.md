@@ -7,7 +7,7 @@ Guia de referência para validação, manutenção, backup e recuperação do St
 ## 1. Publicar e rodar no Windows
 
 ```powershell
-cd "C:\Users\Estudos\Desktop\Study App\app_build\src\studyhub.app"
+cd "C:\Users\Estudos\Desktop\Study App\src\studyhub-web\src\studyhub.app"
 dotnet build -f net10.0-windows10.0.19041.0
 dotnet run -f net10.0-windows10.0.19041.0
 ```
