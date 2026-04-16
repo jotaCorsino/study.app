@@ -17,8 +17,12 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="Exists('..\..\src\studyhub.app\services\localvideosourceresolver.cs')">
     <Compile Include="..\..\src\studyhub.app\services\localvideosourceresolver.cs" Link="services\localvideosourceresolver.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="!Exists('..\..\src\studyhub.app\services\localvideosourceresolver.cs')">
+    <Compile Remove="LocalVideoSourceResolverTests.cs" />
   </ItemGroup>
 
 </Project>

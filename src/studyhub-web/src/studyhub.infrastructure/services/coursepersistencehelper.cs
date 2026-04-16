@@ -25,6 +25,33 @@ internal static class CoursePersistenceHelper
             return;
         }
 
+        var existingLessonCount = CountLessons(existingCourse.Modules);
+        var incomingLessonCount = CountLessons(record.Modules);
+
+        if (existingLessonCount > 0 && incomingLessonCount == 0)
+        {
+            existingCourse.RawTitle = record.RawTitle;
+            existingCourse.RawDescription = record.RawDescription;
+            existingCourse.Title = record.Title;
+            existingCourse.Description = record.Description;
+            existingCourse.Category = record.Category;
+            existingCourse.ThumbnailUrl = record.ThumbnailUrl;
+            existingCourse.FolderPath = record.FolderPath;
+            existingCourse.SourceType = record.SourceType;
+            existingCourse.SourceMetadataJson = record.SourceMetadataJson;
+            existingCourse.TotalDurationMinutes = existingCourse.TotalDurationMinutes > 0
+                ? existingCourse.TotalDurationMinutes
+                : record.TotalDurationMinutes;
+            existingCourse.AddedAt = existingCourse.AddedAt == default
+                ? record.AddedAt
+                : existingCourse.AddedAt;
+            existingCourse.LastAccessedAt = record.LastAccessedAt ?? existingCourse.LastAccessedAt;
+
+            await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
         var existingLessonStateById = existingCourse.Modules
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons)
@@ -48,34 +75,57 @@ internal static class CoursePersistenceHelper
             ? currentLessonId
             : (Guid?)null;
 
-        var existingModules = existingCourse.Modules.ToList();
-        if (existingModules.Count > 0)
+        var currentLessonIdToPersist = preservedCurrentLessonId ?? record.CurrentLessonId;
+
+        await context.Modules
+            .Where(module => module.CourseId == record.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        context.ChangeTracker.Clear();
+
+        var persistedCourse = await context.Courses
+            .FirstOrDefaultAsync(item => item.Id == record.Id, cancellationToken);
+
+        if (persistedCourse == null)
         {
-            context.Modules.RemoveRange(existingModules);
+            await context.Courses.AddAsync(record, cancellationToken);
+            await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
+            return;
         }
 
-        existingCourse.Modules.Clear();
-        existingCourse.RawTitle = record.RawTitle;
-        existingCourse.RawDescription = record.RawDescription;
-        existingCourse.Title = record.Title;
-        existingCourse.Description = record.Description;
-        existingCourse.Category = record.Category;
-        existingCourse.ThumbnailUrl = record.ThumbnailUrl;
-        existingCourse.FolderPath = record.FolderPath;
-        existingCourse.SourceType = record.SourceType;
-        existingCourse.SourceMetadataJson = record.SourceMetadataJson;
-        existingCourse.TotalDurationMinutes = record.TotalDurationMinutes;
-        existingCourse.AddedAt = existingCourse.AddedAt == default
+        persistedCourse.RawTitle = record.RawTitle;
+        persistedCourse.RawDescription = record.RawDescription;
+        persistedCourse.Title = record.Title;
+        persistedCourse.Description = record.Description;
+        persistedCourse.Category = record.Category;
+        persistedCourse.ThumbnailUrl = record.ThumbnailUrl;
+        persistedCourse.FolderPath = record.FolderPath;
+        persistedCourse.SourceType = record.SourceType;
+        persistedCourse.SourceMetadataJson = record.SourceMetadataJson;
+        persistedCourse.TotalDurationMinutes = record.TotalDurationMinutes;
+        persistedCourse.AddedAt = persistedCourse.AddedAt == default
             ? record.AddedAt
-            : existingCourse.AddedAt;
-        existingCourse.LastAccessedAt = record.LastAccessedAt ?? existingCourse.LastAccessedAt;
-        existingCourse.CurrentLessonId = preservedCurrentLessonId ?? record.CurrentLessonId;
+            : persistedCourse.AddedAt;
+        persistedCourse.LastAccessedAt = record.LastAccessedAt ?? persistedCourse.LastAccessedAt;
+        persistedCourse.CurrentLessonId = currentLessonIdToPersist;
 
         foreach (var module in record.Modules)
         {
-            existingCourse.Modules.Add(module);
+            module.CourseId = record.Id;
+
+            foreach (var topic in module.Topics)
+            {
+                topic.ModuleId = module.Id;
+
+                foreach (var lesson in topic.Lessons)
+                {
+                    lesson.TopicId = topic.Id;
+                }
+            }
         }
+
+        await context.Modules.AddRangeAsync(record.Modules, cancellationToken);
 
         await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
@@ -134,5 +184,13 @@ internal static class CoursePersistenceHelper
         public double WatchedPercentage { get; set; }
         public int LastPlaybackPositionSeconds { get; set; }
         public int DurationMinutes { get; set; }
+    }
+
+    private static int CountLessons(IEnumerable<ModuleRecord> modules)
+    {
+        return modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(topic => topic.Lessons)
+            .Count();
     }
 }

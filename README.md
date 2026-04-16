@@ -1,95 +1,103 @@
 # StudyHub
 
-O **StudyHub** é um projeto pessoal e despretensioso que eu criei para me ajudar a organizar melhor meus estudos no dia a dia.
+StudyHub e um app de estudos para Windows que transforma cursos em pastas locais em uma experiencia de aprendizagem com:
 
-A ideia nasceu principalmente da minha necessidade de lidar com **cursos armazenados no computador em pastas cheias de vídeos**, módulos, submódulos e aulas espalhadas. Eu queria uma forma mais confortável de visualizar isso como um curso de verdade, acompanhar meu progresso e continuar estudando de onde parei.
+- catalogo de cursos
+- pagina interna por curso
+- progresso por aula/curso
+- retomada do ponto onde voce parou
 
-## Sobre o projeto
+## Download da release
 
-Este app foi feito de forma **amadora e apressada**, com foco total em utilidade prática para o meu uso pessoal.
-
-Eu não construí isso pensando em lançar um produto perfeito ou em seguir um processo tradicional de desenvolvimento extremamente rigoroso. A intenção foi simples:
-
-- concluir o app rápido
-- começar a usar o quanto antes
-- melhorar minha organização
-- continuar estudando com mais qualidade
-
-Em vez de deixar a ideia parada, preferi tirar do papel uma versão funcional e evoluir em cima dela conforme as necessidades foram aparecendo.
-
-## O que o app faz
-
-Hoje o StudyHub me ajuda a:
-
-- importar cursos locais organizados em pastas com vídeos
-- transformar essa estrutura em uma navegação mais amigável
-- acompanhar progresso por curso e por aula
-- continuar os estudos de onde parei
-- organizar cursos montados com vídeos online
-- gerar conteúdos complementares
-- manter uma rotina de estudo por curso
-
-## Motivação
-
-O principal problema que eu queria resolver era este:
-
-> eu tinha muitos cursos guardados no computador, mas estudar diretamente pelas pastas era ruim, confuso e pouco motivador.
-
-Então o StudyHub surgiu como uma tentativa de transformar esse acervo pessoal em algo mais organizado, visual e utilizável.
-
-## Observações importantes
-
-Este projeto:
-
-- foi criado para uso pessoal
-- não teve a pretensão de nascer como produto comercial
-- não foi desenvolvido com supervisão manual linha por linha do código
-- foi construído com ajuda intensiva de agentes de IA para acelerar a execução
-
-Ou seja: é um projeto real, funcional e útil para mim, mas ainda assim é um projeto experimental.
-
-## Estado do projeto
-
-Atualmente, considero o app uma versão utilizável para o meu dia a dia, mesmo que ainda existam pontos a melhorar.
-
-A prioridade sempre foi:
-1. funcionar
-2. me ajudar a estudar melhor
-3. evoluir aos poucos
-
-## Release
-
-Para baixar uma versão pronta do app, a ideia é usar a página de releases do repositório:
+Baixe sempre pela pagina oficial de releases:
 
 - Releases: [https://github.com/jotaCorsino/study.app/releases](https://github.com/jotaCorsino/study.app/releases)
-- Repositório: [https://github.com/jotaCorsino/study.app](https://github.com/jotaCorsino/study.app)
 
-O arquivo principal para download é o pacote `.zip` da versão Windows, normalmente com este nome:
+Arquivo principal (Windows):
 
-- `studyhub-windows-x64.zip`
+- `studyhub-windows-x64-<versao>.zip`
 
-## Como baixar e usar
+## Como instalar e abrir no Windows
 
-1. Acesse a página de releases.
-2. Baixe o arquivo `studyhub-windows-x64.zip` da versão mais recente.
-3. Extraia o conteúdo do `.zip` em uma pasta do seu computador.
-4. Abra o arquivo `abrir-studyhub.cmd`.
+1. Baixe o `.zip` da versao mais recente na pagina de releases.
+2. Extraia o arquivo em qualquer pasta do computador.
+3. Abra `abrir-studyhub.cmd`.
 
-Se preferir, também é possível abrir o executável diretamente em:
+Alternativa:
 
-- `runtime\studyhub.app.exe`
+- executar diretamente `runtime\studyhub.app.exe`.
 
-Observações rápidas:
+## Onde os dados ficam
 
-- o app cria seus próprios dados localmente na máquina onde for executado
-- o pacote não inclui seus cursos, banco local, rotinas nem backups pessoais
+Os dados do StudyHub ficam no computador do proprio usuario (localmente), incluindo:
 
-## Por que estou deixando isso público
+- banco local do app
+- progresso das aulas
+- configuracoes
+- arquivos de rotina e backup do app
 
-Estou deixando este repositório como registro do projeto e da ideia.
+O pacote de release nao inclui dados pessoais de quem publicou a release.
 
-Não é um projeto “perfeito”.
-É um projeto que nasceu da prática, da necessidade e da vontade de resolver um problema real da forma mais rápida possível.
+## Fluxo rapido de uso
 
-E, no fim das contas, esse era o objetivo desde o começo:
-**ter uma ferramenta que realmente me ajudasse a estudar melhor.**
+1. Abra o app.
+2. (Opcional) Configure chaves de API em Configuracoes.
+3. Adicione um curso pela pasta local.
+4. Entre no curso e abra uma aula.
+5. Estude normalmente e acompanhe o progresso.
+6. Feche e reabra quando quiser: o app preserva o estado salvo.
+
+## Como adicionar cursos
+
+### 1) Curso por pasta local
+
+Use quando voce ja tem os videos no computador:
+
+1. Clique em **Adicionar curso**.
+2. Selecione a pasta raiz do curso.
+3. Aguarde a importacao.
+4. Abra o curso no catalogo.
+
+### 2) Curso gerado pela extensao (StudyHub Sync)
+
+Use quando a extensao montar a estrutura do curso a partir da plataforma de origem:
+
+1. Gere/exporte o curso pela extensao.
+2. Confirme que os arquivos foram organizados em uma pasta de curso.
+3. No StudyHub, clique em **Adicionar curso** e selecione essa pasta gerada.
+
+Se a extensao gerar um arquivo `studyhub-course.json`, mantenha esse arquivo junto da pasta do curso.
+
+## Estrutura recomendada da pasta do curso
+
+Organizacao recomendada:
+
+- pasta principal = nome do curso
+- subpastas = modulos
+- sub-subpastas = materias/aulas
+- videos com nomes legiveis e consistentes
+
+Exemplo:
+
+```text
+Curso/
+  Modulo 01/
+    Materia 01/
+      video-01-nome-da-aula.mp4
+      video-02-outra-aula.mp4
+```
+
+Boas praticas:
+
+- evitar nomes genericos como `aula1.mp4` para todos os modulos
+- manter padrao de numeracao (`01`, `02`, `03`) para facilitar ordem
+- evitar mover/renomear arquivos com o app aberto
+
+## Publicacao de releases
+
+Para quem mantem o projeto:
+
+- gere o pacote limpo de distribuicao
+- publique o `.zip` como asset no GitHub Releases
+- nao inclua no `.zip` arquivos de desenvolvimento, caches, `.dev`, logs ou artefatos internos
+
