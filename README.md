@@ -1,5 +1,6 @@
 ## **NOTA IMPORTANTE** - Este projeto é 100% pessoal, 110% amador e 1000% criado apenas para satisfazer uma vontade particular de organizar os meus cursos pessoais de uma maneira que agrade 100% eu, não foi feito em padrão de mercado e provavelmente é macarronico porque eu não soube guiar a IA de maneira correta, pois sou um estudante e fiz esse app justamente para ME ajudar com os estudos, ponto final. 
 
+
 # StudyHub
 
 StudyHub e um app de estudos para Windows que transforma cursos em pastas locais em uma experiencia de aprendizagem com:
@@ -94,12 +95,4 @@ Boas praticas:
 - evitar nomes genericos como `aula1.mp4` para todos os modulos
 - manter padrao de numeracao (`01`, `02`, `03`) para facilitar ordem
 - evitar mover/renomear arquivos com o app aberto
-
-## Publicacao de releases
-
-Para quem mantem o projeto:
-
-- gere o pacote limpo de distribuicao
-- publique o `.zip` como asset no GitHub Releases
-- nao inclua no `.zip` arquivos de desenvolvimento, caches, `.dev`, logs ou artefatos internos
 
