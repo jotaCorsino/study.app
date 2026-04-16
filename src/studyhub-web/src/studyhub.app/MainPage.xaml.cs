@@ -17,6 +17,8 @@ namespace studyhub.app;
 public partial class MainPage : ContentPage
 {
     private const string ExternalBridgeScheme = "studyhub-external";
+    private const double NativeTransportControlZoneRatio = 0.24;
+    private const double NativeTransportControlZoneMinHeight = 96;
     private static readonly HashSet<string> ExternalFallbackErrorCodes = new(StringComparer.OrdinalIgnoreCase)
     {
         "101",
@@ -29,6 +31,7 @@ public partial class MainPage : ContentPage
     private readonly ExternalLessonPlaybackService _externalLessonPlaybackService;
     private readonly SemaphoreSlim _nativeStateChangeGate = new(1, 1);
     private readonly SemaphoreSlim _externalBridgeGate = new(1, 1);
+    private readonly TapGestureRecognizer _nativeHostTapGesture = new();
 
     private long _loadedNativeSessionToken;
     private string? _loadedNativeFilePath;
@@ -54,6 +57,8 @@ public partial class MainPage : ContentPage
     public MainPage()
     {
         InitializeComponent();
+        _nativeHostTapGesture.Tapped += HandleNativePlayerHostTapped;
+        nativePlayerHost.GestureRecognizers.Add(_nativeHostTapGesture);
 
         _logger = IPlatformApplication.Current?.Services.GetRequiredService<ILogger<MainPage>>()
             ?? throw new InvalidOperationException("O logger do MainPage nao foi inicializado.");
@@ -558,11 +563,118 @@ public partial class MainPage : ContentPage
         };
     }
 
+    private async void HandleNativePlayerHostTapped(object? sender, TappedEventArgs e)
+    {
+        if (IsNativeTransportControlTap(e))
+        {
+            return;
+        }
+
+        var gateEntered = false;
+        try
+        {
+            await _nativeStateChangeGate.WaitAsync();
+            gateEntered = true;
+
+            if (!CanToggleNativePlayback())
+            {
+                return;
+            }
+
+            var nativeSnapshot = _nativeLessonPlaybackService.Snapshot;
+            if (nativeSnapshot.SessionToken != _loadedNativeSessionToken ||
+                nativeSnapshot.Status == NativeLessonPlaybackStatus.Error)
+            {
+                return;
+            }
+
+            switch (_currentNativeMediaState)
+            {
+                case MediaElementState.Playing:
+                    nativeMediaElement.Pause();
+                    _logger.LogDebug(
+                        "Native playback paused from tap-to-toggle. SessionToken: {SessionToken}.",
+                        _loadedNativeSessionToken);
+                    return;
+
+                case MediaElementState.Paused:
+                case MediaElementState.Stopped:
+                    nativeMediaElement.Play();
+                    _logger.LogDebug(
+                        "Native playback resumed from tap-to-toggle. SessionToken: {SessionToken}.",
+                        _loadedNativeSessionToken);
+                    return;
+
+                case MediaElementState.None:
+                    if (nativeSnapshot.Status == NativeLessonPlaybackStatus.Ready)
+                    {
+                        nativeMediaElement.Play();
+                        _logger.LogDebug(
+                            "Native playback started from ready tap-to-toggle. SessionToken: {SessionToken}.",
+                            _loadedNativeSessionToken);
+                    }
+                    return;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Native tap-to-toggle failed. SessionToken: {SessionToken}. CurrentState: {CurrentState}.",
+                _loadedNativeSessionToken,
+                _currentNativeMediaState);
+        }
+        finally
+        {
+            if (gateEntered)
+            {
+                _nativeStateChangeGate.Release();
+            }
+        }
+    }
+
+    private bool CanToggleNativePlayback()
+    {
+        if (_isPageUnloading ||
+            _isNativeSourceTransitionInProgress ||
+            !nativePlayerHost.IsVisible ||
+            _loadedNativeSessionToken == 0 ||
+            string.IsNullOrWhiteSpace(_loadedNativeFilePath))
+        {
+            return false;
+        }
+
+        return _currentNativeMediaState switch
+        {
+            MediaElementState.Opening => false,
+            MediaElementState.Buffering => false,
+            MediaElementState.Failed => false,
+            _ => true
+        };
+    }
+
+    private bool IsNativeTransportControlTap(TappedEventArgs args)
+    {
+        var tapPosition = args.GetPosition(nativePlayerHost);
+        if (!tapPosition.HasValue || nativePlayerHost.Height <= 0)
+        {
+            return false;
+        }
+
+        var controlZoneHeight = Math.Max(
+            NativeTransportControlZoneMinHeight,
+            nativePlayerHost.Height * NativeTransportControlZoneRatio);
+
+        return tapPosition.Value.Y >= nativePlayerHost.Height - controlZoneHeight;
+    }
+
     protected override void OnHandlerChanging(HandlerChangingEventArgs args)
     {
         if (args.NewHandler == null)
         {
             _isPageUnloading = true;
+            _nativeHostTapGesture.Tapped -= HandleNativePlayerHostTapped;
+            nativePlayerHost.GestureRecognizers.Remove(_nativeHostTapGesture);
             _nativeLessonPlaybackService.StateChanged -= HandleNativePlaybackStateChanged;
             _externalLessonPlaybackService.StateChanged -= HandleExternalPlaybackStateChanged;
             Loaded -= HandlePageLoaded;
