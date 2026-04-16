@@ -1,3 +1,5 @@
+##**NOTA IMPORTANTE** - Este projeto é 100% pessoal, 110% amador e 1000% criado apenas para satisfazer uma vontade particular de organizar os meus cursos pessoais de uma maneira que agrade 100% eu, não foi feito em padrão de mercado e provavelmente é macarronico porque eu não soube guiar a IA de maneira correta, pois sou um estudante e fiz esse app justamente para ME ajudar com os estudos, ponto final. 
+
 # StudyHub
 
 StudyHub e um app de estudos para Windows que transforma cursos em pastas locais em uma experiencia de aprendizagem com:
