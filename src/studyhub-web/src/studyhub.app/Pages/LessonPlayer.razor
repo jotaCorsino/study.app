@@ -1,14 +1,18 @@
 @page "/course/{CourseId:guid}/lesson/{LessonId:guid}"
 @layout studyhub.app.Components.Layout.MainLayout
+@using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
+@using studyhub.app.services
 @using studyhub.application.Interfaces
 @using studyhub.domain.Entities
 @using studyhub.shared.Enums
 @using studyhub.app.Components.Course
 @using studyhub.app.Components.Shared
+@implements IDisposable
 @inject ICourseService CourseService
 @inject IProgressService ProgressService
+@inject ExternalLessonPlaybackService ExternalPlaybackService
 @inject IJSRuntime JS
 @inject ILogger<LessonPlayer> Logger
 @inject NavigationManager nav
@@ -51,6 +55,7 @@
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
                                     Lesson="currentLesson"
+                                    RequestedPlaybackSpeed="selectedPlaybackSpeed"
                                     OnLessonCompleted="HandleLessonCompletedAsync" />
             </div>
             
@@ -74,6 +79,26 @@
                     </button>
                 }
                 
+                <div class="player-speed-control">
+                    <label class="player-speed-label" for="lesson-player-speed">Velocidade</label>
+                    <select id="lesson-player-speed"
+                            class="player-speed-select"
+                            value="@selectedPlaybackSpeed.ToString("0.0##", CultureInfo.InvariantCulture)"
+                            @onchange="HandlePlaybackSpeedChanged">
+                        @foreach (var speed in availablePlaybackSpeeds)
+                        {
+                            <option value="@speed.ToString("0.0##", CultureInfo.InvariantCulture)">@FormatPlaybackSpeed(speed)</option>
+                        }
+                    </select>
+                    @if (ShouldShowExternalPlaybackFallback)
+                    {
+                        <span class="player-speed-effective-hint">
+                            YouTube aplicou @FormatPlaybackSpeed(externalPlaybackSnapshot.EffectivePlaybackSpeed)
+                            (solicitado @FormatPlaybackSpeed(externalPlaybackSnapshot.RequestedPlaybackSpeed)).
+                        </span>
+                    }
+                </div>
+
                 <div class="flex-1"></div>
                 
                 <button class="btn btn-primary player-ctrl-btn" @onclick="GoToNextLesson" disabled="@(nextLesson == null)">
@@ -133,6 +158,24 @@
     private Guid? pendingSidebarAnchorLessonId;
     private Guid? lastAppliedSidebarAnchorLessonId;
     private const string SidebarElementId = "lesson-player-sidebar";
+    private const double DefaultPlaybackSpeed = 1.0;
+    private static readonly double[] availablePlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
+    private double selectedPlaybackSpeed = DefaultPlaybackSpeed;
+    private ExternalLessonPlaybackSnapshot externalPlaybackSnapshot = ExternalLessonPlaybackSnapshot.Hidden;
+
+    private bool ShouldShowExternalPlaybackFallback =>
+        currentLesson?.SourceType == LessonSourceType.ExternalVideo &&
+        currentLesson.Id != Guid.Empty &&
+        externalPlaybackSnapshot.SessionToken != 0 &&
+        externalPlaybackSnapshot.LessonId == currentLesson.Id &&
+        externalPlaybackSnapshot.Status != ExternalLessonPlaybackStatus.Error &&
+        Math.Abs(externalPlaybackSnapshot.RequestedPlaybackSpeed - externalPlaybackSnapshot.EffectivePlaybackSpeed) >= 0.01;
+
+    protected override void OnInitialized()
+    {
+        externalPlaybackSnapshot = ExternalPlaybackService.Snapshot;
+        ExternalPlaybackService.StateChanged += HandleExternalPlaybackStateChanged;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -321,6 +364,50 @@
     private void NavigateToLesson(Lesson lesson)
     {
         nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
+    }
+
+    private void HandlePlaybackSpeedChanged(ChangeEventArgs args)
+    {
+        if (args.Value is not string rawValue ||
+            !double.TryParse(rawValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed))
+        {
+            selectedPlaybackSpeed = DefaultPlaybackSpeed;
+            return;
+        }
+
+        selectedPlaybackSpeed = NormalizePlaybackSpeed(parsedSpeed);
+    }
+
+    private static double NormalizePlaybackSpeed(double speed)
+    {
+        foreach (var supportedSpeed in availablePlaybackSpeeds)
+        {
+            if (Math.Abs(supportedSpeed - speed) < 0.0001)
+            {
+                return supportedSpeed;
+            }
+        }
+
+        return DefaultPlaybackSpeed;
+    }
+
+    private static string FormatPlaybackSpeed(double speed)
+    {
+        return $"{speed.ToString("0.0##", CultureInfo.InvariantCulture)}x";
+    }
+
+    private void HandleExternalPlaybackStateChanged(ExternalLessonPlaybackSnapshot snapshot)
+    {
+        _ = InvokeAsync(() =>
+        {
+            externalPlaybackSnapshot = snapshot;
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        ExternalPlaybackService.StateChanged -= HandleExternalPlaybackStateChanged;
     }
 
     private string GetLessonReference()

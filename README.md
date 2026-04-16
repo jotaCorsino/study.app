@@ -50,6 +50,26 @@ O pacote de release nao inclui dados pessoais de quem publicou a release.
 5. Estude normalmente e acompanhe o progresso.
 6. Feche e reabra quando quiser: o app preserva o estado salvo.
 
+## Player de aulas (estado atual v1)
+
+### Player local (video em arquivo no Windows)
+
+- controle de velocidade com opcoes: `0.5x`, `1x`, `1.5x`, `2x`, `2.5x`
+- play/pause por clique na area do video (tap-to-toggle local)
+- os controles nativos de transporte continuam ativos
+
+### Player externo (YouTube no host externo do app)
+
+- usa a mesma selecao de velocidade da tela da aula
+- aplicacao de velocidade por melhor esforco via bridge
+- quando a taxa solicitada nao e suportada pelo YouTube (ex.: `2.5x`), o app reflete a taxa efetiva aplicada
+- nesta v1, **tap-to-toggle nao esta implementado no player externo**
+
+## Limitacoes conhecidas do player (v1)
+
+- no YouTube, a taxa efetiva pode divergir da taxa escolhida na UI, dependendo das taxas disponiveis para o video
+- tap-to-toggle existe apenas no player local nesta versao
+
 ## Como adicionar cursos
 
 ### 1) Curso por pasta local

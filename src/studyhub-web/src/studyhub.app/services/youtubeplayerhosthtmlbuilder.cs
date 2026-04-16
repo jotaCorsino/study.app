@@ -16,7 +16,8 @@ internal static class YouTubePlayerHostHtmlBuilder
             ["courseId"] = snapshot.CourseId?.ToString("D"),
             ["lessonId"] = snapshot.LessonId?.ToString("D"),
             ["externalUrl"] = snapshot.ExternalUrl,
-            ["provider"] = snapshot.Provider
+            ["provider"] = snapshot.Provider,
+            ["initialRate"] = snapshot.RequestedPlaybackSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
 
         return $"{VirtualHostOrigin}/{RelativeHostPagePath}?{BuildQueryString(query)}";
