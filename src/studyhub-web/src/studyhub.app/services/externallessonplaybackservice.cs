@@ -12,6 +12,8 @@ public sealed class ExternalLessonPlaybackService(
     IExternalLessonRuntimeStateService externalLessonRuntimeStateService,
     ILogger<ExternalLessonPlaybackService> logger)
 {
+    private static readonly double[] SupportedPlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
+
     private readonly IProgressService _progressService = progressService;
     private readonly ICourseGenerationHistoryService _courseGenerationHistoryService = courseGenerationHistoryService;
     private readonly IExternalLessonRuntimeStateService _externalLessonRuntimeStateService = externalLessonRuntimeStateService;
@@ -29,7 +31,7 @@ public sealed class ExternalLessonPlaybackService(
     public ExternalLessonPlaybackSnapshot Snapshot => _snapshot;
     public bool SupportsReliableResumePosition => false;
 
-    public async Task<long> ActivateAsync(Guid courseId, Lesson? lesson)
+    public async Task<long> ActivateAsync(Guid courseId, Lesson? lesson, double playbackSpeed)
     {
         ExternalLessonPlaybackSnapshot updatedSnapshot;
 
@@ -42,7 +44,7 @@ public sealed class ExternalLessonPlaybackService(
                 ? -1
                 : (int)Math.Round(Math.Max(0, lesson.LastPlaybackPosition.TotalSeconds));
 
-            updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson);
+            updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson, playbackSpeed);
             _snapshot = updatedSnapshot;
         }
         finally
@@ -60,6 +62,81 @@ public sealed class ExternalLessonPlaybackService(
             updatedSnapshot.ExternalUrl);
         RaiseStateChanged(updatedSnapshot);
         return updatedSnapshot.SessionToken;
+    }
+
+    public async Task SetPlaybackSpeedAsync(long sessionToken, double requestedPlaybackSpeed)
+    {
+        ExternalLessonPlaybackSnapshot? changedSnapshot = null;
+
+        await _gate.WaitAsync();
+        try
+        {
+            if (_snapshot.SessionToken != sessionToken)
+            {
+                return;
+            }
+
+            var normalizedRequestedSpeed = NormalizePlaybackSpeed(requestedPlaybackSpeed);
+            if (Math.Abs(_snapshot.RequestedPlaybackSpeed - normalizedRequestedSpeed) < 0.0001)
+            {
+                return;
+            }
+
+            changedSnapshot = _snapshot with
+            {
+                RequestedPlaybackSpeed = normalizedRequestedSpeed
+            };
+
+            _snapshot = changedSnapshot;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (changedSnapshot != null)
+        {
+            RaiseStateChanged(changedSnapshot);
+        }
+    }
+
+    public async Task HandlePlaybackRateChangedAsync(long sessionToken, double requestedPlaybackSpeed, double effectivePlaybackSpeed)
+    {
+        ExternalLessonPlaybackSnapshot? changedSnapshot = null;
+
+        await _gate.WaitAsync();
+        try
+        {
+            if (_snapshot.SessionToken != sessionToken)
+            {
+                return;
+            }
+
+            var normalizedRequestedSpeed = NormalizePlaybackSpeed(requestedPlaybackSpeed);
+            var normalizedEffectiveSpeed = NormalizePlaybackSpeed(effectivePlaybackSpeed);
+            if (Math.Abs(_snapshot.RequestedPlaybackSpeed - normalizedRequestedSpeed) < 0.0001 &&
+                Math.Abs(_snapshot.EffectivePlaybackSpeed - normalizedEffectiveSpeed) < 0.0001)
+            {
+                return;
+            }
+
+            changedSnapshot = _snapshot with
+            {
+                RequestedPlaybackSpeed = normalizedRequestedSpeed,
+                EffectivePlaybackSpeed = normalizedEffectiveSpeed
+            };
+
+            _snapshot = changedSnapshot;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (changedSnapshot != null)
+        {
+            RaiseStateChanged(changedSnapshot);
+        }
     }
 
     public async Task UpdateViewportAsync(long sessionToken, ExternalLessonPlaybackViewport viewport)
@@ -400,14 +477,18 @@ public sealed class ExternalLessonPlaybackService(
         RaiseStateChanged(changedSnapshot);
     }
 
-    private ExternalLessonPlaybackSnapshot BuildActivationSnapshot(long sessionToken, Guid courseId, Lesson? lesson)
+    private ExternalLessonPlaybackSnapshot BuildActivationSnapshot(long sessionToken, Guid courseId, Lesson? lesson, double playbackSpeed)
     {
+        var normalizedPlaybackSpeed = NormalizePlaybackSpeed(playbackSpeed);
+
         if (lesson == null)
         {
             return ExternalLessonPlaybackSnapshot.Hidden with
             {
                 SessionToken = sessionToken,
                 CourseId = courseId,
+                RequestedPlaybackSpeed = normalizedPlaybackSpeed,
+                EffectivePlaybackSpeed = normalizedPlaybackSpeed,
                 Status = ExternalLessonPlaybackStatus.Error,
                 StatusTitle = "Aula indisponivel",
                 StatusMessage = "Nenhuma fonte externa foi associada a esta aula."
@@ -421,6 +502,8 @@ public sealed class ExternalLessonPlaybackService(
                 SessionToken = sessionToken,
                 CourseId = courseId,
                 LessonId = lesson.Id,
+                RequestedPlaybackSpeed = normalizedPlaybackSpeed,
+                EffectivePlaybackSpeed = normalizedPlaybackSpeed,
                 Status = ExternalLessonPlaybackStatus.Error,
                 StatusTitle = "Fonte de aula invalida",
                 StatusMessage = "A aula selecionada nao pertence ao runtime externo."
@@ -436,6 +519,8 @@ public sealed class ExternalLessonPlaybackService(
                 LessonId = lesson.Id,
                 Provider = lesson.Provider,
                 ExternalUrl = lesson.ExternalUrl,
+                RequestedPlaybackSpeed = normalizedPlaybackSpeed,
+                EffectivePlaybackSpeed = normalizedPlaybackSpeed,
                 Status = ExternalLessonPlaybackStatus.Error,
                 StatusTitle = "Fonte externa nao suportada",
                 StatusMessage = "O StudyHub ainda nao suporta a reproducao embutida desta fonte externa."
@@ -451,10 +536,25 @@ public sealed class ExternalLessonPlaybackService(
             ExternalUrl = canonicalUrl,
             VideoId = videoId,
             KnownDuration = lesson.Duration,
+            RequestedPlaybackSpeed = normalizedPlaybackSpeed,
+            EffectivePlaybackSpeed = normalizedPlaybackSpeed,
             Status = ExternalLessonPlaybackStatus.Pending,
             StatusTitle = "Abrindo aula externa",
             StatusMessage = "Carregando o video do YouTube no host externo do StudyHub."
         };
+    }
+
+    private static double NormalizePlaybackSpeed(double playbackSpeed)
+    {
+        foreach (var supportedPlaybackSpeed in SupportedPlaybackSpeeds)
+        {
+            if (Math.Abs(supportedPlaybackSpeed - playbackSpeed) < 0.0001)
+            {
+                return supportedPlaybackSpeed;
+            }
+        }
+
+        return 1.0;
     }
 
     private bool ShouldPersistSecond(int roundedSecond)
@@ -698,6 +798,8 @@ public sealed record ExternalLessonPlaybackSnapshot
     public string Provider { get; init; } = string.Empty;
     public string ExternalUrl { get; init; } = string.Empty;
     public string VideoId { get; init; } = string.Empty;
+    public double RequestedPlaybackSpeed { get; init; } = 1.0;
+    public double EffectivePlaybackSpeed { get; init; } = 1.0;
     public TimeSpan KnownDuration { get; init; }
     public ExternalLessonPlaybackStatus Status { get; init; } = ExternalLessonPlaybackStatus.Hidden;
     public string StatusTitle { get; init; } = "Player externo aguardando";

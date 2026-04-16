@@ -29,13 +29,23 @@
 
     <script>
         const query = new URLSearchParams(window.location.search);
+        function parseRate(value, fallback) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                return fallback;
+            }
+
+            return parsed;
+        }
+
         const studyHubPlayerConfig = {
             sessionToken: query.get("session") || "0",
             videoId: query.get("videoId") || "",
             courseId: query.get("courseId") || "",
             lessonId: query.get("lessonId") || "",
             externalUrl: query.get("externalUrl") || "",
-            provider: query.get("provider") || "YouTube"
+            provider: query.get("provider") || "YouTube",
+            initialRate: parseRate(query.get("initialRate"), 1)
         };
 
         const schemeBase = "studyhub-external://event";
@@ -43,6 +53,7 @@
         let player = null;
         let progressTimerId = 0;
         let apiTimeoutId = 0;
+        let targetPlaybackRate = studyHubPlayerConfig.initialRate;
 
         function notify(type, payload) {
             const message = Object.assign({
@@ -97,6 +108,126 @@
             progressTimerId = window.setInterval(emitProgress, 10000);
         }
 
+        function parseBridgeMessage(payload) {
+            if (payload === null || payload === undefined) {
+                return null;
+            }
+
+            if (typeof payload === "string") {
+                try {
+                    const parsed = JSON.parse(payload);
+                    return parsed && typeof parsed === "object" ? parsed : null;
+                } catch (error) {
+                    return null;
+                }
+            }
+
+            return typeof payload === "object" ? payload : null;
+        }
+
+        function selectBestAvailableRate(requestedRate) {
+            if (!player || typeof player.getAvailablePlaybackRates !== "function") {
+                return requestedRate;
+            }
+
+            const availableRates = player.getAvailablePlaybackRates()
+                .map(rate => Number(rate))
+                .filter(rate => Number.isFinite(rate) && rate > 0);
+
+            if (!availableRates.length) {
+                return requestedRate;
+            }
+
+            if (availableRates.some(rate => Math.abs(rate - requestedRate) < 0.001)) {
+                return requestedRate;
+            }
+
+            const lowerOrEqualRates = availableRates.filter(rate => rate <= requestedRate + 0.001);
+            if (lowerOrEqualRates.length) {
+                return Math.max(...lowerOrEqualRates);
+            }
+
+            return availableRates.reduce((bestRate, currentRate) => {
+                return Math.abs(currentRate - requestedRate) < Math.abs(bestRate - requestedRate)
+                    ? currentRate
+                    : bestRate;
+            }, availableRates[0]);
+        }
+
+        function emitPlaybackRate(reason, requestedRateOverride) {
+            if (!player || typeof player.getPlaybackRate !== "function") {
+                return;
+            }
+
+            const requestedRate = Number.isFinite(requestedRateOverride)
+                ? requestedRateOverride
+                : targetPlaybackRate;
+            const effectiveRate = Number(player.getPlaybackRate() || 0);
+            if (!Number.isFinite(effectiveRate) || effectiveRate <= 0) {
+                return;
+            }
+
+            notify("rate", {
+                requested: requestedRate.toFixed(3),
+                applied: effectiveRate.toFixed(3),
+                fallback: Math.abs(effectiveRate - requestedRate) > 0.001 ? "true" : "false",
+                reason: reason || ""
+            });
+        }
+
+        function applyPlaybackRate(reason) {
+            if (!player || typeof player.setPlaybackRate !== "function") {
+                return;
+            }
+
+            const requestedRate = targetPlaybackRate;
+            const rateToApply = selectBestAvailableRate(requestedRate);
+
+            try {
+                player.setPlaybackRate(rateToApply);
+            } catch (error) {
+            }
+
+            window.setTimeout(function () {
+                emitPlaybackRate(reason, requestedRate);
+            }, 120);
+        }
+
+        function handleHostMessage(payload) {
+            const message = parseBridgeMessage(payload);
+            if (!message) {
+                return;
+            }
+
+            const messageType = String(message.type || "").trim().toLowerCase();
+            if (messageType !== "set-rate") {
+                return;
+            }
+
+            if (String(message.session || "") !== String(studyHubPlayerConfig.sessionToken)) {
+                return;
+            }
+
+            targetPlaybackRate = parseRate(message.rate, targetPlaybackRate);
+            if (player) {
+                applyPlaybackRate("host-command");
+            }
+        }
+
+        window.studyHubExternalPlayerBridge = {
+            receive(payload) {
+                handleHostMessage(payload);
+            }
+        };
+
+        if (window.chrome &&
+            window.chrome.webview &&
+            typeof window.chrome.webview.addEventListener === "function") {
+            window.chrome.webview.addEventListener("message", function (event) {
+                handleHostMessage(event.data);
+            });
+        }
+
         function onYouTubeIframeAPIReady() {
             clearTimeout(apiTimeoutId);
 
@@ -123,9 +254,11 @@
                         notify("ready", {
                             duration: Number.isFinite(duration) ? duration.toFixed(3) : "0"
                         });
+                        applyPlaybackRate("player-ready");
                     },
                     onStateChange: function (event) {
                         notify("state", { state: event.data });
+                        emitPlaybackRate("state-change");
 
                         switch (event.data) {
                             case YT.PlayerState.PLAYING:
@@ -145,6 +278,9 @@
                                 clearProgressTimer();
                                 break;
                         }
+                    },
+                    onPlaybackRateChange: function (event) {
+                        emitPlaybackRate("playback-rate-change", Number(event.data));
                     },
                     onError: function (event) {
                         clearProgressTimer();

@@ -43,6 +43,8 @@ public partial class MainPage : ContentPage
 
     private long _loadedExternalSessionToken;
     private string? _loadedExternalVideoId;
+    private double _dispatchedExternalPlaybackSpeed = 1.0;
+    private double _effectiveExternalPlaybackSpeed = 1.0;
     private CancellationTokenSource _externalPlaybackLifecycleCts = new();
     private bool _externalWebViewEventsAttached;
     private bool _isExternalSourceTransitionInProgress;
@@ -191,6 +193,7 @@ public partial class MainPage : ContentPage
 
         AbsoluteLayout.SetLayoutBounds(externalPlayerHost, bounds);
         externalPlayerHost.IsVisible = true;
+        ApplyExternalPlaybackSpeed(snapshot);
 
         if (snapshot.SessionToken == _loadedExternalSessionToken &&
             string.Equals(snapshot.VideoId, _loadedExternalVideoId, StringComparison.OrdinalIgnoreCase))
@@ -266,6 +269,8 @@ public partial class MainPage : ContentPage
             _loadedExternalSessionToken = snapshot.SessionToken;
             _loadedExternalVideoId = snapshot.VideoId;
             _externalFallbackLaunchedSessionToken = 0;
+            _dispatchedExternalPlaybackSpeed = double.NaN;
+            _effectiveExternalPlaybackSpeed = double.NaN;
 
             if (!string.IsNullOrWhiteSpace(snapshot.VideoId))
             {
@@ -314,6 +319,8 @@ public partial class MainPage : ContentPage
         if (_loadedExternalSessionToken == 0 && string.IsNullOrWhiteSpace(_loadedExternalVideoId))
         {
             ResetExternalPlayerWebView();
+            _dispatchedExternalPlaybackSpeed = 1.0;
+            _effectiveExternalPlaybackSpeed = 1.0;
             _isExternalSourceTransitionInProgress = false;
             return;
         }
@@ -322,6 +329,8 @@ public partial class MainPage : ContentPage
         _loadedExternalSessionToken = 0;
         _loadedExternalVideoId = null;
         _externalFallbackLaunchedSessionToken = 0;
+        _dispatchedExternalPlaybackSpeed = 1.0;
+        _effectiveExternalPlaybackSpeed = 1.0;
         _isExternalSourceTransitionInProgress = false;
     }
 
@@ -555,6 +564,64 @@ public partial class MainPage : ContentPage
     }
 
     private static double NormalizeNativePlaybackSpeed(double playbackSpeed)
+    {
+        return playbackSpeed switch
+        {
+            0.5 or 1.0 or 1.5 or 2.0 or 2.5 => playbackSpeed,
+            _ => 1.0
+        };
+    }
+
+    private void ApplyExternalPlaybackSpeed(ExternalLessonPlaybackSnapshot snapshot)
+    {
+        if (_isPageUnloading ||
+            _isExternalSourceTransitionInProgress ||
+            !externalPlayerHost.IsVisible ||
+            _loadedExternalSessionToken == 0 ||
+            snapshot.SessionToken != _loadedExternalSessionToken ||
+            string.IsNullOrWhiteSpace(_loadedExternalVideoId))
+        {
+            return;
+        }
+
+        var normalizedRequestedSpeed = NormalizeExternalPlaybackSpeed(snapshot.RequestedPlaybackSpeed);
+        if (Math.Abs(_dispatchedExternalPlaybackSpeed - normalizedRequestedSpeed) < 0.0001)
+        {
+            return;
+        }
+
+        var payload = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            session = snapshot.SessionToken.ToString(CultureInfo.InvariantCulture),
+            type = "set-rate",
+            rate = normalizedRequestedSpeed.ToString("0.0##", CultureInfo.InvariantCulture)
+        });
+
+        try
+        {
+#if WINDOWS
+            if (_windowsExternalWebView?.CoreWebView2 != null)
+            {
+                _windowsExternalWebView.CoreWebView2.PostWebMessageAsString(payload);
+                _dispatchedExternalPlaybackSpeed = normalizedRequestedSpeed;
+                return;
+            }
+#endif
+            _ = externalPlayerWebView.EvaluateJavaScriptAsync(
+                $"window.studyHubExternalPlayerBridge && window.studyHubExternalPlayerBridge.receive({payload});");
+            _dispatchedExternalPlaybackSpeed = normalizedRequestedSpeed;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(
+                ex,
+                "External playback speed dispatch failed. SessionToken: {SessionToken}. RequestedSpeed: {RequestedSpeed}.",
+                snapshot.SessionToken,
+                normalizedRequestedSpeed);
+        }
+    }
+
+    private static double NormalizeExternalPlaybackSpeed(double playbackSpeed)
     {
         return playbackSpeed switch
         {
@@ -869,6 +936,7 @@ public partial class MainPage : ContentPage
         _isExternalSourceTransitionInProgress = true;
         CancelPendingExternalPlaybackEvents();
         DetachExternalPlayerEvents();
+        _dispatchedExternalPlaybackSpeed = double.NaN;
     }
 
     private void SafeStopNativeMediaElement()
@@ -1087,6 +1155,30 @@ public partial class MainPage : ContentPage
                         }
                         break;
 
+                    case "rate":
+                        var currentSnapshot = _externalLessonPlaybackService.Snapshot;
+                        var requestedRate = NormalizeExternalPlaybackSpeed(
+                            ParseRate(parameters, "requested", currentSnapshot.RequestedPlaybackSpeed));
+                        var appliedRate = NormalizeExternalPlaybackSpeed(
+                            ParseRate(parameters, "applied", requestedRate));
+                        var effectiveRateChanged = Math.Abs(_effectiveExternalPlaybackSpeed - appliedRate) >= 0.0001;
+
+                        _dispatchedExternalPlaybackSpeed = requestedRate;
+                        _effectiveExternalPlaybackSpeed = appliedRate;
+
+                        if (!effectiveRateChanged &&
+                            Math.Abs(currentSnapshot.RequestedPlaybackSpeed - requestedRate) < 0.0001 &&
+                            Math.Abs(currentSnapshot.EffectivePlaybackSpeed - appliedRate) < 0.0001)
+                        {
+                            break;
+                        }
+
+                        await _externalLessonPlaybackService.HandlePlaybackRateChangedAsync(
+                            sessionToken,
+                            requestedRate,
+                            appliedRate);
+                        break;
+
                     case "progress":
                         await _externalLessonPlaybackService.HandleProgressHeartbeatAsync(
                             sessionToken,
@@ -1190,6 +1282,20 @@ public partial class MainPage : ContentPage
         }
 
         return seconds <= 0 ? TimeSpan.Zero : TimeSpan.FromSeconds(seconds);
+    }
+
+    private static double ParseRate(IReadOnlyDictionary<string, string> parameters, string key, double fallback)
+    {
+        if (!parameters.TryGetValue(key, out var value) ||
+            !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedRate) ||
+            double.IsNaN(parsedRate) ||
+            double.IsInfinity(parsedRate) ||
+            parsedRate <= 0)
+        {
+            return fallback;
+        }
+
+        return parsedRate;
     }
 
     private async Task<bool> TryLaunchExternalFallbackAsync(long sessionToken, string? errorCode)
