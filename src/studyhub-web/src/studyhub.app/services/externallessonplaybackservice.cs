@@ -84,7 +84,8 @@ public sealed class ExternalLessonPlaybackService(
 
             changedSnapshot = _snapshot with
             {
-                RequestedPlaybackSpeed = normalizedRequestedSpeed
+                RequestedPlaybackSpeed = normalizedRequestedSpeed,
+                EffectivePlaybackSpeed = normalizedRequestedSpeed
             };
 
             _snapshot = changedSnapshot;
@@ -113,7 +114,7 @@ public sealed class ExternalLessonPlaybackService(
             }
 
             var normalizedRequestedSpeed = NormalizePlaybackSpeed(requestedPlaybackSpeed);
-            var normalizedEffectiveSpeed = NormalizePlaybackSpeed(effectivePlaybackSpeed);
+            var normalizedEffectiveSpeed = SanitizeEffectivePlaybackSpeed(effectivePlaybackSpeed, normalizedRequestedSpeed);
             if (Math.Abs(_snapshot.RequestedPlaybackSpeed - normalizedRequestedSpeed) < 0.0001 &&
                 Math.Abs(_snapshot.EffectivePlaybackSpeed - normalizedEffectiveSpeed) < 0.0001)
             {
@@ -555,6 +556,16 @@ public sealed class ExternalLessonPlaybackService(
         }
 
         return 1.0;
+    }
+
+    private static double SanitizeEffectivePlaybackSpeed(double playbackSpeed, double fallback)
+    {
+        if (double.IsNaN(playbackSpeed) || double.IsInfinity(playbackSpeed) || playbackSpeed <= 0)
+        {
+            return fallback;
+        }
+
+        return Math.Round(playbackSpeed, 3, MidpointRounding.AwayFromZero);
     }
 
     private bool ShouldPersistSecond(int roundedSecond)

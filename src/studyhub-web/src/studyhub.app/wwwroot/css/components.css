@@ -779,6 +779,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-sm);
+    flex-wrap: wrap;
 }
 
 .player-speed-label {
@@ -805,6 +806,12 @@
     outline: none;
     border-color: var(--accent-primary);
     box-shadow: 0 0 0 2px var(--accent-primary-glow);
+}
+
+.player-speed-effective-hint {
+    color: var(--text-tertiary);
+    font-size: var(--font-xs);
+    line-height: 1.35;
 }
 
 .player-ctrl-done {

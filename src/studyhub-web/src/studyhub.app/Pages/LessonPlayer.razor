@@ -3,13 +3,16 @@
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
+@using studyhub.app.services
 @using studyhub.application.Interfaces
 @using studyhub.domain.Entities
 @using studyhub.shared.Enums
 @using studyhub.app.Components.Course
 @using studyhub.app.Components.Shared
+@implements IDisposable
 @inject ICourseService CourseService
 @inject IProgressService ProgressService
+@inject ExternalLessonPlaybackService ExternalPlaybackService
 @inject IJSRuntime JS
 @inject ILogger<LessonPlayer> Logger
 @inject NavigationManager nav
@@ -87,6 +90,13 @@
                             <option value="@speed.ToString("0.0##", CultureInfo.InvariantCulture)">@FormatPlaybackSpeed(speed)</option>
                         }
                     </select>
+                    @if (ShouldShowExternalPlaybackFallback)
+                    {
+                        <span class="player-speed-effective-hint">
+                            YouTube aplicou @FormatPlaybackSpeed(externalPlaybackSnapshot.EffectivePlaybackSpeed)
+                            (solicitado @FormatPlaybackSpeed(externalPlaybackSnapshot.RequestedPlaybackSpeed)).
+                        </span>
+                    }
                 </div>
 
                 <div class="flex-1"></div>
@@ -151,6 +161,21 @@
     private const double DefaultPlaybackSpeed = 1.0;
     private static readonly double[] availablePlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
     private double selectedPlaybackSpeed = DefaultPlaybackSpeed;
+    private ExternalLessonPlaybackSnapshot externalPlaybackSnapshot = ExternalLessonPlaybackSnapshot.Hidden;
+
+    private bool ShouldShowExternalPlaybackFallback =>
+        currentLesson?.SourceType == LessonSourceType.ExternalVideo &&
+        currentLesson.Id != Guid.Empty &&
+        externalPlaybackSnapshot.SessionToken != 0 &&
+        externalPlaybackSnapshot.LessonId == currentLesson.Id &&
+        externalPlaybackSnapshot.Status != ExternalLessonPlaybackStatus.Error &&
+        Math.Abs(externalPlaybackSnapshot.RequestedPlaybackSpeed - externalPlaybackSnapshot.EffectivePlaybackSpeed) >= 0.01;
+
+    protected override void OnInitialized()
+    {
+        externalPlaybackSnapshot = ExternalPlaybackService.Snapshot;
+        ExternalPlaybackService.StateChanged += HandleExternalPlaybackStateChanged;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -369,6 +394,20 @@
     private static string FormatPlaybackSpeed(double speed)
     {
         return $"{speed.ToString("0.0##", CultureInfo.InvariantCulture)}x";
+    }
+
+    private void HandleExternalPlaybackStateChanged(ExternalLessonPlaybackSnapshot snapshot)
+    {
+        _ = InvokeAsync(() =>
+        {
+            externalPlaybackSnapshot = snapshot;
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        ExternalPlaybackService.StateChanged -= HandleExternalPlaybackStateChanged;
     }
 
     private string GetLessonReference()

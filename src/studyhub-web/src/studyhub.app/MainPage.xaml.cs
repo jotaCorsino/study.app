@@ -18,6 +18,7 @@ public partial class MainPage : ContentPage
 {
     private const string ExternalBridgeScheme = "studyhub-external";
     private const double NativeTransportControlZoneRatio = 0.24;
+    private const double NativeTransportControlZoneMaxRatio = 0.45;
     private const double NativeTransportControlZoneMinHeight = 96;
     private static readonly HashSet<string> ExternalFallbackErrorCodes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -584,7 +585,7 @@ public partial class MainPage : ContentPage
             return;
         }
 
-        var normalizedRequestedSpeed = NormalizeExternalPlaybackSpeed(snapshot.RequestedPlaybackSpeed);
+        var normalizedRequestedSpeed = NormalizeExternalRequestedPlaybackSpeed(snapshot.RequestedPlaybackSpeed);
         if (Math.Abs(_dispatchedExternalPlaybackSpeed - normalizedRequestedSpeed) < 0.0001)
         {
             return;
@@ -621,13 +622,23 @@ public partial class MainPage : ContentPage
         }
     }
 
-    private static double NormalizeExternalPlaybackSpeed(double playbackSpeed)
+    private static double NormalizeExternalRequestedPlaybackSpeed(double playbackSpeed)
     {
         return playbackSpeed switch
         {
             0.5 or 1.0 or 1.5 or 2.0 or 2.5 => playbackSpeed,
             _ => 1.0
         };
+    }
+
+    private static double NormalizeExternalEffectivePlaybackSpeed(double playbackSpeed, double fallback)
+    {
+        if (double.IsNaN(playbackSpeed) || double.IsInfinity(playbackSpeed) || playbackSpeed <= 0)
+        {
+            return fallback;
+        }
+
+        return Math.Round(playbackSpeed, 3, MidpointRounding.AwayFromZero);
     }
 
     private async void HandleNativePlayerHostTapped(object? sender, TappedEventArgs e)
@@ -731,6 +742,14 @@ public partial class MainPage : ContentPage
         var controlZoneHeight = Math.Max(
             NativeTransportControlZoneMinHeight,
             nativePlayerHost.Height * NativeTransportControlZoneRatio);
+        controlZoneHeight = Math.Min(
+            controlZoneHeight,
+            nativePlayerHost.Height * NativeTransportControlZoneMaxRatio);
+
+        if (controlZoneHeight <= 0)
+        {
+            return false;
+        }
 
         return tapPosition.Value.Y >= nativePlayerHost.Height - controlZoneHeight;
     }
@@ -1157,10 +1176,11 @@ public partial class MainPage : ContentPage
 
                     case "rate":
                         var currentSnapshot = _externalLessonPlaybackService.Snapshot;
-                        var requestedRate = NormalizeExternalPlaybackSpeed(
+                        var requestedRate = NormalizeExternalRequestedPlaybackSpeed(
                             ParseRate(parameters, "requested", currentSnapshot.RequestedPlaybackSpeed));
-                        var appliedRate = NormalizeExternalPlaybackSpeed(
-                            ParseRate(parameters, "applied", requestedRate));
+                        var appliedRate = NormalizeExternalEffectivePlaybackSpeed(
+                            ParseRate(parameters, "applied", requestedRate),
+                            requestedRate);
                         var effectiveRateChanged = Math.Abs(_effectiveExternalPlaybackSpeed - appliedRate) >= 0.0001;
 
                         _dispatchedExternalPlaybackSpeed = requestedRate;

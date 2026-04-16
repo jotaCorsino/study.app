@@ -280,7 +280,7 @@
                         }
                     },
                     onPlaybackRateChange: function (event) {
-                        emitPlaybackRate("playback-rate-change", Number(event.data));
+                        emitPlaybackRate("playback-rate-change");
                     },
                     onError: function (event) {
                         clearProgressTimer();
