@@ -775,6 +775,38 @@
     font-size: var(--font-sm);
 }
 
+.player-speed-control {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.player-speed-label {
+    color: var(--text-tertiary);
+    font-size: var(--font-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.player-speed-select {
+    min-width: 86px;
+    height: 36px;
+    padding: 0 var(--space-sm);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: var(--font-sm);
+    font-weight: var(--weight-medium);
+}
+
+.player-speed-select:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 2px var(--accent-primary-glow);
+}
+
 .player-ctrl-done {
     background: rgba(0, 184, 148, 0.1);
     color: var(--color-success);

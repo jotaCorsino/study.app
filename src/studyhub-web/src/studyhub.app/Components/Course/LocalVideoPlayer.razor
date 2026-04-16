@@ -19,6 +19,7 @@
 @code {
     [Parameter, EditorRequired] public Guid CourseId { get; set; }
     [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
+    [Parameter] public double RequestedPlaybackSpeed { get; set; } = 1.0;
     [Parameter] public EventCallback OnLessonCompleted { get; set; }
 
     private ElementReference hostAnchor;
@@ -27,6 +28,7 @@
     private long currentSessionToken;
     private Guid currentLessonId;
     private string currentFilePath = string.Empty;
+    private double currentPlaybackSpeed = 1.0;
     private bool viewportObserverInitialized;
 
     private string statusTitle => snapshot.StatusTitle;
@@ -43,6 +45,7 @@
     protected override void OnInitialized()
     {
         snapshot = PlaybackService.Snapshot;
+        currentPlaybackSpeed = NormalizePlaybackSpeed(snapshot.PlaybackSpeed);
         PlaybackService.StateChanged += HandlePlaybackStateChanged;
         PlaybackService.LessonCompleted += HandleLessonCompleted;
     }
@@ -54,16 +57,28 @@
             return;
         }
 
-        if (currentLessonId == Lesson.Id &&
-            string.Equals(currentFilePath, Lesson.FilePath, StringComparison.OrdinalIgnoreCase) &&
-            currentSessionToken > 0)
+        var requestedPlaybackSpeed = NormalizePlaybackSpeed(RequestedPlaybackSpeed);
+        var shouldActivateSession = currentLessonId != Lesson.Id ||
+            !string.Equals(currentFilePath, Lesson.FilePath, StringComparison.OrdinalIgnoreCase) ||
+            currentSessionToken <= 0;
+
+        if (shouldActivateSession)
+        {
+            currentLessonId = Lesson.Id;
+            currentFilePath = Lesson.FilePath;
+            currentSessionToken = await PlaybackService.ActivateAsync(CourseId, Lesson, requestedPlaybackSpeed);
+            currentPlaybackSpeed = requestedPlaybackSpeed;
+            snapshot = PlaybackService.Snapshot;
+            return;
+        }
+
+        if (Math.Abs(currentPlaybackSpeed - requestedPlaybackSpeed) < 0.0001)
         {
             return;
         }
 
-        currentLessonId = Lesson.Id;
-        currentFilePath = Lesson.FilePath;
-        currentSessionToken = await PlaybackService.ActivateAsync(CourseId, Lesson);
+        await PlaybackService.SetPlaybackSpeedAsync(currentSessionToken, requestedPlaybackSpeed);
+        currentPlaybackSpeed = requestedPlaybackSpeed;
         snapshot = PlaybackService.Snapshot;
     }
 
@@ -115,8 +130,18 @@
         _ = InvokeAsync(() =>
         {
             snapshot = updatedSnapshot;
+            currentPlaybackSpeed = NormalizePlaybackSpeed(updatedSnapshot.PlaybackSpeed);
             StateHasChanged();
         });
+    }
+
+    private static double NormalizePlaybackSpeed(double speed)
+    {
+        return speed switch
+        {
+            0.5 or 1.0 or 1.5 or 2.0 or 2.5 => speed,
+            _ => 1.0
+        };
     }
 
     private async void HandleLessonCompleted(object? sender, NativeLessonPlaybackCompletedEventArgs e)

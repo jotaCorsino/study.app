@@ -33,6 +33,7 @@ public partial class MainPage : ContentPage
     private long _loadedNativeSessionToken;
     private string? _loadedNativeFilePath;
     private MediaElementState _currentNativeMediaState = MediaElementState.None;
+    private double _appliedNativePlaybackSpeed = 1.0;
     private CancellationTokenSource _nativeMediaLifecycleCts = new();
     private bool _nativeMediaEventsAttached;
     private bool _isNativeSourceTransitionInProgress;
@@ -148,6 +149,7 @@ public partial class MainPage : ContentPage
         AbsoluteLayout.SetLayoutBounds(nativePlayerHost, bounds);
         nativePlayerHost.IsVisible = true;
         UpdateNativePlaybackControlsForState();
+        ApplyNativePlaybackSpeed(snapshot);
 
         if (snapshot.SessionToken == _loadedNativeSessionToken &&
             string.Equals(snapshot.FilePath, _loadedNativeFilePath, StringComparison.OrdinalIgnoreCase))
@@ -235,11 +237,13 @@ public partial class MainPage : ContentPage
             _loadedNativeSessionToken = snapshot.SessionToken;
             _loadedNativeFilePath = snapshot.FilePath;
             _currentNativeMediaState = MediaElementState.None;
+            _appliedNativePlaybackSpeed = double.NaN;
 
             if (!string.IsNullOrWhiteSpace(snapshot.FilePath))
             {
                 AttachNativeMediaElementEvents();
                 nativeMediaElement.Source = MediaSource.FromFile(snapshot.FilePath);
+                ApplyNativePlaybackSpeed(snapshot);
             }
         }
         finally
@@ -282,6 +286,7 @@ public partial class MainPage : ContentPage
 
         if (_loadedNativeSessionToken == 0 && nativeMediaElement.Source == null)
         {
+            _appliedNativePlaybackSpeed = 1.0;
             _isNativeSourceTransitionInProgress = false;
             return;
         }
@@ -291,6 +296,7 @@ public partial class MainPage : ContentPage
         _loadedNativeSessionToken = 0;
         _loadedNativeFilePath = null;
         _currentNativeMediaState = MediaElementState.None;
+        _appliedNativePlaybackSpeed = 1.0;
         _isNativeSourceTransitionInProgress = false;
     }
 
@@ -373,6 +379,7 @@ public partial class MainPage : ContentPage
                 }
 
                 await _nativeLessonPlaybackService.HandleMediaOpenedAsync(_loadedNativeSessionToken, nativeMediaElement.Duration);
+                ApplyNativePlaybackSpeed(_nativeLessonPlaybackService.Snapshot);
 
                 _logger.LogInformation(
                     "Native media opened. SessionToken: {SessionToken}. FilePath: {FilePath}. Duration: {Duration}. Automatic startup seek is disabled.",
@@ -503,6 +510,52 @@ public partial class MainPage : ContentPage
             "Native playback state updated without mutating native playback controls. SessionToken: {SessionToken}. State: {State}.",
             _loadedNativeSessionToken,
             _currentNativeMediaState);
+    }
+
+    private void ApplyNativePlaybackSpeed(NativeLessonPlaybackSnapshot snapshot)
+    {
+        if (_isPageUnloading ||
+            _isNativeSourceTransitionInProgress ||
+            !nativePlayerHost.IsVisible ||
+            _loadedNativeSessionToken == 0 ||
+            snapshot.SessionToken != _loadedNativeSessionToken)
+        {
+            return;
+        }
+
+        var normalizedSpeed = NormalizeNativePlaybackSpeed(snapshot.PlaybackSpeed);
+        if (Math.Abs(_appliedNativePlaybackSpeed - normalizedSpeed) < 0.0001)
+        {
+            return;
+        }
+
+        try
+        {
+            nativeMediaElement.Speed = normalizedSpeed;
+            _appliedNativePlaybackSpeed = normalizedSpeed;
+
+            _logger.LogDebug(
+                "Native playback speed applied. SessionToken: {SessionToken}. Speed: {Speed}.",
+                snapshot.SessionToken,
+                normalizedSpeed);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Native playback speed update failed. SessionToken: {SessionToken}. RequestedSpeed: {Speed}.",
+                snapshot.SessionToken,
+                normalizedSpeed);
+        }
+    }
+
+    private static double NormalizeNativePlaybackSpeed(double playbackSpeed)
+    {
+        return playbackSpeed switch
+        {
+            0.5 or 1.0 or 1.5 or 2.0 or 2.5 => playbackSpeed,
+            _ => 1.0
+        };
     }
 
     protected override void OnHandlerChanging(HandlerChangingEventArgs args)
@@ -696,6 +749,7 @@ public partial class MainPage : ContentPage
         CancelPendingNativeMediaEvents();
         DetachNativeMediaElementEvents();
         _currentNativeMediaState = MediaElementState.None;
+        _appliedNativePlaybackSpeed = double.NaN;
     }
 
     private void BeginExternalSourceTransition()

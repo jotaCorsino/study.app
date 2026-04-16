@@ -9,6 +9,8 @@ public sealed class NativeLessonPlaybackService(
     IProgressService progressService,
     ILogger<NativeLessonPlaybackService> logger)
 {
+    private static readonly double[] SupportedPlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
+
     private readonly IProgressService _progressService = progressService;
     private readonly ILogger<NativeLessonPlaybackService> _logger = logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -23,7 +25,7 @@ public sealed class NativeLessonPlaybackService(
 
     public NativeLessonPlaybackSnapshot Snapshot => _snapshot;
 
-    public async Task<long> ActivateAsync(Guid courseId, Lesson? lesson)
+    public async Task<long> ActivateAsync(Guid courseId, Lesson? lesson, double playbackSpeed)
     {
         NativeLessonPlaybackSnapshot updatedSnapshot;
 
@@ -36,7 +38,7 @@ public sealed class NativeLessonPlaybackService(
                 ? -1
                 : (int)Math.Round(Math.Max(0, lesson.LastPlaybackPosition.TotalSeconds));
 
-            updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson);
+            updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson, playbackSpeed);
             _snapshot = updatedSnapshot;
         }
         finally
@@ -53,6 +55,38 @@ public sealed class NativeLessonPlaybackService(
 
         RaiseStateChanged(updatedSnapshot);
         return updatedSnapshot.SessionToken;
+    }
+
+    public async Task SetPlaybackSpeedAsync(long sessionToken, double playbackSpeed)
+    {
+        NativeLessonPlaybackSnapshot? changedSnapshot = null;
+
+        await _gate.WaitAsync();
+        try
+        {
+            if (_snapshot.SessionToken != sessionToken)
+            {
+                return;
+            }
+
+            var normalizedSpeed = NormalizePlaybackSpeed(playbackSpeed);
+            if (Math.Abs(_snapshot.PlaybackSpeed - normalizedSpeed) < 0.0001)
+            {
+                return;
+            }
+
+            changedSnapshot = _snapshot with { PlaybackSpeed = normalizedSpeed };
+            _snapshot = changedSnapshot;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+
+        if (changedSnapshot != null)
+        {
+            RaiseStateChanged(changedSnapshot);
+        }
     }
 
     public async Task UpdateViewportAsync(long sessionToken, NativeLessonPlaybackViewport viewport)
@@ -411,14 +445,17 @@ public sealed class NativeLessonPlaybackService(
         RaiseStateChanged(changedSnapshot);
     }
 
-    private NativeLessonPlaybackSnapshot BuildActivationSnapshot(long sessionToken, Guid courseId, Lesson? lesson)
+    private NativeLessonPlaybackSnapshot BuildActivationSnapshot(long sessionToken, Guid courseId, Lesson? lesson, double playbackSpeed)
     {
+        var normalizedSpeed = NormalizePlaybackSpeed(playbackSpeed);
+
         if (lesson == null)
         {
             return NativeLessonPlaybackSnapshot.Hidden with
             {
                 SessionToken = sessionToken,
                 CourseId = courseId,
+                PlaybackSpeed = normalizedSpeed,
                 Status = NativeLessonPlaybackStatus.Error,
                 StatusTitle = "Aula indisponivel",
                 StatusMessage = "Nenhum arquivo de video foi associado a esta aula."
@@ -433,6 +470,7 @@ public sealed class NativeLessonPlaybackService(
                 CourseId = courseId,
                 LessonId = lesson.Id,
                 FilePath = lesson.LocalFilePath,
+                PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
                 KnownDuration = lesson.Duration,
                 Status = NativeLessonPlaybackStatus.Error,
@@ -448,6 +486,7 @@ public sealed class NativeLessonPlaybackService(
                 SessionToken = sessionToken,
                 CourseId = courseId,
                 LessonId = lesson.Id,
+                PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
                 KnownDuration = lesson.Duration,
                 Status = NativeLessonPlaybackStatus.Error,
@@ -464,6 +503,7 @@ public sealed class NativeLessonPlaybackService(
                 CourseId = courseId,
                 LessonId = lesson.Id,
                 FilePath = lesson.LocalFilePath,
+                PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
                 KnownDuration = lesson.Duration,
                 Status = NativeLessonPlaybackStatus.Error,
@@ -479,6 +519,7 @@ public sealed class NativeLessonPlaybackService(
             CourseId = courseId,
             LessonId = lesson.Id,
             FilePath = lesson.LocalFilePath,
+            PlaybackSpeed = normalizedSpeed,
             ResumePosition = lesson.LastPlaybackPosition,
             KnownDuration = lesson.Duration,
             Status = NativeLessonPlaybackStatus.Pending,
@@ -518,6 +559,19 @@ public sealed class NativeLessonPlaybackService(
         return resumePosition > duration ? duration : resumePosition;
     }
 
+    private static double NormalizePlaybackSpeed(double playbackSpeed)
+    {
+        foreach (var supportedSpeed in SupportedPlaybackSpeeds)
+        {
+            if (Math.Abs(supportedSpeed - playbackSpeed) < 0.0001)
+            {
+                return supportedSpeed;
+            }
+        }
+
+        return 1.0;
+    }
+
     private void RaiseStateChanged(NativeLessonPlaybackSnapshot snapshot)
     {
         StateChanged?.Invoke(snapshot);
@@ -532,6 +586,7 @@ public sealed record NativeLessonPlaybackSnapshot
     public Guid? CourseId { get; init; }
     public Guid? LessonId { get; init; }
     public string? FilePath { get; init; }
+    public double PlaybackSpeed { get; init; } = 1.0;
     public TimeSpan ResumePosition { get; init; }
     public TimeSpan KnownDuration { get; init; }
     public NativeLessonPlaybackStatus Status { get; init; } = NativeLessonPlaybackStatus.Hidden;

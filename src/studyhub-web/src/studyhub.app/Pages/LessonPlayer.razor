@@ -1,5 +1,6 @@
 @page "/course/{CourseId:guid}/lesson/{LessonId:guid}"
 @layout studyhub.app.Components.Layout.MainLayout
+@using System.Globalization
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
 @using studyhub.application.Interfaces
@@ -51,6 +52,7 @@
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
                                     Lesson="currentLesson"
+                                    RequestedPlaybackSpeed="selectedPlaybackSpeed"
                                     OnLessonCompleted="HandleLessonCompletedAsync" />
             </div>
             
@@ -74,6 +76,19 @@
                     </button>
                 }
                 
+                <div class="player-speed-control">
+                    <label class="player-speed-label" for="lesson-player-speed">Velocidade</label>
+                    <select id="lesson-player-speed"
+                            class="player-speed-select"
+                            value="@selectedPlaybackSpeed.ToString("0.0##", CultureInfo.InvariantCulture)"
+                            @onchange="HandlePlaybackSpeedChanged">
+                        @foreach (var speed in availablePlaybackSpeeds)
+                        {
+                            <option value="@speed.ToString("0.0##", CultureInfo.InvariantCulture)">@FormatPlaybackSpeed(speed)</option>
+                        }
+                    </select>
+                </div>
+
                 <div class="flex-1"></div>
                 
                 <button class="btn btn-primary player-ctrl-btn" @onclick="GoToNextLesson" disabled="@(nextLesson == null)">
@@ -133,6 +148,9 @@
     private Guid? pendingSidebarAnchorLessonId;
     private Guid? lastAppliedSidebarAnchorLessonId;
     private const string SidebarElementId = "lesson-player-sidebar";
+    private const double DefaultPlaybackSpeed = 1.0;
+    private static readonly double[] availablePlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
+    private double selectedPlaybackSpeed = DefaultPlaybackSpeed;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -321,6 +339,36 @@
     private void NavigateToLesson(Lesson lesson)
     {
         nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
+    }
+
+    private void HandlePlaybackSpeedChanged(ChangeEventArgs args)
+    {
+        if (args.Value is not string rawValue ||
+            !double.TryParse(rawValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed))
+        {
+            selectedPlaybackSpeed = DefaultPlaybackSpeed;
+            return;
+        }
+
+        selectedPlaybackSpeed = NormalizePlaybackSpeed(parsedSpeed);
+    }
+
+    private static double NormalizePlaybackSpeed(double speed)
+    {
+        foreach (var supportedSpeed in availablePlaybackSpeeds)
+        {
+            if (Math.Abs(supportedSpeed - speed) < 0.0001)
+            {
+                return supportedSpeed;
+            }
+        }
+
+        return DefaultPlaybackSpeed;
+    }
+
+    private static string FormatPlaybackSpeed(double speed)
+    {
+        return $"{speed.ToString("0.0##", CultureInfo.InvariantCulture)}x";
     }
 
     private string GetLessonReference()

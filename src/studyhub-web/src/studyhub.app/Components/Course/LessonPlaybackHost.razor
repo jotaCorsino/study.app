@@ -15,12 +15,14 @@ else
     <LocalVideoPlayer @key="@($"{Lesson?.Id}:local")"
                       CourseId="CourseId"
                       Lesson="Lesson"
+                      RequestedPlaybackSpeed="RequestedPlaybackSpeed"
                       OnLessonCompleted="OnLessonCompleted" />
 }
 
 @code {
     [Parameter, EditorRequired] public Guid CourseId { get; set; }
     [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
+    [Parameter] public double RequestedPlaybackSpeed { get; set; } = 1.0;
     [Parameter] public EventCallback OnLessonCompleted { get; set; }
 
     protected override async Task OnParametersSetAsync()
