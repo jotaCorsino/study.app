@@ -837,10 +837,18 @@
     align-items: center;
     justify-content: center;
     height: 40px;
-    min-width: 320px;
-    width: min(100%, 430px);
+    min-width: 0;
+    width: 80px;
     max-width: 100%;
-    flex: 0 1 430px;
+    flex: 0 0 auto;
+}
+
+.player-settings-inline-slot.is-speed {
+    width: 286px;
+}
+
+.player-settings-inline-slot.is-intro {
+    width: 234px;
 }
 
 .player-control-icon-btn {
@@ -873,9 +881,9 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-xs);
-    width: 100%;
+    width: auto;
     height: 100%;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
 }
 
 .player-control-icon-btn-intro.is-active {
@@ -898,7 +906,7 @@
     background: rgba(16, 19, 27, 0.92);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
     box-sizing: border-box;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
 }
 
 .player-settings-inline-panel-speed {
@@ -908,6 +916,7 @@
 .player-settings-inline-panel-intro {
     justify-content: flex-start;
     flex-wrap: nowrap;
+    gap: 8px;
 }
 
 .player-settings-inline-title {
@@ -1060,7 +1069,7 @@
     justify-content: center;
     transition: all var(--transition-fast);
     flex: 0 0 auto;
-    margin-left: auto;
+    margin-left: 2px;
 }
 
 .player-inline-close-btn:hover {
@@ -1239,7 +1248,7 @@
 
     .player-settings-inline-slot {
         min-width: 0;
-        width: min(100%, 560px);
+        width: min(100%, 320px);
         flex: 1 1 100%;
     }
 

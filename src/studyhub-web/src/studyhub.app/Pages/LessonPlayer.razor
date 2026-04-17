@@ -84,7 +84,7 @@
                 </div>
 
                 <div class="player-controls-settings">
-                    <div class="player-settings-inline-slot">
+                    <div class="player-settings-inline-slot @GetInlineSlotModeClass()">
                         @if (settingsInlineMode == PlayerControlsSettingsMode.Normal)
                         {
                             <div class="player-settings-normal-actions">
@@ -503,6 +503,16 @@
     private void CloseInlineSettings()
     {
         settingsInlineMode = PlayerControlsSettingsMode.Normal;
+    }
+
+    private string GetInlineSlotModeClass()
+    {
+        return settingsInlineMode switch
+        {
+            PlayerControlsSettingsMode.SpeedInline => "is-speed",
+            PlayerControlsSettingsMode.IntroInline => "is-intro",
+            _ => "is-normal"
+        };
     }
 
     private void SelectPlaybackSpeed(double speed)
