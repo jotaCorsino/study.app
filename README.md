@@ -54,12 +54,19 @@ O pacote de release nao inclui dados pessoais de quem publicou a release.
 
 ### Intro skip por curso (local + externo)
 
-- configuracao por curso, visivel na tela da aula ao lado do seletor de velocidade
+- configuracao por curso agora em controles compactos por popover no painel inferior da aula
+- velocidade e intro skip ficam em botoes de icone (sem bloco inline estendido)
 - permite ativar/desativar (`Intro skip enabled`) e definir segundos (`Intro skip seconds`)
-- painel inferior refinado com switch visual para ativacao e controles compactos de velocidade/segundos
+- botao de intro skip recebe destaque visual quando a funcao esta ativa
 - regra de precedencia: se a aula tiver posicao salva de retomada (`LastPlaybackPosition > 0`), a retomada vence sempre
 - o intro skip so entra quando a aula comeca do zero
 - aplicacao unica por abertura/carregamento da aula (sem reaplicacao em play/pause, velocidade ou re-render)
+
+### Menu lateral de cursos (indicador diario)
+
+- cada curso no menu lateral esquerdo exibe um pequeno circulo indicador
+- a cor do circulo espelha o estado/meta diaria do curso no dia atual
+- o carregamento do indicador usa caminho em lote para evitar consulta individual por curso (sem N+1 no menu)
 
 ### Player local (video em arquivo no Windows)
 

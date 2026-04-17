@@ -163,6 +163,139 @@ public sealed class RoutineServiceTests : IDisposable
         Assert.Equal(30, preservedRecord.DailyGoalMinutesAtTheTime);
     }
 
+    [Fact]
+    public async Task GetDailyRecordsAsync_ReturnsBatchIndicatorsForMultipleCourses()
+    {
+        var partialCourseId = Guid.NewGuid();
+        var notStartedCourseId = Guid.NewGuid();
+        var notCreatedYetCourseId = Guid.NewGuid();
+        var targetDate = new DateTime(2026, 4, 15);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.AddRange(
+                new CourseRecord
+                {
+                    Id = partialCourseId,
+                    RawTitle = "Curso 1",
+                    RawDescription = "Descricao",
+                    Title = "Curso 1",
+                    Description = "Descricao",
+                    Category = "Curso Local",
+                    ThumbnailUrl = string.Empty,
+                    FolderPath = string.Empty,
+                    SourceMetadataJson = "{}",
+                    TotalDurationMinutes = 0,
+                    AddedAt = new DateTime(2026, 4, 1)
+                },
+                new CourseRecord
+                {
+                    Id = notStartedCourseId,
+                    RawTitle = "Curso 2",
+                    RawDescription = "Descricao",
+                    Title = "Curso 2",
+                    Description = "Descricao",
+                    Category = "Curso Local",
+                    ThumbnailUrl = string.Empty,
+                    FolderPath = string.Empty,
+                    SourceMetadataJson = "{}",
+                    TotalDurationMinutes = 0,
+                    AddedAt = new DateTime(2026, 4, 1)
+                },
+                new CourseRecord
+                {
+                    Id = notCreatedYetCourseId,
+                    RawTitle = "Curso 3",
+                    RawDescription = "Descricao",
+                    Title = "Curso 3",
+                    Description = "Descricao",
+                    Category = "Curso Local",
+                    ThumbnailUrl = string.Empty,
+                    FolderPath = string.Empty,
+                    SourceMetadataJson = "{}",
+                    TotalDurationMinutes = 0,
+                    AddedAt = new DateTime(2026, 4, 20)
+                });
+            await setupContext.SaveChangesAsync();
+        }
+
+        var storage = new TestStoragePathsService(_rootDirectory);
+        var service = new RoutineService(storage, new TestDbContextFactory(options));
+
+        var plannedSettings = new RoutineSettings
+        {
+            DailyGoalMinutes = 30,
+            SelectedDaysOfWeek =
+            [
+                DayOfWeek.Sunday,
+                DayOfWeek.Monday,
+                DayOfWeek.Tuesday,
+                DayOfWeek.Wednesday,
+                DayOfWeek.Thursday,
+                DayOfWeek.Friday,
+                DayOfWeek.Saturday
+            ],
+            LastUpdatedAt = new DateTime(2026, 4, 1)
+        };
+
+        await WriteSettingsAsync(storage, partialCourseId, plannedSettings);
+        await WriteSettingsAsync(storage, notStartedCourseId, plannedSettings);
+        await WriteSettingsAsync(storage, notCreatedYetCourseId, plannedSettings);
+
+        await WriteRecordsAsync(storage, partialCourseId,
+        [
+            new DailyStudyRecord
+            {
+                CourseId = partialCourseId,
+                Date = targetDate,
+                NonLessonMinutesStudied = 10,
+                MinutesStudied = 10,
+                DailyGoalMinutesAtTheTime = 30,
+                Status = DailyStudyStatus.Partial
+            }
+        ]);
+
+        var records = await service.GetDailyRecordsAsync(
+            [partialCourseId, notStartedCourseId, notCreatedYetCourseId],
+            targetDate);
+
+        Assert.Equal(3, records.Count);
+        Assert.Equal(DailyStudyStatus.Partial, records[partialCourseId].Status);
+        Assert.Equal(DailyStudyStatus.NotStarted, records[notStartedCourseId].Status);
+        Assert.Equal(DailyStudyStatus.Unplanned, records[notCreatedYetCourseId].Status);
+    }
+
+    [Fact]
+    public async Task GetDailyRecordsAsync_ReturnsEmptyDictionary_WhenNoCourseIdIsProvided()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+        }
+
+        var storage = new TestStoragePathsService(_rootDirectory);
+        var service = new RoutineService(storage, new TestDbContextFactory(options));
+
+        var records = await service.GetDailyRecordsAsync([], new DateTime(2026, 4, 15));
+
+        Assert.Empty(records);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_rootDirectory))
