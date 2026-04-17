@@ -51,7 +51,7 @@
             </div>
         </div>
 
-            <div class="player-video-area" @ref="videoAreaRef">
+            <div class="player-video-area">
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
                                     Lesson="currentLesson"
@@ -61,7 +61,7 @@
                                     OnLessonCompleted="HandleLessonCompletedAsync" />
             </div>
             
-            <div class="player-controls" @ref="controlsBarRef">
+            <div class="player-controls">
                 <div class="player-controls-nav player-controls-nav-left">
                     <button class="btn btn-secondary player-ctrl-btn" @onclick="GoToPreviousLesson" disabled="@(previousLesson == null)">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
@@ -84,36 +84,46 @@
                 </div>
 
                 <div class="player-controls-settings">
-                    <div class="player-control-popover @(isSpeedPopoverOpen ? "is-open" : string.Empty) @GetSpeedPopoverDirectionClass()" @ref="speedPopoverRef">
-                        <button type="button"
-                                class="player-control-icon-btn"
-                                title="Velocidade"
-                                aria-label="Velocidade de reproducao"
-                                aria-expanded="@isSpeedPopoverOpen"
-                                @onclick="ToggleSpeedPopover">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-                                <line x1="4" y1="6" x2="20" y2="6"></line>
-                                <line x1="4" y1="12" x2="20" y2="12"></line>
-                                <line x1="4" y1="18" x2="20" y2="18"></line>
-                                <circle cx="8" cy="6" r="1.7"></circle>
-                                <circle cx="15" cy="12" r="1.7"></circle>
-                                <circle cx="11" cy="18" r="1.7"></circle>
-                            </svg>
-                        </button>
-
-                        @if (isSpeedPopoverOpen)
+                    <div class="player-settings-inline-slot">
+                        @if (settingsInlineMode == PlayerControlsSettingsMode.Normal)
                         {
-                            <div class="player-control-popover-panel player-control-popover-panel-speed"
-                                 role="dialog"
-                                 aria-label="Selecionar velocidade"
-                                 @ref="speedPopoverPanelRef"
-                                 style="@GetPopoverPanelStyle(speedPopoverMaxHeightPx)">
-                                <div class="player-popover-title">Velocidade de Reprodução</div>
-                                <div class="player-popover-speed-menu">
+                            <div class="player-settings-normal-actions">
+                                <button type="button"
+                                        class="player-control-icon-btn"
+                                        title="Velocidade"
+                                        aria-label="Velocidade de reproducao"
+                                        @onclick="OpenSpeedInlineSettings">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="5 7 10 12 5 17"></polyline>
+                                        <polyline points="12 7 17 12 12 17"></polyline>
+                                        <line x1="19" y1="7" x2="19" y2="17"></line>
+                                    </svg>
+                                </button>
+
+                                <button type="button"
+                                        class="player-control-icon-btn player-control-icon-btn-intro @(introSkipEnabled ? "is-active" : string.Empty)"
+                                        title="Intro skip"
+                                        aria-label="Configurar intro skip"
+                                        @onclick="OpenIntroInlineSettings">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="5 4 13 12 5 20 5 4"></polygon>
+                                        <line x1="16" y1="5" x2="16" y2="19"></line>
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+                        else if (settingsInlineMode == PlayerControlsSettingsMode.SpeedInline)
+                        {
+                            <div class="player-settings-inline-panel player-settings-inline-panel-speed"
+                                 role="group"
+                                 aria-label="Selecionar velocidade">
+                                <span class="player-settings-inline-title">Vel. Reproducao</span>
+
+                                <div class="player-inline-speed-options">
                                     @foreach (var speed in availablePlaybackSpeeds)
                                     {
                                         <button type="button"
-                                                class="player-popover-option @(Math.Abs(selectedPlaybackSpeed - speed) < 0.0001 ? "active" : string.Empty)"
+                                                class="player-inline-speed-btn @(Math.Abs(selectedPlaybackSpeed - speed) < 0.0001 ? "active" : string.Empty)"
                                                 @onclick="() => SelectPlaybackSpeed(speed)">
                                             @FormatPlaybackSpeed(speed)
                                         </button>
@@ -121,44 +131,14 @@
                                 </div>
                             </div>
                         }
-                    </div>
-
-                    <div class="player-control-popover @(isIntroSkipPopoverOpen ? "is-open" : string.Empty) @GetIntroSkipPopoverDirectionClass()" @ref="introSkipPopoverRef">
-                        <button type="button"
-                                class="player-control-icon-btn player-control-icon-btn-intro @(introSkipEnabled ? "is-active" : string.Empty)"
-                                title="Intro skip"
-                                aria-label="Configurar intro skip"
-                                aria-expanded="@isIntroSkipPopoverOpen"
-                                @onclick="ToggleIntroSkipPopover">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-                                <polygon points="5 4 13 12 5 20 5 4"></polygon>
-                                <line x1="16" y1="5" x2="16" y2="19"></line>
-                            </svg>
-                        </button>
-
-                        @if (isIntroSkipPopoverOpen)
+                        else if (settingsInlineMode == PlayerControlsSettingsMode.IntroInline)
                         {
-                            <div class="player-control-popover-panel player-control-popover-panel-intro"
-                                 role="dialog"
-                                 aria-label="Configurar intro skip"
-                                 @ref="introSkipPopoverPanelRef"
-                                 style="@GetPopoverPanelStyle(introSkipPopoverMaxHeightPx)">
-                                <div class="player-popover-title">Intro Skip</div>
+                            <div class="player-settings-inline-panel player-settings-inline-panel-intro"
+                                 role="group"
+                                 aria-label="Configurar intro skip">
+                                <span class="player-settings-inline-title">Intro Skip</span>
 
-                                <div class="player-popover-field-row player-popover-field-row-intro">
-                                    <input id="lesson-player-intro-skip-seconds"
-                                           class="player-speed-select player-speed-select--intro player-popover-intro-input"
-                                           type="number"
-                                           min="0"
-                                           step="1"
-                                           inputmode="numeric"
-                                           value="@introSkipInput"
-                                           disabled="@isSavingIntroSkipPreference"
-                                           @onchange="HandleIntroSkipSecondsChangedAsync" />
-                                    <label class="player-speed-label player-speed-label-popover" for="lesson-player-intro-skip-seconds">Segundos</label>
-                                </div>
-
-                                <label class="player-switch-control player-switch-control-popover" for="lesson-player-intro-skip-enabled">
+                                <label class="player-switch-control player-switch-control-inline" for="lesson-player-intro-skip-enabled">
                                     <input id="lesson-player-intro-skip-enabled"
                                            type="checkbox"
                                            class="player-switch-input"
@@ -168,16 +148,36 @@
                                     <span class="player-switch-track" aria-hidden="true">
                                         <span class="player-switch-thumb"></span>
                                     </span>
-                                    <span class="player-switch-label">@GetIntroSkipToggleLabel()</span>
                                 </label>
+
+                                <div class="player-inline-intro-seconds-group">
+                                    <input id="lesson-player-intro-skip-seconds"
+                                           class="player-speed-select player-speed-select--intro player-inline-intro-input"
+                                           type="number"
+                                           min="0"
+                                           step="1"
+                                           inputmode="numeric"
+                                           value="@introSkipInput"
+                                           disabled="@isSavingIntroSkipPreference"
+                                           @onchange="HandleIntroSkipSecondsChangedAsync" />
+                                    <span class="player-inline-intro-seconds-suffix">s</span>
+                                </div>
+
+                                <button type="button"
+                                        class="player-inline-close-btn"
+                                        title="Fechar"
+                                        aria-label="Fechar configuracao de intro skip"
+                                        @onclick="CloseInlineSettings">
+                                    x
+                                </button>
 
                                 @if (isSavingIntroSkipPreference)
                                 {
-                                    <span class="player-speed-effective-hint">Salvando...</span>
+                                    <span class="player-speed-effective-hint player-speed-effective-hint-inline-panel">Salvando...</span>
                                 }
                                 else if (!string.IsNullOrWhiteSpace(introSkipSaveError))
                                 {
-                                    <span class="player-speed-effective-hint">@introSkipSaveError</span>
+                                    <span class="player-speed-effective-hint player-speed-effective-hint-inline-panel">@introSkipSaveError</span>
                                 }
                             </div>
                         }
@@ -260,33 +260,16 @@
     private string introSkipInput = DefaultIntroSkipSeconds.ToString(CultureInfo.InvariantCulture);
     private bool isSavingIntroSkipPreference;
     private string introSkipSaveError = string.Empty;
-    private bool isSpeedPopoverOpen;
-    private bool isIntroSkipPopoverOpen;
-    private ElementReference videoAreaRef;
-    private ElementReference controlsBarRef;
-    private ElementReference speedPopoverRef;
-    private ElementReference speedPopoverPanelRef;
-    private ElementReference introSkipPopoverRef;
-    private ElementReference introSkipPopoverPanelRef;
-    private PopoverDirection speedPopoverDirection = PopoverDirection.Down;
-    private PopoverDirection introSkipPopoverDirection = PopoverDirection.Down;
-    private double speedPopoverMaxHeightPx;
-    private double introSkipPopoverMaxHeightPx;
-    private bool pendingPopoverPlacementRefresh;
+    private PlayerControlsSettingsMode settingsInlineMode = PlayerControlsSettingsMode.Normal;
     private TimeSpan localInitialStartOffset = TimeSpan.Zero;
     private TimeSpan externalInitialStartOffset = TimeSpan.Zero;
     private ExternalLessonPlaybackSnapshot externalPlaybackSnapshot = ExternalLessonPlaybackSnapshot.Hidden;
 
-    private enum PopoverDirection
+    private enum PlayerControlsSettingsMode
     {
-        Down,
-        Up
-    }
-
-    private sealed class PopoverPlacementResult
-    {
-        public string Direction { get; set; } = "down";
-        public double MaxHeight { get; set; }
+        Normal,
+        SpeedInline,
+        IntroInline
     }
 
     private bool ShouldShowExternalPlaybackFallback =>
@@ -311,7 +294,6 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         await ApplyPendingSidebarAnchorAsync();
-        await ApplyPendingPopoverPlacementAsync();
     }
 
     private async Task ApplyPendingSidebarAnchorAsync()
@@ -352,40 +334,6 @@
                 "Lesson sidebar scroll anchoring failed. CourseId: {CourseId}. LessonId: {LessonId}.",
                 CourseId,
                 anchorLessonId);
-        }
-    }
-
-    private async Task ApplyPendingPopoverPlacementAsync()
-    {
-        if (!pendingPopoverPlacementRefresh)
-        {
-            return;
-        }
-
-        pendingPopoverPlacementRefresh = false;
-        var hasLayoutChanges = false;
-
-        if (isSpeedPopoverOpen)
-        {
-            var updated = await ResolvePopoverPlacementAsync(speedPopoverRef, speedPopoverPanelRef);
-            if (ApplyPopoverPlacement(ref speedPopoverDirection, ref speedPopoverMaxHeightPx, updated))
-            {
-                hasLayoutChanges = true;
-            }
-        }
-
-        if (isIntroSkipPopoverOpen)
-        {
-            var updated = await ResolvePopoverPlacementAsync(introSkipPopoverRef, introSkipPopoverPanelRef);
-            if (ApplyPopoverPlacement(ref introSkipPopoverDirection, ref introSkipPopoverMaxHeightPx, updated))
-            {
-                hasLayoutChanges = true;
-            }
-        }
-
-        if (hasLayoutChanges)
-        {
-            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -538,151 +486,29 @@
 
     private void NavigateToLesson(Lesson lesson)
     {
-        CloseSettingsPopovers();
+        CloseInlineSettings();
         nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
     }
 
-    private void ToggleSpeedPopover()
+    private void OpenSpeedInlineSettings()
     {
-        isSpeedPopoverOpen = !isSpeedPopoverOpen;
-        if (isSpeedPopoverOpen)
-        {
-            speedPopoverDirection = PopoverDirection.Down;
-            speedPopoverMaxHeightPx = 0;
-            isIntroSkipPopoverOpen = false;
-            introSkipPopoverDirection = PopoverDirection.Down;
-            introSkipPopoverMaxHeightPx = 0;
-        }
-        else
-        {
-            speedPopoverDirection = PopoverDirection.Down;
-            speedPopoverMaxHeightPx = 0;
-        }
+        settingsInlineMode = PlayerControlsSettingsMode.SpeedInline;
+    }
 
-        pendingPopoverPlacementRefresh = isSpeedPopoverOpen || isIntroSkipPopoverOpen;
+    private void OpenIntroInlineSettings()
+    {
+        settingsInlineMode = PlayerControlsSettingsMode.IntroInline;
+    }
+
+    private void CloseInlineSettings()
+    {
+        settingsInlineMode = PlayerControlsSettingsMode.Normal;
     }
 
     private void SelectPlaybackSpeed(double speed)
     {
         selectedPlaybackSpeed = NormalizePlaybackSpeed(speed);
-        isSpeedPopoverOpen = false;
-        speedPopoverDirection = PopoverDirection.Down;
-        speedPopoverMaxHeightPx = 0;
-        pendingPopoverPlacementRefresh = false;
-    }
-
-    private void ToggleIntroSkipPopover()
-    {
-        isIntroSkipPopoverOpen = !isIntroSkipPopoverOpen;
-        if (isIntroSkipPopoverOpen)
-        {
-            introSkipPopoverDirection = PopoverDirection.Down;
-            introSkipPopoverMaxHeightPx = 0;
-            isSpeedPopoverOpen = false;
-            speedPopoverDirection = PopoverDirection.Down;
-            speedPopoverMaxHeightPx = 0;
-        }
-        else
-        {
-            introSkipPopoverDirection = PopoverDirection.Down;
-            introSkipPopoverMaxHeightPx = 0;
-        }
-
-        pendingPopoverPlacementRefresh = isSpeedPopoverOpen || isIntroSkipPopoverOpen;
-    }
-
-    private void CloseSettingsPopovers()
-    {
-        isSpeedPopoverOpen = false;
-        isIntroSkipPopoverOpen = false;
-        speedPopoverDirection = PopoverDirection.Down;
-        introSkipPopoverDirection = PopoverDirection.Down;
-        speedPopoverMaxHeightPx = 0;
-        introSkipPopoverMaxHeightPx = 0;
-        pendingPopoverPlacementRefresh = false;
-    }
-
-    private static string GetPopoverPanelStyle(double maxHeightPx)
-    {
-        if (maxHeightPx <= 0)
-        {
-            return string.Empty;
-        }
-
-        var roundedHeight = Math.Round(maxHeightPx, MidpointRounding.AwayFromZero);
-        return $"max-height: {roundedHeight.ToString(CultureInfo.InvariantCulture)}px;";
-    }
-
-    private string GetSpeedPopoverDirectionClass()
-    {
-        return speedPopoverDirection == PopoverDirection.Up ? "player-control-popover--up" : string.Empty;
-    }
-
-    private string GetIntroSkipPopoverDirectionClass()
-    {
-        return introSkipPopoverDirection == PopoverDirection.Up ? "player-control-popover--up" : string.Empty;
-    }
-
-    private async Task<PopoverPlacementResult?> ResolvePopoverPlacementAsync(
-        ElementReference popoverRef,
-        ElementReference panelRef)
-    {
-        try
-        {
-            return await JS.InvokeAsync<PopoverPlacementResult>(
-                "studyHubLessonSidebar.resolvePlayerPopoverPlacement",
-                popoverRef,
-                panelRef,
-                controlsBarRef,
-                videoAreaRef);
-        }
-        catch (Exception ex)
-        {
-            Logger.LogDebug(ex, "Popover adaptive placement fallback to default direction.");
-            return null;
-        }
-    }
-
-    private static bool ApplyPopoverPlacement(
-        ref PopoverDirection directionState,
-        ref double maxHeightState,
-        PopoverPlacementResult? placement)
-    {
-        var nextDirection = ParsePopoverDirection(placement?.Direction);
-        var nextMaxHeight = NormalizePopoverMaxHeight(placement?.MaxHeight ?? 0);
-
-        var directionChanged = directionState != nextDirection;
-        var maxHeightChanged = Math.Abs(maxHeightState - nextMaxHeight) >= 0.5;
-        if (!directionChanged && !maxHeightChanged)
-        {
-            return false;
-        }
-
-        directionState = nextDirection;
-        maxHeightState = nextMaxHeight;
-        return true;
-    }
-
-    private static PopoverDirection ParsePopoverDirection(string? direction)
-    {
-        return string.Equals(direction, "up", StringComparison.OrdinalIgnoreCase)
-            ? PopoverDirection.Up
-            : PopoverDirection.Down;
-    }
-
-    private static double NormalizePopoverMaxHeight(double rawValue)
-    {
-        if (double.IsNaN(rawValue) || double.IsInfinity(rawValue))
-        {
-            return 0;
-        }
-
-        return Math.Max(0, rawValue);
-    }
-
-    private string GetIntroSkipToggleLabel()
-    {
-        return introSkipEnabled ? "Ativado" : "Desativado";
+        settingsInlineMode = PlayerControlsSettingsMode.Normal;
     }
 
     private void ResetIntroSkipPreferenceState()
@@ -692,13 +518,7 @@
         introSkipInput = DefaultIntroSkipSeconds.ToString(CultureInfo.InvariantCulture);
         isSavingIntroSkipPreference = false;
         introSkipSaveError = string.Empty;
-        isSpeedPopoverOpen = false;
-        isIntroSkipPopoverOpen = false;
-        speedPopoverDirection = PopoverDirection.Down;
-        introSkipPopoverDirection = PopoverDirection.Down;
-        speedPopoverMaxHeightPx = 0;
-        introSkipPopoverMaxHeightPx = 0;
-        pendingPopoverPlacementRefresh = false;
+        settingsInlineMode = PlayerControlsSettingsMode.Normal;
         localInitialStartOffset = TimeSpan.Zero;
         externalInitialStartOffset = TimeSpan.Zero;
     }
