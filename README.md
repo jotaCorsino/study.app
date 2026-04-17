@@ -56,6 +56,7 @@ O pacote de release nao inclui dados pessoais de quem publicou a release.
 
 - configuracao por curso, visivel na tela da aula ao lado do seletor de velocidade
 - permite ativar/desativar (`Intro skip enabled`) e definir segundos (`Intro skip seconds`)
+- painel inferior refinado com switch visual para ativacao e controles compactos de velocidade/segundos
 - regra de precedencia: se a aula tiver posicao salva de retomada (`LastPlaybackPosition > 0`), a retomada vence sempre
 - o intro skip so entra quando a aula comeca do zero
 - aplicacao unica por abertura/carregamento da aula (sem reaplicacao em play/pause, velocidade ou re-render)
