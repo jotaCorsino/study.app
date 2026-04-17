@@ -673,22 +673,28 @@
 /* --- Player Area --- */
 .player-layout {
     display: flex;
+    width: 100%;
     height: 100%;
     min-height: 100%;
-    overflow: visible;
-    align-items: flex-start;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
+    align-items: stretch;
 }
 
 .player-main {
-    flex: 1;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    overflow: visible;
-    min-height: auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
 }
 
 .player-video-area {
     width: 100%;
+    min-width: 0;
     aspect-ratio: 16 / 9;
     background: #000;
     position: relative;
@@ -789,7 +795,7 @@
 
 .player-controls {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
     grid-template-areas: "nav-left settings nav-right";
     align-items: center;
     gap: var(--space-lg);
@@ -802,6 +808,8 @@
     overflow: visible;
     isolation: isolate;
     margin-bottom: 0;
+    width: 100%;
+    min-width: 0;
 }
 
 .player-ctrl-btn {
@@ -840,6 +848,8 @@
     min-width: 0;
     flex-wrap: nowrap;
     min-height: 40px;
+    width: fit-content;
+    max-width: 100%;
 }
 
 .player-settings-inline-slot {
@@ -848,17 +858,17 @@
     justify-content: center;
     height: 40px;
     min-width: 0;
-    width: fit-content;
+    width: auto;
     max-width: 100%;
     flex: 0 0 auto;
 }
 
 .player-settings-inline-slot.is-speed {
-    width: fit-content;
+    width: auto;
 }
 
 .player-settings-inline-slot.is-intro {
-    width: fit-content;
+    width: auto;
 }
 
 .player-control-icon-btn {
@@ -922,12 +932,14 @@
 
 .player-settings-inline-panel-speed {
     justify-content: flex-start;
+    min-width: max-content;
 }
 
 .player-settings-inline-panel-intro {
     justify-content: flex-start;
     flex-wrap: nowrap;
     gap: 8px;
+    min-width: max-content;
 }
 
 .player-settings-inline-title {
@@ -1207,11 +1219,14 @@
 }
 
 .player-sidebar {
-    width: 360px;
+    width: clamp(260px, 29vw, 360px);
+    min-width: 240px;
+    max-width: 360px;
     background: var(--bg-secondary);
     border-left: 1px solid var(--border-subtle);
     overflow-y: auto;
-    flex-shrink: 0;
+    overflow-x: hidden;
+    flex: 0 1 clamp(260px, 29vw, 360px);
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -1236,7 +1251,16 @@
     min-height: 0;
 }
 
-@media (max-width: 1560px) {
+@media (max-width: 1520px) {
+    .player-sidebar {
+        width: clamp(230px, 31vw, 320px);
+        min-width: 220px;
+        max-width: 320px;
+        flex-basis: clamp(230px, 31vw, 320px);
+    }
+}
+
+@media (max-width: 1480px) {
     .player-controls {
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         grid-template-areas:
@@ -1247,6 +1271,16 @@
 
     .player-controls-settings {
         justify-content: center;
+        justify-self: center;
+    }
+}
+
+@media (max-width: 1240px) {
+    .player-sidebar {
+        width: clamp(210px, 33vw, 280px);
+        min-width: 200px;
+        max-width: 280px;
+        flex-basis: clamp(210px, 33vw, 280px);
     }
 }
 
@@ -1262,10 +1296,33 @@
 
     .player-controls-settings {
         justify-content: center;
+        justify-self: center;
     }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1080px) {
+    .player-layout {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .player-main,
+    .player-sidebar {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        flex-basis: auto;
+    }
+
+    .player-sidebar {
+        border-left: 0;
+        border-top: 1px solid var(--border-subtle);
+        max-height: 46vh;
+        height: auto;
+    }
+}
+
+@media (max-width: 980px) {
     .player-controls {
         grid-template-columns: 1fr;
         grid-template-areas:
@@ -1277,6 +1334,11 @@
     .player-controls-nav-right,
     .player-controls-settings {
         justify-content: flex-start;
+        justify-self: stretch;
+    }
+
+    .player-controls-settings {
+        width: 100%;
     }
 }
 
@@ -1294,6 +1356,7 @@
 
     .player-settings-inline-panel {
         width: 100%;
+        min-width: 0;
     }
 
     .player-settings-inline-panel-intro {
@@ -1301,6 +1364,7 @@
         min-height: 40px;
         flex-wrap: wrap;
         row-gap: 6px;
+        min-width: 0;
     }
 
     .player-inline-speed-options {
