@@ -17,7 +17,10 @@ internal static class YouTubePlayerHostHtmlBuilder
             ["lessonId"] = snapshot.LessonId?.ToString("D"),
             ["externalUrl"] = snapshot.ExternalUrl,
             ["provider"] = snapshot.Provider,
-            ["initialRate"] = snapshot.RequestedPlaybackSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            ["initialRate"] = snapshot.RequestedPlaybackSpeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["initialStartOffset"] = snapshot.InitialStartOffset > TimeSpan.Zero
+                ? snapshot.InitialStartOffset.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)
+                : null
         };
 
         return $"{VirtualHostOrigin}/{RelativeHostPagePath}?{BuildQueryString(query)}";

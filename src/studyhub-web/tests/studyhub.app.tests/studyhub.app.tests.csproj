@@ -21,6 +21,18 @@
     <Compile Include="..\..\src\studyhub.app\services\localvideosourceresolver.cs" Link="services\localvideosourceresolver.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('..\..\src\studyhub.app\services\lessoninitialstartoffsetcalculator.cs')">
+    <Compile Include="..\..\src\studyhub.app\services\lessoninitialstartoffsetcalculator.cs" Link="services\lessoninitialstartoffsetcalculator.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('..\..\src\studyhub.app\services\externallessonplaybackservice.cs')">
+    <Compile Include="..\..\src\studyhub.app\services\externallessonplaybackservice.cs" Link="services\externallessonplaybackservice.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('..\..\src\studyhub.app\services\youtubeplayerhosthtmlbuilder.cs')">
+    <Compile Include="..\..\src\studyhub.app\services\youtubeplayerhosthtmlbuilder.cs" Link="services\youtubeplayerhosthtmlbuilder.cs" />
+  </ItemGroup>
+
   <ItemGroup Condition="!Exists('..\..\src\studyhub.app\services\localvideosourceresolver.cs')">
     <Compile Remove="LocalVideoSourceResolverTests.cs" />
   </ItemGroup>

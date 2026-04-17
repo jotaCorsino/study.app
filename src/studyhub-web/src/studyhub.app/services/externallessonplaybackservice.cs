@@ -31,7 +31,11 @@ public sealed class ExternalLessonPlaybackService(
     public ExternalLessonPlaybackSnapshot Snapshot => _snapshot;
     public bool SupportsReliableResumePosition => false;
 
-    public async Task<long> ActivateAsync(Guid courseId, Lesson? lesson, double playbackSpeed)
+    public async Task<long> ActivateAsync(
+        Guid courseId,
+        Lesson? lesson,
+        double playbackSpeed,
+        TimeSpan initialStartOffset)
     {
         ExternalLessonPlaybackSnapshot updatedSnapshot;
 
@@ -44,7 +48,12 @@ public sealed class ExternalLessonPlaybackService(
                 ? -1
                 : (int)Math.Round(Math.Max(0, lesson.LastPlaybackPosition.TotalSeconds));
 
-            updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson, playbackSpeed);
+            updatedSnapshot = BuildActivationSnapshot(
+                sessionToken,
+                courseId,
+                lesson,
+                playbackSpeed,
+                initialStartOffset);
             _snapshot = updatedSnapshot;
         }
         finally
@@ -478,9 +487,15 @@ public sealed class ExternalLessonPlaybackService(
         RaiseStateChanged(changedSnapshot);
     }
 
-    private ExternalLessonPlaybackSnapshot BuildActivationSnapshot(long sessionToken, Guid courseId, Lesson? lesson, double playbackSpeed)
+    private ExternalLessonPlaybackSnapshot BuildActivationSnapshot(
+        long sessionToken,
+        Guid courseId,
+        Lesson? lesson,
+        double playbackSpeed,
+        TimeSpan initialStartOffset)
     {
         var normalizedPlaybackSpeed = NormalizePlaybackSpeed(playbackSpeed);
+        var normalizedInitialStartOffset = NormalizeInitialStartOffset(initialStartOffset, lesson?.Duration ?? TimeSpan.Zero);
 
         if (lesson == null)
         {
@@ -488,6 +503,7 @@ public sealed class ExternalLessonPlaybackService(
             {
                 SessionToken = sessionToken,
                 CourseId = courseId,
+                InitialStartOffset = TimeSpan.Zero,
                 RequestedPlaybackSpeed = normalizedPlaybackSpeed,
                 EffectivePlaybackSpeed = normalizedPlaybackSpeed,
                 Status = ExternalLessonPlaybackStatus.Error,
@@ -503,6 +519,7 @@ public sealed class ExternalLessonPlaybackService(
                 SessionToken = sessionToken,
                 CourseId = courseId,
                 LessonId = lesson.Id,
+                InitialStartOffset = TimeSpan.Zero,
                 RequestedPlaybackSpeed = normalizedPlaybackSpeed,
                 EffectivePlaybackSpeed = normalizedPlaybackSpeed,
                 Status = ExternalLessonPlaybackStatus.Error,
@@ -520,6 +537,7 @@ public sealed class ExternalLessonPlaybackService(
                 LessonId = lesson.Id,
                 Provider = lesson.Provider,
                 ExternalUrl = lesson.ExternalUrl,
+                InitialStartOffset = TimeSpan.Zero,
                 RequestedPlaybackSpeed = normalizedPlaybackSpeed,
                 EffectivePlaybackSpeed = normalizedPlaybackSpeed,
                 Status = ExternalLessonPlaybackStatus.Error,
@@ -536,6 +554,7 @@ public sealed class ExternalLessonPlaybackService(
             Provider = "YouTube",
             ExternalUrl = canonicalUrl,
             VideoId = videoId,
+            InitialStartOffset = normalizedInitialStartOffset,
             KnownDuration = lesson.Duration,
             RequestedPlaybackSpeed = normalizedPlaybackSpeed,
             EffectivePlaybackSpeed = normalizedPlaybackSpeed,
@@ -566,6 +585,21 @@ public sealed class ExternalLessonPlaybackService(
         }
 
         return Math.Round(playbackSpeed, 3, MidpointRounding.AwayFromZero);
+    }
+
+    private static TimeSpan NormalizeInitialStartOffset(TimeSpan initialStartOffset, TimeSpan knownDuration)
+    {
+        if (initialStartOffset <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        if (knownDuration <= TimeSpan.Zero)
+        {
+            return initialStartOffset;
+        }
+
+        return initialStartOffset > knownDuration ? knownDuration : initialStartOffset;
     }
 
     private bool ShouldPersistSecond(int roundedSecond)
@@ -809,6 +843,7 @@ public sealed record ExternalLessonPlaybackSnapshot
     public string Provider { get; init; } = string.Empty;
     public string ExternalUrl { get; init; } = string.Empty;
     public string VideoId { get; init; } = string.Empty;
+    public TimeSpan InitialStartOffset { get; init; }
     public double RequestedPlaybackSpeed { get; init; } = 1.0;
     public double EffectivePlaybackSpeed { get; init; } = 1.0;
     public TimeSpan KnownDuration { get; init; }

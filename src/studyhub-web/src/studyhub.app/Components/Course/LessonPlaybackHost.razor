@@ -8,6 +8,7 @@
     <ExternalVideoPlayer @key="@($"{Lesson.Id}:external")"
                          CourseId="CourseId"
                          Lesson="Lesson"
+                         InitialStartOffset="ExternalInitialStartOffset"
                          RequestedPlaybackSpeed="RequestedPlaybackSpeed"
                          OnLessonCompleted="OnLessonCompleted" />
 }
@@ -16,6 +17,7 @@ else
     <LocalVideoPlayer @key="@($"{Lesson?.Id}:local")"
                       CourseId="CourseId"
                       Lesson="Lesson"
+                      InitialStartOffset="LocalInitialStartOffset"
                       RequestedPlaybackSpeed="RequestedPlaybackSpeed"
                       OnLessonCompleted="OnLessonCompleted" />
 }
@@ -23,6 +25,8 @@ else
 @code {
     [Parameter, EditorRequired] public Guid CourseId { get; set; }
     [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
+    [Parameter] public TimeSpan LocalInitialStartOffset { get; set; } = TimeSpan.Zero;
+    [Parameter] public TimeSpan ExternalInitialStartOffset { get; set; } = TimeSpan.Zero;
     [Parameter] public double RequestedPlaybackSpeed { get; set; } = 1.0;
     [Parameter] public EventCallback OnLessonCompleted { get; set; }
 

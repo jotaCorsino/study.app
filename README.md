@@ -18,7 +18,7 @@ Baixe sempre pela pagina oficial de releases:
 
 Arquivo principal (Windows):
 
-- `studyhub-windows-x64-<versao>.zip`
+- `studyhub-app-v<versao>-windows-x64.zip`
 
 ## Como instalar e abrir no Windows
 
@@ -50,20 +50,31 @@ O pacote de release nao inclui dados pessoais de quem publicou a release.
 5. Estude normalmente e acompanhe o progresso.
 6. Feche e reabra quando quiser: o app preserva o estado salvo.
 
-## Player de aulas (estado atual v1)
+## Player de aulas (estado atual)
+
+### Intro skip por curso (local + externo)
+
+- configuracao por curso, visivel na tela da aula ao lado do seletor de velocidade
+- permite ativar/desativar (`Intro skip enabled`) e definir segundos (`Intro skip seconds`)
+- regra de precedencia: se a aula tiver posicao salva de retomada (`LastPlaybackPosition > 0`), a retomada vence sempre
+- o intro skip so entra quando a aula comeca do zero
+- aplicacao unica por abertura/carregamento da aula (sem reaplicacao em play/pause, velocidade ou re-render)
 
 ### Player local (video em arquivo no Windows)
 
 - controle de velocidade com opcoes: `0.5x`, `1x`, `1.5x`, `2x`, `2.5x`
 - play/pause por clique na area do video (tap-to-toggle local)
 - os controles nativos de transporte continuam ativos
+- intro skip inicial suportado com as regras acima
 
 ### Player externo (YouTube no host externo do app)
 
 - usa a mesma selecao de velocidade da tela da aula
 - aplicacao de velocidade por melhor esforco via bridge
 - quando a taxa solicitada nao e suportada pelo YouTube (ex.: `2.5x`), o app reflete a taxa efetiva aplicada
-- nesta v1, **tap-to-toggle nao esta implementado no player externo**
+- intro skip inicial suportado com as mesmas regras de precedencia do player local
+- se o seek inicial externo nao puder ser aplicado pelo provider/runtime, a aula continua normalmente (falha controlada)
+- nesta versao, **tap-to-toggle nao esta implementado no player externo**
 
 ## Limitacoes conhecidas do player (v1)
 
