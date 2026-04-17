@@ -104,7 +104,8 @@
                         @if (isSpeedPopoverOpen)
                         {
                             <div class="player-control-popover-panel player-control-popover-panel-speed" role="dialog" aria-label="Selecionar velocidade">
-                                <div class="player-popover-speed-list">
+                                <div class="player-popover-title">Velocidade de Reprodução</div>
+                                <div class="player-popover-speed-menu">
                                     @foreach (var speed in availablePlaybackSpeeds)
                                     {
                                         <button type="button"
@@ -134,8 +135,9 @@
                         @if (isIntroSkipPopoverOpen)
                         {
                             <div class="player-control-popover-panel player-control-popover-panel-intro" role="dialog" aria-label="Configurar intro skip">
-                                <div class="player-popover-field-row">
-                                    <label class="player-speed-label player-speed-label-popover" for="lesson-player-intro-skip-seconds">Segundos</label>
+                                <div class="player-popover-title">Intro Skip</div>
+
+                                <div class="player-popover-field-row player-popover-field-row-intro">
                                     <input id="lesson-player-intro-skip-seconds"
                                            class="player-speed-select player-speed-select--intro player-popover-intro-input"
                                            type="number"
@@ -145,6 +147,7 @@
                                            value="@introSkipInput"
                                            disabled="@isSavingIntroSkipPreference"
                                            @onchange="HandleIntroSkipSecondsChangedAsync" />
+                                    <label class="player-speed-label player-speed-label-popover" for="lesson-player-intro-skip-seconds">Segundos</label>
                                 </div>
 
                                 <label class="player-switch-control player-switch-control-popover" for="lesson-player-intro-skip-enabled">
