@@ -789,7 +789,8 @@
 
 .player-controls {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-template-areas: "nav-left settings nav-right";
     align-items: center;
     gap: var(--space-lg);
     padding: var(--space-md) var(--space-xl);
@@ -815,17 +816,26 @@
     align-items: center;
     gap: var(--space-sm);
     min-width: 0;
+    width: 100%;
     flex-wrap: wrap;
 }
 
+.player-controls-nav-left {
+    grid-area: nav-left;
+    justify-content: flex-start;
+}
+
 .player-controls-nav-right {
+    grid-area: nav-right;
     justify-content: flex-end;
 }
 
 .player-controls-settings {
+    grid-area: settings;
     display: flex;
     align-items: center;
     justify-content: center;
+    justify-self: center;
     gap: var(--space-xs);
     min-width: 0;
     flex-wrap: nowrap;
@@ -1225,9 +1235,27 @@
     min-height: 0;
 }
 
+@media (max-width: 1560px) {
+    .player-controls {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas:
+            "nav-left nav-right"
+            "settings settings";
+        row-gap: var(--space-sm);
+    }
+
+    .player-controls-settings {
+        justify-content: center;
+    }
+}
+
 @media (max-width: 1360px) {
     .player-controls {
         grid-template-columns: 1fr;
+        grid-template-areas:
+            "nav-left"
+            "settings"
+            "nav-right";
         gap: var(--space-sm);
     }
 
