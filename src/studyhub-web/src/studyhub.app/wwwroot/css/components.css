@@ -675,15 +675,16 @@
     display: flex;
     height: 100%;
     min-height: 100%;
-    overflow: hidden;
+    overflow: visible;
+    align-items: flex-start;
 }
 
 .player-main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    min-height: 0;
+    overflow: visible;
+    min-height: auto;
 }
 
 .player-video-area {
@@ -695,7 +696,7 @@
     overflow: hidden;
     isolation: isolate;
     flex-shrink: 0;
-    max-height: calc(100vh - 320px);
+    max-height: none;
     padding: 12px;
     box-sizing: border-box;
 }
@@ -799,6 +800,7 @@
     z-index: 3;
     overflow: visible;
     isolation: isolate;
+    margin-bottom: 0;
 }
 
 .player-ctrl-btn {
@@ -828,12 +830,16 @@
     min-width: 0;
     flex-wrap: wrap;
     position: relative;
+    z-index: 2;
+    isolation: isolate;
+    overflow: visible;
 }
 
 .player-control-popover {
     position: relative;
     display: inline-flex;
     align-items: center;
+    z-index: 3;
 }
 
 .player-control-icon-btn {
@@ -877,7 +883,8 @@
 .player-control-popover-panel {
     position: absolute;
     left: 50%;
-    bottom: calc(100% + 10px);
+    top: calc(100% + 10px);
+    bottom: auto;
     transform: translateX(-50%);
     min-width: 186px;
     max-width: min(92vw, 280px);
