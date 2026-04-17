@@ -848,17 +848,17 @@
     justify-content: center;
     height: 40px;
     min-width: 0;
-    width: 80px;
+    width: fit-content;
     max-width: 100%;
     flex: 0 0 auto;
 }
 
 .player-settings-inline-slot.is-speed {
-    width: 286px;
+    width: fit-content;
 }
 
 .player-settings-inline-slot.is-intro {
-    width: 234px;
+    width: fit-content;
 }
 
 .player-control-icon-btn {
@@ -910,7 +910,8 @@
     min-height: 40px;
     height: 40px;
     padding: 0 8px;
-    width: 100%;
+    width: fit-content;
+    max-width: 100%;
     border-radius: var(--radius-md);
     border: 1px solid var(--border-default);
     background: rgba(16, 19, 27, 0.92);
@@ -1251,19 +1252,30 @@
 
 @media (max-width: 1360px) {
     .player-controls {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         grid-template-areas:
-            "nav-left"
-            "settings"
-            "nav-right";
+            "nav-left nav-right"
+            "settings settings";
         gap: var(--space-sm);
+        row-gap: var(--space-sm);
     }
 
     .player-controls-settings {
-        justify-content: flex-start;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 1024px) {
+    .player-controls {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "nav-left"
+            "nav-right"
+            "settings";
     }
 
-    .player-controls-nav-right {
+    .player-controls-nav-right,
+    .player-controls-settings {
         justify-content: flex-start;
     }
 }
