@@ -8,6 +8,9 @@ public interface IRoutineService
     Task SaveSettingsAsync(Guid courseId, RoutineSettings settings);
     
     Task<DailyStudyRecord> GetDailyRecordAsync(Guid courseId, DateTime date);
+    Task<IReadOnlyDictionary<Guid, DailyStudyRecord>> GetDailyRecordsAsync(
+        IReadOnlyCollection<Guid> courseIds,
+        DateTime date);
     Task<List<DailyStudyRecord>> GetMonthlyRecordsAsync(Guid courseId, int year, int month);
     Task AddStudyTimeAsync(Guid courseId, int minutes);
     Task CreditLessonProgressAsync(Guid courseId, Guid lessonId, int creditedMinutes, DateTime? date = null);

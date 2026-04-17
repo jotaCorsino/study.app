@@ -82,6 +82,49 @@ public class RoutineService : IRoutineService
         return record;
     }
 
+    public async Task<IReadOnlyDictionary<Guid, DailyStudyRecord>> GetDailyRecordsAsync(
+        IReadOnlyCollection<Guid> courseIds,
+        DateTime date)
+    {
+        if (courseIds.Count == 0)
+        {
+            return new Dictionary<Guid, DailyStudyRecord>();
+        }
+
+        var normalizedCourseIds = courseIds
+            .Where(courseId => courseId != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        if (normalizedCourseIds.Count == 0)
+        {
+            return new Dictionary<Guid, DailyStudyRecord>();
+        }
+
+        var addedAtByCourse = await GetCourseAddedAtMapAsync(normalizedCourseIds);
+        var recordsByCourse = new Dictionary<Guid, DailyStudyRecord>(normalizedCourseIds.Count);
+        var targetDate = date.Date;
+
+        foreach (var courseId in normalizedCourseIds)
+        {
+            var allRecords = await GetAllRecordsAsync(courseId);
+            var settings = await GetSettingsAsync(courseId);
+            addedAtByCourse.TryGetValue(courseId, out var addedAt);
+            var effectiveStartDate = ResolveEffectiveCourseStartDate(addedAt, allRecords, settings);
+            var record = allRecords.FirstOrDefault(item => item.Date.Date == targetDate) ?? new DailyStudyRecord
+            {
+                CourseId = courseId,
+                Date = targetDate
+            };
+
+            NormalizeRecord(courseId, record);
+            ApplyStatus(record, settings, effectiveStartDate);
+            recordsByCourse[courseId] = record;
+        }
+
+        return recordsByCourse;
+    }
+
     public async Task<List<DailyStudyRecord>> GetMonthlyRecordsAsync(Guid courseId, int year, int month)
     {
         var allRecords = await GetAllRecordsAsync(courseId);
@@ -332,6 +375,14 @@ public class RoutineService : IRoutineService
         RoutineSettings settings)
     {
         var addedAt = await GetCourseAddedAtAsync(courseId);
+        return ResolveEffectiveCourseStartDate(addedAt, allRecords, settings);
+    }
+
+    private static DateTime? ResolveEffectiveCourseStartDate(
+        DateTime? addedAt,
+        IReadOnlyCollection<DailyStudyRecord> allRecords,
+        RoutineSettings settings)
+    {
         if (addedAt.HasValue)
         {
             return addedAt.Value.Date;
@@ -354,6 +405,21 @@ public class RoutineService : IRoutineService
         }
 
         return null;
+    }
+
+    private async Task<Dictionary<Guid, DateTime?>> GetCourseAddedAtMapAsync(
+        IReadOnlyCollection<Guid> courseIds)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var rows = await context.Courses
+            .AsNoTracking()
+            .Where(course => courseIds.Contains(course.Id))
+            .Select(course => new { course.Id, course.AddedAt })
+            .ToListAsync();
+
+        return rows.ToDictionary(
+            row => row.Id,
+            row => row.AddedAt != default ? (DateTime?)row.AddedAt : null);
     }
 
     private async Task<DateTime?> GetCourseAddedAtAsync(Guid courseId)

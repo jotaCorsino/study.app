@@ -4,6 +4,7 @@
 @using studyhub.app.state
 @using studyhub.domain.Entities
 @inject ICourseService CourseService
+@inject IRoutineService RoutineService
 @inject CourseCatalogState CourseCatalogState
 @inject NavigationManager Navigation
 
@@ -49,6 +50,7 @@
                 <button type="button"
                         class="nav-item nav-course-link @(isActive ? "active" : string.Empty)"
                         @onclick="() => NavigateToCourse(course.Id)">
+                    <span class="nav-course-daily-indicator @GetDailyIndicatorClass(course.Id)" aria-hidden="true"></span>
                     <span class="nav-icon text-tertiary">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -106,6 +108,7 @@
 @code {
     private List<Course> courses = [];
     private Guid? openCourseMenuId;
+    private readonly Dictionary<Guid, string> dailyIndicatorClassByCourseId = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -123,7 +126,68 @@
     private async Task LoadCoursesAsync()
     {
         courses = await CourseService.GetAllCoursesAsync();
+        await LoadDailyIndicatorsAsync(courses.Select(course => course.Id).ToList());
         StateHasChanged();
+    }
+
+    private async Task LoadDailyIndicatorsAsync(IReadOnlyCollection<Guid> courseIds)
+    {
+        dailyIndicatorClassByCourseId.Clear();
+
+        if (courseIds.Count == 0)
+        {
+            return;
+        }
+
+        var recordsByCourse = await RoutineService.GetDailyRecordsAsync(courseIds, DateTime.Now.Date);
+        foreach (var courseId in courseIds)
+        {
+            if (!recordsByCourse.TryGetValue(courseId, out var record))
+            {
+                dailyIndicatorClassByCourseId[courseId] = "daily-indicator-neutral";
+                continue;
+            }
+
+            dailyIndicatorClassByCourseId[courseId] = ResolveDailyIndicatorClass(record);
+        }
+    }
+
+    private string GetDailyIndicatorClass(Guid courseId)
+    {
+        return dailyIndicatorClassByCourseId.TryGetValue(courseId, out var cssClass)
+            ? cssClass
+            : "daily-indicator-neutral";
+    }
+
+    private static string ResolveDailyIndicatorClass(DailyStudyRecord record)
+    {
+        if (record.Status == DailyStudyStatus.Unplanned)
+        {
+            return "daily-indicator-neutral";
+        }
+
+        if (record.MinutesStudied <= 0)
+        {
+            return "daily-indicator-level-0";
+        }
+
+        var percentage = record.CompliancePercentage;
+        if (percentage < 25)
+        {
+            return "daily-indicator-level-1";
+        }
+
+        if (percentage < 50)
+        {
+            return "daily-indicator-level-2";
+        }
+
+        if (percentage < 75)
+        {
+            return "daily-indicator-level-3";
+        }
+
+        return "daily-indicator-level-4";
     }
 
     private void AddCourse()
