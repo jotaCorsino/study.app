@@ -62,82 +62,88 @@
             </div>
             
             <div class="player-controls">
-                <button class="btn btn-secondary player-ctrl-btn" @onclick="GoToPreviousLesson" disabled="@(previousLesson == null)">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                    <span>Aula anterior</span>
-                </button>
-                @if (IsLessonCompleted())
-                {
-                    <button class="btn player-ctrl-btn player-ctrl-done">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                        <span>Aula concluída</span>
+                <div class="player-controls-nav player-controls-nav-left">
+                    <button class="btn btn-secondary player-ctrl-btn" @onclick="GoToPreviousLesson" disabled="@(previousLesson == null)">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        <span>Aula anterior</span>
                     </button>
-                }
-                else
-                {
-                    <button class="btn btn-secondary player-ctrl-btn hover:border-success hover:text-success" @onclick="MarkAsCompleted">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                        <span>Marcar como concluída</span>
-                    </button>
-                }
-                
-                <div class="player-speed-control">
-                    <label class="player-speed-label" for="lesson-player-speed">Velocidade</label>
-                    <select id="lesson-player-speed"
-                            class="player-speed-select"
-                            value="@selectedPlaybackSpeed.ToString("0.0##", CultureInfo.InvariantCulture)"
-                            @onchange="HandlePlaybackSpeedChanged">
-                        @foreach (var speed in availablePlaybackSpeeds)
+                    @if (IsLessonCompleted())
+                    {
+                        <button class="btn player-ctrl-btn player-ctrl-done">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <span>Aula concluída</span>
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-secondary player-ctrl-btn hover:border-success hover:text-success" @onclick="MarkAsCompleted">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                            <span>Marcar como concluída</span>
+                        </button>
+                    }
+                </div>
+
+                <div class="player-controls-settings">
+                    <div class="player-speed-control player-speed-control-speed">
+                        <label class="player-speed-label" for="lesson-player-speed">Velocidade</label>
+                        <select id="lesson-player-speed"
+                                class="player-speed-select player-speed-select--speed"
+                                value="@selectedPlaybackSpeed.ToString("0.0##", CultureInfo.InvariantCulture)"
+                                @onchange="HandlePlaybackSpeedChanged">
+                            @foreach (var speed in availablePlaybackSpeeds)
+                            {
+                                <option value="@speed.ToString("0.0##", CultureInfo.InvariantCulture)">@FormatPlaybackSpeed(speed)</option>
+                            }
+                        </select>
+                        @if (ShouldShowExternalPlaybackFallback)
                         {
-                            <option value="@speed.ToString("0.0##", CultureInfo.InvariantCulture)">@FormatPlaybackSpeed(speed)</option>
+                            <span class="player-speed-effective-hint player-speed-effective-hint-inline">
+                                YouTube aplicou @FormatPlaybackSpeed(externalPlaybackSnapshot.EffectivePlaybackSpeed)
+                                (solicitado @FormatPlaybackSpeed(externalPlaybackSnapshot.RequestedPlaybackSpeed)).
+                            </span>
                         }
-                    </select>
-                    @if (ShouldShowExternalPlaybackFallback)
-                    {
-                        <span class="player-speed-effective-hint">
-                            YouTube aplicou @FormatPlaybackSpeed(externalPlaybackSnapshot.EffectivePlaybackSpeed)
-                            (solicitado @FormatPlaybackSpeed(externalPlaybackSnapshot.RequestedPlaybackSpeed)).
-                        </span>
-                    }
+                    </div>
+
+                    <div class="player-speed-control player-speed-control-intro">
+                        <label class="player-speed-label" for="lesson-player-intro-skip-seconds">Intro skip</label>
+                        <input id="lesson-player-intro-skip-seconds"
+                               class="player-speed-select player-speed-select--intro"
+                               type="number"
+                               min="0"
+                               step="1"
+                               inputmode="numeric"
+                               value="@introSkipInput"
+                               disabled="@isSavingIntroSkipPreference"
+                               @onchange="HandleIntroSkipSecondsChangedAsync" />
+                        <label class="player-switch-control" for="lesson-player-intro-skip-enabled">
+                            <input id="lesson-player-intro-skip-enabled"
+                                   type="checkbox"
+                                   class="player-switch-input"
+                                   checked="@introSkipEnabled"
+                                   disabled="@isSavingIntroSkipPreference"
+                                   @onchange="HandleIntroSkipEnabledChangedAsync" />
+                            <span class="player-switch-track" aria-hidden="true">
+                                <span class="player-switch-thumb"></span>
+                            </span>
+                            <span class="player-switch-label">Ativar</span>
+                        </label>
+                        @if (isSavingIntroSkipPreference)
+                        {
+                            <span class="player-speed-effective-hint">Salvando...</span>
+                        }
+                        else if (!string.IsNullOrWhiteSpace(introSkipSaveError))
+                        {
+                            <span class="player-speed-effective-hint">@introSkipSaveError</span>
+                        }
+                    </div>
                 </div>
 
-                <div class="player-speed-control">
-                    <label class="player-speed-label" for="lesson-player-intro-skip-seconds">Intro skip</label>
-                    <input id="lesson-player-intro-skip-seconds"
-                           class="player-speed-select"
-                           type="number"
-                           min="0"
-                           step="1"
-                           value="@introSkipInput"
-                           disabled="@isSavingIntroSkipPreference"
-                           @onchange="HandleIntroSkipSecondsChangedAsync" />
-                    <label class="player-speed-label" for="lesson-player-intro-skip-enabled">Ativar</label>
-                    <input id="lesson-player-intro-skip-enabled"
-                           type="checkbox"
-                           checked="@introSkipEnabled"
-                           disabled="@isSavingIntroSkipPreference"
-                           @onchange="HandleIntroSkipEnabledChangedAsync" />
-                    <span class="player-speed-effective-hint">
-                        @(introSkipEnabled
-                            ? $"Ativo ({introSkipSeconds}s)"
-                            : "Inativo")
-                    </span>
-                    @if (isSavingIntroSkipPreference)
-                    {
-                        <span class="player-speed-effective-hint">Salvando...</span>
-                    }
-                    else if (!string.IsNullOrWhiteSpace(introSkipSaveError))
-                    {
-                        <span class="player-speed-effective-hint">@introSkipSaveError</span>
-                    }
+                <div class="player-controls-nav player-controls-nav-right">
+                    <button class="btn btn-primary player-ctrl-btn" @onclick="GoToNextLesson" disabled="@(nextLesson == null)">
+                        <span>Próxima aula</span>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    </button>
                 </div>
-
-                <div class="flex-1"></div>
-                
-                <button class="btn btn-primary player-ctrl-btn" @onclick="GoToNextLesson" disabled="@(nextLesson == null)">
-                    <span>Próxima aula</span>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                </button>
             </div>
         </div>
         
