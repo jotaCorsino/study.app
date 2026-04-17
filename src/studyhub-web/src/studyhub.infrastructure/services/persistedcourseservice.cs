@@ -50,6 +50,32 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         return rehydratedCourse ?? record.ToDomain();
     }
 
+    public async Task<CourseSourceMetadata?> UpdateCourseIntroSkipPreferenceAsync(Guid id, bool introSkipEnabled, int introSkipSeconds)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
+        if (record == null)
+        {
+            return null;
+        }
+
+        var metadata = DeserializeCourseSourceMetadata(record);
+        metadata.IntroSkipEnabled = introSkipEnabled;
+        metadata.IntroSkipSeconds = introSkipSeconds;
+
+        if (record.SourceType == CourseSourceType.LocalFolder &&
+            string.IsNullOrWhiteSpace(metadata.RootPath))
+        {
+            metadata.RootPath = record.FolderPath;
+        }
+
+        record.SourceMetadataJson = PersistenceMapper.SerializeCourseSourceMetadata(metadata);
+        await context.SaveChangesAsync();
+
+        return metadata;
+    }
+
     public async Task<Lesson?> GetLessonByIdAsync(Guid courseId, Guid lessonId)
     {
         var course = await GetCourseByIdAsync(courseId);
@@ -387,6 +413,33 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
                 NormalizePath(FirstNonEmpty(lesson.LocalFilePath, lesson.FilePath)),
                 manifestPath,
                 StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static CourseSourceMetadata DeserializeCourseSourceMetadata(persistence.models.CourseRecord record)
+    {
+        CourseSourceMetadata? metadata = null;
+
+        if (!string.IsNullOrWhiteSpace(record.SourceMetadataJson))
+        {
+            try
+            {
+                metadata = JsonSerializer.Deserialize<CourseSourceMetadata>(record.SourceMetadataJson, JsonOptions);
+            }
+            catch (JsonException)
+            {
+                metadata = null;
+            }
+        }
+
+        metadata ??= new CourseSourceMetadata();
+
+        if (record.SourceType == CourseSourceType.LocalFolder &&
+            string.IsNullOrWhiteSpace(metadata.RootPath))
+        {
+            metadata.RootPath = record.FolderPath;
+        }
+
+        return metadata;
     }
 
     private static DetectedCourseStructure? TryDeserializeManifest(string? manifestJson)

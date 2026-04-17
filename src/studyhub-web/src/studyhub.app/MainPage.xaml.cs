@@ -396,11 +396,33 @@ public partial class MainPage : ContentPage
                 await _nativeLessonPlaybackService.HandleMediaOpenedAsync(_loadedNativeSessionToken, nativeMediaElement.Duration);
                 ApplyNativePlaybackSpeed(_nativeLessonPlaybackService.Snapshot);
 
+                var initialStartOffset = await _nativeLessonPlaybackService.ConsumeInitialStartOffsetAsync(
+                    _loadedNativeSessionToken,
+                    nativeMediaElement.Duration);
+
+                if (initialStartOffset > TimeSpan.Zero)
+                {
+                    try
+                    {
+                        await nativeMediaElement.SeekTo(initialStartOffset, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(
+                            ex,
+                            "Native startup seek failed. SessionToken: {SessionToken}. FilePath: {FilePath}. RequestedOffset: {RequestedOffset}.",
+                            _loadedNativeSessionToken,
+                            _loadedNativeFilePath,
+                            initialStartOffset);
+                    }
+                }
+
                 _logger.LogInformation(
-                    "Native media opened. SessionToken: {SessionToken}. FilePath: {FilePath}. Duration: {Duration}. Automatic startup seek is disabled.",
+                    "Native media opened. SessionToken: {SessionToken}. FilePath: {FilePath}. Duration: {Duration}. StartupOffsetAppliedSeconds: {StartupOffsetAppliedSeconds}.",
                     _loadedNativeSessionToken,
                     _loadedNativeFilePath,
-                    nativeMediaElement.Duration);
+                    nativeMediaElement.Duration,
+                    Math.Round(initialStartOffset.TotalSeconds, 3, MidpointRounding.AwayFromZero));
             });
     }
 

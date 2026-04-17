@@ -19,13 +19,18 @@ public sealed class NativeLessonPlaybackService(
     private long _nextSessionToken;
     private int _lastPersistedSecond = -1;
     private bool _completionRaised;
+    private bool _initialStartOffsetConsumed;
 
     public event Action<NativeLessonPlaybackSnapshot>? StateChanged;
     public event EventHandler<NativeLessonPlaybackCompletedEventArgs>? LessonCompleted;
 
     public NativeLessonPlaybackSnapshot Snapshot => _snapshot;
 
-    public async Task<long> ActivateAsync(Guid courseId, Lesson? lesson, double playbackSpeed)
+    public async Task<long> ActivateAsync(
+        Guid courseId,
+        Lesson? lesson,
+        double playbackSpeed,
+        TimeSpan initialStartOffset)
     {
         NativeLessonPlaybackSnapshot updatedSnapshot;
 
@@ -34,11 +39,17 @@ public sealed class NativeLessonPlaybackService(
         {
             var sessionToken = Interlocked.Increment(ref _nextSessionToken);
             _completionRaised = false;
+            _initialStartOffsetConsumed = false;
             _lastPersistedSecond = lesson == null
                 ? -1
                 : (int)Math.Round(Math.Max(0, lesson.LastPlaybackPosition.TotalSeconds));
 
-            updatedSnapshot = BuildActivationSnapshot(sessionToken, courseId, lesson, playbackSpeed);
+            updatedSnapshot = BuildActivationSnapshot(
+                sessionToken,
+                courseId,
+                lesson,
+                playbackSpeed,
+                initialStartOffset);
             _snapshot = updatedSnapshot;
         }
         finally
@@ -157,6 +168,27 @@ public sealed class NativeLessonPlaybackService(
         }
 
         RaiseStateChanged(snapshotAfterOpen);
+    }
+
+    public async Task<TimeSpan> ConsumeInitialStartOffsetAsync(long sessionToken, TimeSpan duration)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (_snapshot.SessionToken != sessionToken || _initialStartOffsetConsumed)
+            {
+                return TimeSpan.Zero;
+            }
+
+            _initialStartOffsetConsumed = true;
+
+            var resolvedDuration = duration > TimeSpan.Zero ? duration : _snapshot.KnownDuration;
+            return ClampResumePosition(_snapshot.InitialStartOffset, resolvedDuration);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async Task HandlePositionChangedAsync(long sessionToken, TimeSpan position)
@@ -429,6 +461,7 @@ public sealed class NativeLessonPlaybackService(
             }
 
             _completionRaised = false;
+            _initialStartOffsetConsumed = false;
             _lastPersistedSecond = -1;
             changedSnapshot = NativeLessonPlaybackSnapshot.Hidden;
             _snapshot = changedSnapshot;
@@ -445,9 +478,17 @@ public sealed class NativeLessonPlaybackService(
         RaiseStateChanged(changedSnapshot);
     }
 
-    private NativeLessonPlaybackSnapshot BuildActivationSnapshot(long sessionToken, Guid courseId, Lesson? lesson, double playbackSpeed)
+    private NativeLessonPlaybackSnapshot BuildActivationSnapshot(
+        long sessionToken,
+        Guid courseId,
+        Lesson? lesson,
+        double playbackSpeed,
+        TimeSpan initialStartOffset)
     {
         var normalizedSpeed = NormalizePlaybackSpeed(playbackSpeed);
+        var normalizedInitialStartOffset = initialStartOffset < TimeSpan.Zero
+            ? TimeSpan.Zero
+            : initialStartOffset;
 
         if (lesson == null)
         {
@@ -455,6 +496,7 @@ public sealed class NativeLessonPlaybackService(
             {
                 SessionToken = sessionToken,
                 CourseId = courseId,
+                InitialStartOffset = TimeSpan.Zero,
                 PlaybackSpeed = normalizedSpeed,
                 Status = NativeLessonPlaybackStatus.Error,
                 StatusTitle = "Aula indisponivel",
@@ -470,6 +512,7 @@ public sealed class NativeLessonPlaybackService(
                 CourseId = courseId,
                 LessonId = lesson.Id,
                 FilePath = lesson.LocalFilePath,
+                InitialStartOffset = TimeSpan.Zero,
                 PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
                 KnownDuration = lesson.Duration,
@@ -486,6 +529,7 @@ public sealed class NativeLessonPlaybackService(
                 SessionToken = sessionToken,
                 CourseId = courseId,
                 LessonId = lesson.Id,
+                InitialStartOffset = TimeSpan.Zero,
                 PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
                 KnownDuration = lesson.Duration,
@@ -503,6 +547,7 @@ public sealed class NativeLessonPlaybackService(
                 CourseId = courseId,
                 LessonId = lesson.Id,
                 FilePath = lesson.LocalFilePath,
+                InitialStartOffset = TimeSpan.Zero,
                 PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
                 KnownDuration = lesson.Duration,
@@ -519,6 +564,7 @@ public sealed class NativeLessonPlaybackService(
             CourseId = courseId,
             LessonId = lesson.Id,
             FilePath = lesson.LocalFilePath,
+            InitialStartOffset = normalizedInitialStartOffset,
             PlaybackSpeed = normalizedSpeed,
             ResumePosition = lesson.LastPlaybackPosition,
             KnownDuration = lesson.Duration,
@@ -586,6 +632,7 @@ public sealed record NativeLessonPlaybackSnapshot
     public Guid? CourseId { get; init; }
     public Guid? LessonId { get; init; }
     public string? FilePath { get; init; }
+    public TimeSpan InitialStartOffset { get; init; }
     public double PlaybackSpeed { get; init; } = 1.0;
     public TimeSpan ResumePosition { get; init; }
     public TimeSpan KnownDuration { get; init; }

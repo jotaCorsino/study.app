@@ -15,11 +15,19 @@ public enum LessonSourceType
 
 public class CourseSourceMetadata
 {
+    private int _introSkipSeconds;
+
     public string RootPath { get; set; } = string.Empty;
     public DateTime? ImportedAt { get; set; }
     public DateTime? LastEnrichedAt { get; set; }
     public string ScanVersion { get; set; } = string.Empty;
     public string Provider { get; set; } = string.Empty;
+    public bool IntroSkipEnabled { get; set; } = false;
+    public int IntroSkipSeconds
+    {
+        get => _introSkipSeconds;
+        set => _introSkipSeconds = value < 0 ? 0 : value;
+    }
     public string RequestedTopic { get; set; } = string.Empty;
     public string RequestedObjective { get; set; } = string.Empty;
     public List<string> SearchQueries { get; set; } = [];

@@ -38,6 +38,15 @@
             return parsed;
         }
 
+        function parseStartOffsetSeconds(value) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                return 0;
+            }
+
+            return parsed;
+        }
+
         const studyHubPlayerConfig = {
             sessionToken: query.get("session") || "0",
             videoId: query.get("videoId") || "",
@@ -45,7 +54,8 @@
             lessonId: query.get("lessonId") || "",
             externalUrl: query.get("externalUrl") || "",
             provider: query.get("provider") || "YouTube",
-            initialRate: parseRate(query.get("initialRate"), 1)
+            initialRate: parseRate(query.get("initialRate"), 1),
+            initialStartOffsetSeconds: parseStartOffsetSeconds(query.get("initialStartOffset"))
         };
 
         const schemeBase = "studyhub-external://event";
@@ -54,6 +64,7 @@
         let progressTimerId = 0;
         let apiTimeoutId = 0;
         let targetPlaybackRate = studyHubPlayerConfig.initialRate;
+        let startupSeekApplied = false;
 
         function notify(type, payload) {
             const message = Object.assign({
@@ -193,6 +204,47 @@
             }, 120);
         }
 
+        function applyStartupSeekOnce(reason) {
+            if (startupSeekApplied ||
+                !player ||
+                typeof player.seekTo !== "function") {
+                return;
+            }
+
+            const configuredOffset = Number(studyHubPlayerConfig.initialStartOffsetSeconds || 0);
+            if (!Number.isFinite(configuredOffset) || configuredOffset <= 0) {
+                startupSeekApplied = true;
+                return;
+            }
+
+            startupSeekApplied = true;
+
+            let safeOffset = configuredOffset;
+            const duration = typeof player.getDuration === "function"
+                ? Number(player.getDuration() || 0)
+                : 0;
+            if (Number.isFinite(duration) && duration > 0 && safeOffset > duration) {
+                safeOffset = duration;
+            }
+
+            if (!Number.isFinite(safeOffset) || safeOffset <= 0) {
+                return;
+            }
+
+            try {
+                player.seekTo(safeOffset, true);
+                notify("startup-seek-applied", {
+                    offset: safeOffset.toFixed(3),
+                    reason: reason || ""
+                });
+            } catch (error) {
+                notify("startup-seek-failed", {
+                    offset: safeOffset.toFixed(3),
+                    reason: reason || ""
+                });
+            }
+        }
+
         function handleHostMessage(payload) {
             const message = parseBridgeMessage(payload);
             if (!message) {
@@ -254,6 +306,7 @@
                         notify("ready", {
                             duration: Number.isFinite(duration) ? duration.toFixed(3) : "0"
                         });
+                        applyStartupSeekOnce("player-ready");
                         applyPlaybackRate("player-ready");
                     },
                     onStateChange: function (event) {

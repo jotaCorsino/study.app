@@ -14,6 +14,8 @@ namespace studyhub.app.tests;
 
 public sealed class PersistedCourseServiceTests
 {
+    private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task GetCourseByIdAsync_PreservesLocalStructureAcrossCourseSwitching()
     {
@@ -562,6 +564,223 @@ public sealed class PersistedCourseServiceTests
 
         Assert.Single(manifestLessons);
         Assert.Equal(lessonId, manifestLessons[0].LessonId);
+    }
+
+    [Fact]
+    public async Task GetCourseByIdAsync_LoadsIntroSkipMetadata_FromPersistedSourceMetadataJson()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var rootPath = @"C:\courses\intro-course";
+        var metadata = new CourseSourceMetadata
+        {
+            RootPath = rootPath,
+            Provider = "LocalFileSystem",
+            IntroSkipEnabled = true,
+            IntroSkipSeconds = 32
+        };
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(
+                courseId,
+                rootPath,
+                JsonSerializer.Serialize(metadata, WebJsonOptions)));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+
+        Assert.NotNull(loadedCourse);
+        Assert.True(loadedCourse!.SourceMetadata.IntroSkipEnabled);
+        Assert.Equal(32, loadedCourse.SourceMetadata.IntroSkipSeconds);
+    }
+
+    [Fact]
+    public async Task GetCourseByIdAsync_DefaultsIntroSkipMetadata_WhenLegacyJsonDoesNotContainFields()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var rootPath = @"C:\courses\legacy-intro-skip";
+        var legacyMetadataJson = JsonSerializer.Serialize(new
+        {
+            rootPath,
+            provider = "LocalFileSystem",
+            scanVersion = "legacy-local-v1"
+        }, WebJsonOptions);
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(courseId, rootPath, legacyMetadataJson));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+
+        Assert.NotNull(loadedCourse);
+        Assert.False(loadedCourse!.SourceMetadata.IntroSkipEnabled);
+        Assert.Equal(0, loadedCourse.SourceMetadata.IntroSkipSeconds);
+    }
+
+    [Fact]
+    public async Task GetCourseByIdAsync_NormalizesNegativeIntroSkipSeconds()
+    {
+        var metadata = new CourseSourceMetadata
+        {
+            RootPath = @"C:\courses\normalization-check",
+            Provider = "LocalFileSystem",
+            IntroSkipEnabled = true,
+            IntroSkipSeconds = -25
+        };
+
+        Assert.Equal(0, metadata.IntroSkipSeconds);
+
+        var normalizedJson = JsonSerializer.Serialize(metadata, WebJsonOptions);
+        using (var normalizedJsonDoc = JsonDocument.Parse(normalizedJson))
+        {
+            Assert.Equal(0, normalizedJsonDoc.RootElement.GetProperty("introSkipSeconds").GetInt32());
+        }
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var rootPath = @"C:\courses\negative-intro-skip";
+        var negativeMetadataJson = JsonSerializer.Serialize(new
+        {
+            rootPath,
+            provider = "LocalFileSystem",
+            introSkipEnabled = true,
+            introSkipSeconds = -40
+        }, WebJsonOptions);
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(courseId, rootPath, negativeMetadataJson));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+
+        Assert.NotNull(loadedCourse);
+        Assert.True(loadedCourse!.SourceMetadata.IntroSkipEnabled);
+        Assert.Equal(0, loadedCourse.SourceMetadata.IntroSkipSeconds);
+    }
+
+    [Fact]
+    public async Task UpdateCourseIntroSkipPreferenceAsync_PersistsUpdatedValues()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var rootPath = @"C:\courses\update-intro-skip";
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(courseId, rootPath, "{}"));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+
+        var updatedMetadata = await service.UpdateCourseIntroSkipPreferenceAsync(
+            courseId,
+            introSkipEnabled: true,
+            introSkipSeconds: 27);
+
+        Assert.NotNull(updatedMetadata);
+        Assert.True(updatedMetadata!.IntroSkipEnabled);
+        Assert.Equal(27, updatedMetadata.IntroSkipSeconds);
+
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+        Assert.NotNull(loadedCourse);
+        Assert.True(loadedCourse!.SourceMetadata.IntroSkipEnabled);
+        Assert.Equal(27, loadedCourse.SourceMetadata.IntroSkipSeconds);
+    }
+
+    [Fact]
+    public async Task UpdateCourseIntroSkipPreferenceAsync_NormalizesNegativeSeconds()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var rootPath = @"C:\courses\normalize-update-intro-skip";
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(courseId, rootPath, "{}"));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+
+        var updatedMetadata = await service.UpdateCourseIntroSkipPreferenceAsync(
+            courseId,
+            introSkipEnabled: true,
+            introSkipSeconds: -9);
+
+        Assert.NotNull(updatedMetadata);
+        Assert.True(updatedMetadata!.IntroSkipEnabled);
+        Assert.Equal(0, updatedMetadata.IntroSkipSeconds);
+
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+        Assert.NotNull(loadedCourse);
+        Assert.True(loadedCourse!.SourceMetadata.IntroSkipEnabled);
+        Assert.Equal(0, loadedCourse.SourceMetadata.IntroSkipSeconds);
+    }
+
+    private static CourseRecord CreateCourseRecord(Guid id, string rootPath, string sourceMetadataJson)
+    {
+        return new CourseRecord
+        {
+            Id = id,
+            RawTitle = $"course-{id:N}",
+            RawDescription = "curso para teste de metadata",
+            Title = $"Course {id:N}",
+            Description = "Curso de teste",
+            Category = "Curso Local",
+            ThumbnailUrl = string.Empty,
+            FolderPath = rootPath,
+            SourceType = CourseSourceType.LocalFolder,
+            SourceMetadataJson = sourceMetadataJson,
+            TotalDurationMinutes = 0,
+            AddedAt = new DateTime(2026, 4, 17, 10, 0, 0, DateTimeKind.Utc),
+            Modules = []
+        };
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<StudyHubDbContext> options) : IDbContextFactory<StudyHubDbContext>

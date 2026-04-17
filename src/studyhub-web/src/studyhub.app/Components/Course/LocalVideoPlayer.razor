@@ -19,6 +19,7 @@
 @code {
     [Parameter, EditorRequired] public Guid CourseId { get; set; }
     [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
+    [Parameter] public TimeSpan InitialStartOffset { get; set; } = TimeSpan.Zero;
     [Parameter] public double RequestedPlaybackSpeed { get; set; } = 1.0;
     [Parameter] public EventCallback OnLessonCompleted { get; set; }
 
@@ -66,7 +67,11 @@
         {
             currentLessonId = Lesson.Id;
             currentFilePath = Lesson.FilePath;
-            currentSessionToken = await PlaybackService.ActivateAsync(CourseId, Lesson, requestedPlaybackSpeed);
+            currentSessionToken = await PlaybackService.ActivateAsync(
+                CourseId,
+                Lesson,
+                requestedPlaybackSpeed,
+                InitialStartOffset);
             currentPlaybackSpeed = requestedPlaybackSpeed;
             snapshot = PlaybackService.Snapshot;
             return;

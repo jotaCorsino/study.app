@@ -55,6 +55,8 @@
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
                                     Lesson="currentLesson"
+                                    LocalInitialStartOffset="localInitialStartOffset"
+                                    ExternalInitialStartOffset="externalInitialStartOffset"
                                     RequestedPlaybackSpeed="selectedPlaybackSpeed"
                                     OnLessonCompleted="HandleLessonCompletedAsync" />
             </div>
@@ -96,6 +98,37 @@
                             YouTube aplicou @FormatPlaybackSpeed(externalPlaybackSnapshot.EffectivePlaybackSpeed)
                             (solicitado @FormatPlaybackSpeed(externalPlaybackSnapshot.RequestedPlaybackSpeed)).
                         </span>
+                    }
+                </div>
+
+                <div class="player-speed-control">
+                    <label class="player-speed-label" for="lesson-player-intro-skip-seconds">Intro skip</label>
+                    <input id="lesson-player-intro-skip-seconds"
+                           class="player-speed-select"
+                           type="number"
+                           min="0"
+                           step="1"
+                           value="@introSkipInput"
+                           disabled="@isSavingIntroSkipPreference"
+                           @onchange="HandleIntroSkipSecondsChangedAsync" />
+                    <label class="player-speed-label" for="lesson-player-intro-skip-enabled">Ativar</label>
+                    <input id="lesson-player-intro-skip-enabled"
+                           type="checkbox"
+                           checked="@introSkipEnabled"
+                           disabled="@isSavingIntroSkipPreference"
+                           @onchange="HandleIntroSkipEnabledChangedAsync" />
+                    <span class="player-speed-effective-hint">
+                        @(introSkipEnabled
+                            ? $"Ativo ({introSkipSeconds}s)"
+                            : "Inativo")
+                    </span>
+                    @if (isSavingIntroSkipPreference)
+                    {
+                        <span class="player-speed-effective-hint">Salvando...</span>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(introSkipSaveError))
+                    {
+                        <span class="player-speed-effective-hint">@introSkipSaveError</span>
                     }
                 </div>
 
@@ -159,8 +192,16 @@
     private Guid? lastAppliedSidebarAnchorLessonId;
     private const string SidebarElementId = "lesson-player-sidebar";
     private const double DefaultPlaybackSpeed = 1.0;
+    private const int DefaultIntroSkipSeconds = 0;
     private static readonly double[] availablePlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
     private double selectedPlaybackSpeed = DefaultPlaybackSpeed;
+    private bool introSkipEnabled;
+    private int introSkipSeconds = DefaultIntroSkipSeconds;
+    private string introSkipInput = DefaultIntroSkipSeconds.ToString(CultureInfo.InvariantCulture);
+    private bool isSavingIntroSkipPreference;
+    private string introSkipSaveError = string.Empty;
+    private TimeSpan localInitialStartOffset = TimeSpan.Zero;
+    private TimeSpan externalInitialStartOffset = TimeSpan.Zero;
     private ExternalLessonPlaybackSnapshot externalPlaybackSnapshot = ExternalLessonPlaybackSnapshot.Hidden;
 
     private bool ShouldShowExternalPlaybackFallback =>
@@ -242,17 +283,26 @@
         previousLesson = null;
         nextLesson = null;
         breadcrumbItems = new List<Breadcrumb.BreadcrumbItem>();
+        ResetIntroSkipPreferenceState();
 
         course = await CourseService.GetCourseByIdAsync(CourseId);
         progress = null;
 
-        if (course == null || course.Modules == null)
+        if (course == null)
+        {
+            return;
+        }
+
+        ApplyIntroSkipPreferenceFromCourse(course);
+
+        if (course.Modules == null)
         {
             return;
         }
 
         progress = await ProgressService.GetProgressByCourseAsync(CourseId);
         FindCurrentContext();
+        UpdateInitialStartOffsets();
 
         if (currentLesson == null)
         {
@@ -376,6 +426,129 @@
         }
 
         selectedPlaybackSpeed = NormalizePlaybackSpeed(parsedSpeed);
+    }
+
+    private void ResetIntroSkipPreferenceState()
+    {
+        introSkipEnabled = false;
+        introSkipSeconds = DefaultIntroSkipSeconds;
+        introSkipInput = DefaultIntroSkipSeconds.ToString(CultureInfo.InvariantCulture);
+        isSavingIntroSkipPreference = false;
+        introSkipSaveError = string.Empty;
+        localInitialStartOffset = TimeSpan.Zero;
+        externalInitialStartOffset = TimeSpan.Zero;
+    }
+
+    private void ApplyIntroSkipPreferenceFromCourse(Course loadedCourse)
+    {
+        introSkipEnabled = loadedCourse.SourceMetadata.IntroSkipEnabled;
+        introSkipSeconds = NormalizeIntroSkipSeconds(loadedCourse.SourceMetadata.IntroSkipSeconds);
+        introSkipInput = introSkipSeconds.ToString(CultureInfo.InvariantCulture);
+        introSkipSaveError = string.Empty;
+    }
+
+    private async Task HandleIntroSkipEnabledChangedAsync(ChangeEventArgs args)
+    {
+        introSkipEnabled = ParseBoolean(args.Value);
+        await PersistIntroSkipPreferenceAsync();
+    }
+
+    private async Task HandleIntroSkipSecondsChangedAsync(ChangeEventArgs args)
+    {
+        var normalizedSeconds = ParseIntroSkipSeconds(args.Value?.ToString());
+        introSkipSeconds = normalizedSeconds;
+        introSkipInput = normalizedSeconds.ToString(CultureInfo.InvariantCulture);
+        await PersistIntroSkipPreferenceAsync();
+    }
+
+    private async Task PersistIntroSkipPreferenceAsync()
+    {
+        if (isSavingIntroSkipPreference)
+        {
+            return;
+        }
+
+        isSavingIntroSkipPreference = true;
+        introSkipSaveError = string.Empty;
+
+        try
+        {
+            var updatedMetadata = await CourseService.UpdateCourseIntroSkipPreferenceAsync(
+                CourseId,
+                introSkipEnabled,
+                introSkipSeconds);
+
+            if (updatedMetadata == null)
+            {
+                introSkipSaveError = "Nao foi possivel salvar.";
+                return;
+            }
+
+            introSkipEnabled = updatedMetadata.IntroSkipEnabled;
+            introSkipSeconds = NormalizeIntroSkipSeconds(updatedMetadata.IntroSkipSeconds);
+            introSkipInput = introSkipSeconds.ToString(CultureInfo.InvariantCulture);
+
+            if (course != null)
+            {
+                course.SourceMetadata.IntroSkipEnabled = introSkipEnabled;
+                course.SourceMetadata.IntroSkipSeconds = introSkipSeconds;
+            }
+
+            UpdateInitialStartOffsets();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(
+                ex,
+                "Intro skip preference update failed. CourseId: {CourseId}.",
+                CourseId);
+            introSkipSaveError = "Nao foi possivel salvar.";
+        }
+        finally
+        {
+            isSavingIntroSkipPreference = false;
+        }
+    }
+
+    private static int ParseIntroSkipSeconds(string? rawValue)
+    {
+        if (!int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedValue) &&
+            !int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.CurrentCulture, out parsedValue))
+        {
+            return DefaultIntroSkipSeconds;
+        }
+
+        return NormalizeIntroSkipSeconds(parsedValue);
+    }
+
+    private static int NormalizeIntroSkipSeconds(int seconds)
+    {
+        return seconds < 0 ? 0 : seconds;
+    }
+
+    private void UpdateInitialStartOffsets()
+    {
+        localInitialStartOffset = LessonInitialStartOffsetCalculator.ResolveForLesson(
+            currentLesson,
+            LessonSourceType.LocalFile,
+            introSkipEnabled,
+            introSkipSeconds);
+
+        externalInitialStartOffset = LessonInitialStartOffsetCalculator.ResolveForLesson(
+            currentLesson,
+            LessonSourceType.ExternalVideo,
+            introSkipEnabled,
+            introSkipSeconds);
+    }
+
+    private static bool ParseBoolean(object? rawValue)
+    {
+        return rawValue switch
+        {
+            bool boolValue => boolValue,
+            string stringValue when bool.TryParse(stringValue, out var parsedValue) => parsedValue,
+            _ => false
+        };
     }
 
     private static double NormalizePlaybackSpeed(double speed)
