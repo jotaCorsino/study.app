@@ -58,6 +58,7 @@ O pacote de release nao inclui dados pessoais de quem publicou a release.
 - velocidade e intro skip ficam em botoes de icone (sem bloco inline estendido)
 - permite ativar/desativar (`Intro skip enabled`) e definir segundos (`Intro skip seconds`)
 - botao de intro skip recebe destaque visual quando a funcao esta ativa
+- hotfix de layering/posicionamento: popovers de velocidade e intro skip permanecem totalmente visiveis e clicaveis (sem ficarem atras/cortados pelo video)
 - regra de precedencia: se a aula tiver posicao salva de retomada (`LastPlaybackPosition > 0`), a retomada vence sempre
 - o intro skip so entra quando a aula comeca do zero
 - aplicacao unica por abertura/carregamento da aula (sem reaplicacao em play/pause, velocidade ou re-render)

@@ -815,17 +815,19 @@
 
 .player-controls-settings {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     gap: var(--space-xs);
     min-width: 0;
-    position: relative;
+    flex-wrap: wrap;
 }
 
 .player-control-popover {
     position: relative;
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
+    gap: 6px;
 }
 
 .player-control-icon-btn {
@@ -867,17 +869,15 @@
 }
 
 .player-control-popover-panel {
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 8px);
-    transform: translateX(-50%);
+    position: static;
     min-width: 180px;
+    width: max-content;
+    max-width: min(92vw, 260px);
     padding: 10px;
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-default);
     background: rgba(16, 19, 27, 0.98);
-    box-shadow: var(--shadow-lg);
-    z-index: var(--z-dropdown);
+    box-shadow: var(--shadow-md);
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
@@ -1152,9 +1152,14 @@
         justify-content: flex-start;
     }
 
+    .player-control-popover {
+        align-items: stretch;
+    }
+
     .player-control-popover-panel {
-        left: 0;
-        transform: none;
+        width: 100%;
+        max-width: none;
+        min-width: 0;
     }
 
     .player-speed-effective-hint-inline {
