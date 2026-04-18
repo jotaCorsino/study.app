@@ -673,22 +673,28 @@
 /* --- Player Area --- */
 .player-layout {
     display: flex;
-    height: 100%;
-    min-height: 100%;
-    overflow: visible;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    min-width: 0;
+    overflow-x: hidden;
+    overflow-y: visible;
     align-items: flex-start;
 }
 
 .player-main {
-    flex: 1;
+    flex: 1 1 auto;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    align-self: flex-start;
     overflow: visible;
-    min-height: auto;
 }
 
 .player-video-area {
     width: 100%;
+    min-width: 0;
     aspect-ratio: 16 / 9;
     background: #000;
     position: relative;
@@ -699,6 +705,7 @@
     max-height: none;
     padding: 12px;
     box-sizing: border-box;
+    margin-bottom: 0;
 }
 
 .player-video-element {
@@ -788,20 +795,22 @@
 }
 
 .player-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    grid-template-areas: "nav-left settings nav-right";
+    display: flex;
     align-items: center;
-    gap: var(--space-lg);
-    padding: var(--space-md) var(--space-xl);
+    justify-content: space-between;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+    padding: var(--space-sm) var(--space-xl);
     border-top: 1px solid var(--border-subtle);
     background: linear-gradient(180deg, rgba(15, 17, 24, 0.52) 0%, rgba(15, 17, 24, 0.9) 100%);
     flex-shrink: 0;
     position: relative;
     z-index: 3;
-    overflow: visible;
-    isolation: isolate;
+    overflow: hidden;
     margin-bottom: 0;
+    margin-top: 0;
+    width: 100%;
+    min-width: 0;
 }
 
 .player-ctrl-btn {
@@ -809,37 +818,27 @@
     padding-right: var(--space-lg);
     gap: var(--space-sm);
     font-size: var(--font-sm);
+    min-height: 40px;
 }
 
-.player-controls-nav {
+.player-controls-primary {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     min-width: 0;
-    width: 100%;
-    flex-wrap: wrap;
-}
-
-.player-controls-nav-left {
-    grid-area: nav-left;
-    justify-content: flex-start;
-}
-
-.player-controls-nav-right {
-    grid-area: nav-right;
-    justify-content: flex-end;
+    flex: 0 1 auto;
 }
 
 .player-controls-settings {
-    grid-area: settings;
     display: flex;
     align-items: center;
-    justify-content: center;
-    justify-self: center;
+    justify-content: flex-end;
     gap: var(--space-xs);
     min-width: 0;
     flex-wrap: nowrap;
     min-height: 40px;
+    flex: 1 1 auto;
+    margin-left: auto;
 }
 
 .player-settings-inline-slot {
@@ -848,17 +847,17 @@
     justify-content: center;
     height: 40px;
     min-width: 0;
-    width: 80px;
+    width: auto;
     max-width: 100%;
     flex: 0 0 auto;
 }
 
 .player-settings-inline-slot.is-speed {
-    width: 286px;
+    width: auto;
 }
 
 .player-settings-inline-slot.is-intro {
-    width: 234px;
+    width: auto;
 }
 
 .player-control-icon-btn {
@@ -910,7 +909,8 @@
     min-height: 40px;
     height: 40px;
     padding: 0 8px;
-    width: 100%;
+    width: fit-content;
+    max-width: 100%;
     border-radius: var(--radius-md);
     border: 1px solid var(--border-default);
     background: rgba(16, 19, 27, 0.92);
@@ -921,12 +921,14 @@
 
 .player-settings-inline-panel-speed {
     justify-content: flex-start;
+    min-width: max-content;
 }
 
 .player-settings-inline-panel-intro {
     justify-content: flex-start;
     flex-wrap: nowrap;
     gap: 8px;
+    min-width: max-content;
 }
 
 .player-settings-inline-title {
@@ -1175,11 +1177,43 @@
     margin: var(--space-xs) 0 var(--space-sm);
 }
 
+.player-lesson-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm) var(--space-md);
+    min-width: 0;
+}
+
 .player-lesson-meta {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     flex-wrap: wrap;
+    min-width: 0;
+}
+
+.player-lesson-header-nav {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.player-header-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 12px;
+    white-space: nowrap;
+}
+
+.player-header-nav-btn svg {
+    flex-shrink: 0;
 }
 
 .player-lesson-meta-tag {
@@ -1206,15 +1240,20 @@
 }
 
 .player-sidebar {
-    width: 360px;
+    width: clamp(230px, 25vw, 320px);
+    min-width: 210px;
+    max-width: 320px;
     background: var(--bg-secondary);
     border-left: 1px solid var(--border-subtle);
     overflow-y: auto;
-    flex-shrink: 0;
+    overflow-x: hidden;
+    flex: 0 1 clamp(230px, 25vw, 320px);
     display: flex;
     flex-direction: column;
-    height: 100%;
-    align-self: stretch;
+    height: auto;
+    max-height: 100vh;
+    min-height: 0;
+    align-self: flex-start;
 }
 
 .player-sidebar-header {
@@ -1235,13 +1274,44 @@
     min-height: 0;
 }
 
-@media (max-width: 1560px) {
+@media (max-width: 1520px) {
+    .player-sidebar {
+        width: clamp(210px, 27vw, 290px);
+        min-width: 195px;
+        max-width: 290px;
+        flex-basis: clamp(210px, 27vw, 290px);
+    }
+}
+
+@media (max-width: 1360px) {
     .player-controls {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        grid-template-areas:
-            "nav-left nav-right"
-            "settings settings";
-        row-gap: var(--space-sm);
+        align-items: flex-start;
+        gap: var(--space-sm);
+    }
+
+    .player-controls-settings {
+        flex: 1 1 100%;
+        justify-content: center;
+        margin-left: 0;
+    }
+
+    .player-lesson-meta-row {
+        align-items: flex-start;
+    }
+
+    .player-lesson-header-nav {
+        width: 100%;
+        justify-content: flex-end;
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 1240px) {
+    .player-sidebar {
+        width: clamp(190px, 29vw, 250px);
+        min-width: 180px;
+        max-width: 250px;
+        flex-basis: clamp(190px, 29vw, 250px);
     }
 
     .player-controls-settings {
@@ -1249,22 +1319,48 @@
     }
 }
 
-@media (max-width: 1360px) {
+@media (max-width: 1080px) {
+    .player-layout {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .player-main,
+    .player-sidebar {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+        flex-basis: auto;
+    }
+
+    .player-sidebar {
+        border-left: 0;
+        border-top: 1px solid var(--border-subtle);
+        max-height: 46vh;
+        height: auto;
+    }
+}
+
+@media (max-width: 980px) {
     .player-controls {
-        grid-template-columns: 1fr;
-        grid-template-areas:
-            "nav-left"
-            "settings"
-            "nav-right";
-        gap: var(--space-sm);
+        padding: var(--space-sm) var(--space-lg);
+        justify-content: flex-start;
+    }
+
+    .player-controls-primary,
+    .player-controls-settings {
+        justify-content: flex-start;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .player-lesson-header-nav {
+        width: 100%;
+        justify-content: flex-start;
     }
 
     .player-controls-settings {
-        justify-content: flex-start;
-    }
-
-    .player-controls-nav-right {
-        justify-content: flex-start;
+        flex: 1 1 100%;
     }
 }
 
@@ -1282,6 +1378,7 @@
 
     .player-settings-inline-panel {
         width: 100%;
+        min-width: 0;
     }
 
     .player-settings-inline-panel-intro {
@@ -1289,6 +1386,7 @@
         min-height: 40px;
         flex-wrap: wrap;
         row-gap: 6px;
+        min-width: 0;
     }
 
     .player-inline-speed-options {
