@@ -675,10 +675,9 @@
     display: flex;
     width: 100%;
     height: 100%;
-    min-height: 100%;
+    min-height: 0;
     min-width: 0;
-    overflow-x: hidden;
-    overflow-y: visible;
+    overflow: hidden;
     align-items: stretch;
 }
 
@@ -688,8 +687,7 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: visible;
+    overflow: hidden;
 }
 
 .player-video-area {
@@ -794,19 +792,18 @@
 }
 
 .player-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
-    grid-template-areas: "nav-left settings nav-right";
+    display: flex;
     align-items: center;
-    gap: var(--space-lg);
-    padding: var(--space-md) var(--space-xl);
+    justify-content: space-between;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+    padding: var(--space-sm) var(--space-xl);
     border-top: 1px solid var(--border-subtle);
     background: linear-gradient(180deg, rgba(15, 17, 24, 0.52) 0%, rgba(15, 17, 24, 0.9) 100%);
     flex-shrink: 0;
     position: relative;
     z-index: 3;
-    overflow: visible;
-    isolation: isolate;
+    overflow: hidden;
     margin-bottom: 0;
     width: 100%;
     min-width: 0;
@@ -817,39 +814,27 @@
     padding-right: var(--space-lg);
     gap: var(--space-sm);
     font-size: var(--font-sm);
+    min-height: 40px;
 }
 
-.player-controls-nav {
+.player-controls-primary {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     min-width: 0;
-    width: 100%;
-    flex-wrap: wrap;
-}
-
-.player-controls-nav-left {
-    grid-area: nav-left;
-    justify-content: flex-start;
-}
-
-.player-controls-nav-right {
-    grid-area: nav-right;
-    justify-content: flex-end;
+    flex: 0 1 auto;
 }
 
 .player-controls-settings {
-    grid-area: settings;
     display: flex;
     align-items: center;
-    justify-content: center;
-    justify-self: center;
+    justify-content: flex-end;
     gap: var(--space-xs);
     min-width: 0;
     flex-wrap: nowrap;
     min-height: 40px;
-    width: fit-content;
-    max-width: 100%;
+    flex: 1 1 auto;
+    margin-left: auto;
 }
 
 .player-settings-inline-slot {
@@ -1188,11 +1173,43 @@
     margin: var(--space-xs) 0 var(--space-sm);
 }
 
+.player-lesson-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm) var(--space-md);
+    min-width: 0;
+}
+
 .player-lesson-meta {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     flex-wrap: wrap;
+    min-width: 0;
+}
+
+.player-lesson-header-nav {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+.player-header-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 0 12px;
+    white-space: nowrap;
+}
+
+.player-header-nav-btn svg {
+    flex-shrink: 0;
 }
 
 .player-lesson-meta-tag {
@@ -1219,17 +1236,18 @@
 }
 
 .player-sidebar {
-    width: clamp(260px, 29vw, 360px);
-    min-width: 240px;
-    max-width: 360px;
+    width: clamp(230px, 25vw, 320px);
+    min-width: 210px;
+    max-width: 320px;
     background: var(--bg-secondary);
     border-left: 1px solid var(--border-subtle);
     overflow-y: auto;
     overflow-x: hidden;
-    flex: 0 1 clamp(260px, 29vw, 360px);
+    flex: 0 1 clamp(230px, 25vw, 320px);
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
     align-self: stretch;
 }
 
@@ -1253,50 +1271,46 @@
 
 @media (max-width: 1520px) {
     .player-sidebar {
-        width: clamp(230px, 31vw, 320px);
-        min-width: 220px;
-        max-width: 320px;
-        flex-basis: clamp(230px, 31vw, 320px);
-    }
-}
-
-@media (max-width: 1480px) {
-    .player-controls {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        grid-template-areas:
-            "nav-left nav-right"
-            "settings settings";
-        row-gap: var(--space-sm);
-    }
-
-    .player-controls-settings {
-        justify-content: center;
-        justify-self: center;
-    }
-}
-
-@media (max-width: 1240px) {
-    .player-sidebar {
-        width: clamp(210px, 33vw, 280px);
-        min-width: 200px;
-        max-width: 280px;
-        flex-basis: clamp(210px, 33vw, 280px);
+        width: clamp(210px, 27vw, 290px);
+        min-width: 195px;
+        max-width: 290px;
+        flex-basis: clamp(210px, 27vw, 290px);
     }
 }
 
 @media (max-width: 1360px) {
     .player-controls {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        grid-template-areas:
-            "nav-left nav-right"
-            "settings settings";
+        align-items: flex-start;
         gap: var(--space-sm);
-        row-gap: var(--space-sm);
+    }
+
+    .player-controls-settings {
+        flex: 1 1 100%;
+        justify-content: center;
+        margin-left: 0;
+    }
+
+    .player-lesson-meta-row {
+        align-items: flex-start;
+    }
+
+    .player-lesson-header-nav {
+        width: 100%;
+        justify-content: flex-end;
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 1240px) {
+    .player-sidebar {
+        width: clamp(190px, 29vw, 250px);
+        min-width: 180px;
+        max-width: 250px;
+        flex-basis: clamp(190px, 29vw, 250px);
     }
 
     .player-controls-settings {
         justify-content: center;
-        justify-self: center;
     }
 }
 
@@ -1324,21 +1338,24 @@
 
 @media (max-width: 980px) {
     .player-controls {
-        grid-template-columns: 1fr;
-        grid-template-areas:
-            "nav-left"
-            "nav-right"
-            "settings";
+        padding: var(--space-sm) var(--space-lg);
+        justify-content: flex-start;
     }
 
-    .player-controls-nav-right,
+    .player-controls-primary,
     .player-controls-settings {
         justify-content: flex-start;
-        justify-self: stretch;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .player-lesson-header-nav {
+        width: 100%;
+        justify-content: flex-start;
     }
 
     .player-controls-settings {
-        width: 100%;
+        flex: 1 1 100%;
     }
 }
 
