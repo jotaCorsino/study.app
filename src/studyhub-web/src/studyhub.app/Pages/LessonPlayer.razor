@@ -53,9 +53,12 @@
                     </div>
 
                     <div class="player-lesson-header-nav">
-                        <button class="btn btn-secondary player-header-nav-btn" @onclick="GoToPreviousLesson" disabled="@(previousLesson == null)">
+                        <button class="btn btn-secondary player-header-nav-btn player-header-nav-btn-icon-only"
+                                title="Aula anterior"
+                                aria-label="Ir para aula anterior"
+                                @onclick="GoToPreviousLesson"
+                                disabled="@(previousLesson == null)">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-                            <span>Aula anterior</span>
                         </button>
 
                         <button class="btn btn-primary player-header-nav-btn" @onclick="GoToNextLesson" disabled="@(nextLesson == null)">

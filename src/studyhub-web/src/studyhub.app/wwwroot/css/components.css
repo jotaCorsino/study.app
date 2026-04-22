@@ -826,7 +826,7 @@
     align-items: center;
     gap: var(--space-sm);
     min-width: 0;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
 }
 
 .player-controls-settings {
@@ -837,8 +837,9 @@
     min-width: 0;
     flex-wrap: nowrap;
     min-height: 40px;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     margin-left: auto;
+    width: auto;
 }
 
 .player-settings-inline-slot {
@@ -1212,6 +1213,12 @@
     white-space: nowrap;
 }
 
+.player-header-nav-btn-icon-only {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+}
+
 .player-header-nav-btn svg {
     flex-shrink: 0;
 }
@@ -1285,14 +1292,14 @@
 
 @media (max-width: 1360px) {
     .player-controls {
-        align-items: flex-start;
+        align-items: center;
         gap: var(--space-sm);
     }
 
     .player-controls-settings {
-        flex: 1 1 100%;
-        justify-content: center;
-        margin-left: 0;
+        flex: 0 1 auto;
+        justify-content: flex-end;
+        margin-left: auto;
     }
 
     .player-lesson-meta-row {
@@ -1315,7 +1322,7 @@
     }
 
     .player-controls-settings {
-        justify-content: center;
+        justify-content: flex-end;
     }
 }
 
