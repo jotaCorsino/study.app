@@ -4,6 +4,7 @@
 @using studyhub.app.state
 @using studyhub.domain.Entities
 @inject ICourseService CourseService
+@inject IProgressService ProgressService
 @inject IRoutineService RoutineService
 @inject CourseCatalogState CourseCatalogState
 @inject NavigationManager Navigation
@@ -114,6 +115,7 @@
     {
         Navigation.LocationChanged += HandleLocationChanged;
         CourseCatalogState.Changed += HandleCatalogChanged;
+        ProgressService.DailyProgressChanged += HandleDailyProgressChanged;
         await LoadCoursesAsync();
     }
 
@@ -121,6 +123,7 @@
     {
         Navigation.LocationChanged -= HandleLocationChanged;
         CourseCatalogState.Changed -= HandleCatalogChanged;
+        ProgressService.DailyProgressChanged -= HandleDailyProgressChanged;
     }
 
     private async Task LoadCoursesAsync()
@@ -268,5 +271,22 @@
     private void HandleCatalogChanged()
     {
         _ = InvokeAsync(LoadCoursesAsync);
+    }
+
+    private void HandleDailyProgressChanged(Guid courseId)
+    {
+        _ = InvokeAsync(() => RefreshDailyIndicatorAsync(courseId));
+    }
+
+    private async Task RefreshDailyIndicatorAsync(Guid courseId)
+    {
+        if (courseId == Guid.Empty || !courses.Any(course => course.Id == courseId))
+        {
+            return;
+        }
+
+        var record = await RoutineService.GetDailyRecordAsync(courseId, DateTime.Now.Date);
+        dailyIndicatorClassByCourseId[courseId] = ResolveDailyIndicatorClass(record);
+        StateHasChanged();
     }
 }

@@ -4,6 +4,8 @@ namespace studyhub.application.Interfaces;
 
 public interface IProgressService
 {
+    event Action<Guid>? DailyProgressChanged;
+
     Task<Progress?> GetProgressByCourseAsync(Guid courseId);
     Task<List<Progress>> GetAllProgressAsync();
     Task OpenLessonAsync(Guid courseId, Guid lessonId);

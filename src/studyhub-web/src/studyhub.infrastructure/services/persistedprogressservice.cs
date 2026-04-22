@@ -14,6 +14,7 @@ public class PersistedProgressService(
 {
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory = contextFactory;
     private readonly IRoutineService _routineService = routineService;
+    public event Action<Guid>? DailyProgressChanged;
 
     public async Task<Progress?> GetProgressByCourseAsync(Guid courseId)
     {
@@ -256,6 +257,7 @@ public class PersistedProgressService(
         }
 
         await _routineService.CreditLessonProgressAsync(courseId, lesson.Id, normalizedCreditedMinutes);
+        NotifyDailyProgressChanged(courseId);
     }
 
     private static int ResolveCreditableMinutes(LessonRecord lesson)
@@ -292,5 +294,15 @@ public class PersistedProgressService(
         }
 
         return 0;
+    }
+
+    private void NotifyDailyProgressChanged(Guid courseId)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return;
+        }
+
+        DailyProgressChanged?.Invoke(courseId);
     }
 }

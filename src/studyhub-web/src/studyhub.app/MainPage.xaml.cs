@@ -10,6 +10,7 @@ using studyhub.app.services;
 #if WINDOWS
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
+using Windows.Media.Playback;
 #endif
 
 namespace studyhub.app;
@@ -53,6 +54,9 @@ public partial class MainPage : ContentPage
 #if WINDOWS
     private WebView2? _windowsExternalWebView;
     private bool _externalVirtualHostConfigured;
+    private MediaPlaybackCommandManager? _nativePlaybackCommandManager;
+    private global::Windows.Foundation.TypedEventHandler<MediaPlaybackCommandManager, MediaPlaybackCommandManagerPreviousReceivedEventArgs>? _nativePreviousReceivedHandler;
+    private global::Windows.Foundation.TypedEventHandler<MediaPlaybackCommandManager, MediaPlaybackCommandManagerNextReceivedEventArgs>? _nativeNextReceivedHandler;
 #endif
 
     private bool _isPageUnloading;
@@ -76,6 +80,7 @@ public partial class MainPage : ContentPage
         _externalLessonPlaybackService.StateChanged += HandleExternalPlaybackStateChanged;
         SizeChanged += HandlePageSizeChanged;
         Loaded += HandlePageLoaded;
+        nativeMediaElement.HandlerChanged += HandleNativeMediaElementHandlerChanged;
         externalPlayerWebView.HandlerChanged += HandleExternalPlayerWebViewHandlerChanged;
 
         UpdateNativePlayerSurface(NativeLessonPlaybackSnapshot.Hidden);
@@ -96,6 +101,13 @@ public partial class MainPage : ContentPage
     private async void HandleExternalPlayerWebViewHandlerChanged(object? sender, EventArgs e)
     {
         await EnsureExternalPlayerRuntimeReadyAsync();
+    }
+
+    private void HandleNativeMediaElementHandlerChanged(object? sender, EventArgs e)
+    {
+#if WINDOWS
+        ConfigureNativeTransportControlCommands();
+#endif
     }
 
     private void HandleNativePlaybackStateChanged(NativeLessonPlaybackSnapshot snapshot)
@@ -157,6 +169,9 @@ public partial class MainPage : ContentPage
         AbsoluteLayout.SetLayoutBounds(nativePlayerHost, bounds);
         nativePlayerHost.IsVisible = true;
         UpdateNativePlaybackControlsForState();
+#if WINDOWS
+        ConfigureNativeTransportControlCommands();
+#endif
         ApplyNativePlaybackSpeed(snapshot);
 
         if (snapshot.SessionToken == _loadedNativeSessionToken &&
@@ -549,6 +564,113 @@ public partial class MainPage : ContentPage
             _currentNativeMediaState);
     }
 
+#if WINDOWS
+    private void ConfigureNativeTransportControlCommands()
+    {
+        if (_isPageUnloading)
+        {
+            return;
+        }
+
+        if (nativeMediaElement.Handler?.PlatformView is not MediaPlayerElement mediaPlayerElement ||
+            mediaPlayerElement.MediaPlayer == null)
+        {
+            DetachNativeTransportControlCommands();
+            return;
+        }
+
+        var commandManager = mediaPlayerElement.MediaPlayer.CommandManager;
+        if (commandManager == null)
+        {
+            DetachNativeTransportControlCommands();
+            return;
+        }
+
+        mediaPlayerElement.MediaPlayer.SystemMediaTransportControls.IsPreviousEnabled = true;
+        mediaPlayerElement.MediaPlayer.SystemMediaTransportControls.IsNextEnabled = true;
+
+        if (ReferenceEquals(_nativePlaybackCommandManager, commandManager))
+        {
+            return;
+        }
+
+        DetachNativeTransportControlCommands();
+
+        _nativePlaybackCommandManager = commandManager;
+        _nativePreviousReceivedHandler = HandleNativePreviousTrackReceived;
+        _nativeNextReceivedHandler = HandleNativeNextTrackReceived;
+
+        _nativePlaybackCommandManager.IsEnabled = true;
+        _nativePlaybackCommandManager.PreviousBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+        _nativePlaybackCommandManager.NextBehavior.EnablingRule = MediaCommandEnablingRule.Always;
+        _nativePlaybackCommandManager.PreviousReceived += _nativePreviousReceivedHandler;
+        _nativePlaybackCommandManager.NextReceived += _nativeNextReceivedHandler;
+    }
+
+    private void DetachNativeTransportControlCommands()
+    {
+        if (_nativePlaybackCommandManager != null)
+        {
+            if (_nativePreviousReceivedHandler != null)
+            {
+                _nativePlaybackCommandManager.PreviousReceived -= _nativePreviousReceivedHandler;
+            }
+
+            if (_nativeNextReceivedHandler != null)
+            {
+                _nativePlaybackCommandManager.NextReceived -= _nativeNextReceivedHandler;
+            }
+        }
+
+        _nativePlaybackCommandManager = null;
+        _nativePreviousReceivedHandler = null;
+        _nativeNextReceivedHandler = null;
+    }
+
+    private void HandleNativePreviousTrackReceived(
+        MediaPlaybackCommandManager sender,
+        MediaPlaybackCommandManagerPreviousReceivedEventArgs args)
+    {
+        args.Handled = true;
+        RequestNativeLessonNavigation(NativeLessonNavigationCommand.Previous);
+    }
+
+    private void HandleNativeNextTrackReceived(
+        MediaPlaybackCommandManager sender,
+        MediaPlaybackCommandManagerNextReceivedEventArgs args)
+    {
+        args.Handled = true;
+        RequestNativeLessonNavigation(NativeLessonNavigationCommand.Next);
+    }
+#endif
+
+    private void RequestNativeLessonNavigation(NativeLessonNavigationCommand command)
+    {
+        if (Dispatcher.IsDispatchRequired)
+        {
+            Dispatcher.Dispatch(() => RequestNativeLessonNavigation(command));
+            return;
+        }
+
+        if (_isPageUnloading ||
+            _isNativeSourceTransitionInProgress ||
+            !nativePlayerHost.IsVisible ||
+            _loadedNativeSessionToken == 0 ||
+            string.IsNullOrWhiteSpace(_loadedNativeFilePath))
+        {
+            return;
+        }
+
+        var snapshot = _nativeLessonPlaybackService.Snapshot;
+        if (snapshot.SessionToken != _loadedNativeSessionToken ||
+            snapshot.Status == NativeLessonPlaybackStatus.Error)
+        {
+            return;
+        }
+
+        _nativeLessonPlaybackService.RequestLessonNavigation(command);
+    }
+
     private void ApplyNativePlaybackSpeed(NativeLessonPlaybackSnapshot snapshot)
     {
         if (_isPageUnloading ||
@@ -786,6 +908,7 @@ public partial class MainPage : ContentPage
             _nativeLessonPlaybackService.StateChanged -= HandleNativePlaybackStateChanged;
             _externalLessonPlaybackService.StateChanged -= HandleExternalPlaybackStateChanged;
             Loaded -= HandlePageLoaded;
+            nativeMediaElement.HandlerChanged -= HandleNativeMediaElementHandlerChanged;
             externalPlayerWebView.HandlerChanged -= HandleExternalPlayerWebViewHandlerChanged;
             CancelPendingNativeMediaEvents();
             CancelPendingExternalPlaybackEvents();
@@ -794,6 +917,7 @@ public partial class MainPage : ContentPage
             SafeStopNativeMediaElement();
             ResetExternalPlayerWebView();
 #if WINDOWS
+            DetachNativeTransportControlCommands();
             DetachWindowsExternalWebViewEvents();
             _windowsExternalWebView = null;
 #endif
@@ -815,6 +939,9 @@ public partial class MainPage : ContentPage
         nativeMediaElement.PositionChanged += HandleNativeMediaPositionChanged;
         nativeMediaElement.StateChanged += HandleNativeMediaStateChanged;
         _nativeMediaEventsAttached = true;
+#if WINDOWS
+        ConfigureNativeTransportControlCommands();
+#endif
     }
 
     private void DetachNativeMediaElementEvents()

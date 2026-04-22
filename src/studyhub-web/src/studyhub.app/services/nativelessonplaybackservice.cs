@@ -23,8 +23,22 @@ public sealed class NativeLessonPlaybackService(
 
     public event Action<NativeLessonPlaybackSnapshot>? StateChanged;
     public event EventHandler<NativeLessonPlaybackCompletedEventArgs>? LessonCompleted;
+    public event Action<NativeLessonNavigationCommand>? LessonNavigationRequested;
 
     public NativeLessonPlaybackSnapshot Snapshot => _snapshot;
+
+    public void RequestLessonNavigation(NativeLessonNavigationCommand command)
+    {
+        var snapshot = _snapshot;
+        if (snapshot.SessionToken <= 0 ||
+            snapshot.LessonId == null ||
+            snapshot.Status == NativeLessonPlaybackStatus.Error)
+        {
+            return;
+        }
+
+        LessonNavigationRequested?.Invoke(command);
+    }
 
     public async Task<long> ActivateAsync(
         Guid courseId,
@@ -699,4 +713,10 @@ public enum NativeLessonPlaybackStatus
     Ready,
     Playing,
     Error
+}
+
+public enum NativeLessonNavigationCommand
+{
+    Previous,
+    Next
 }
