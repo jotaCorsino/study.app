@@ -1319,7 +1319,7 @@
     }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1280px) {
     .player-layout {
         flex-direction: column;
         align-items: stretch;
@@ -1336,8 +1336,9 @@
     .player-sidebar {
         border-left: 0;
         border-top: 1px solid var(--border-subtle);
-        max-height: 46vh;
+        max-height: 50vh;
         height: auto;
+        overflow-y: auto;
     }
 }
 
