@@ -82,6 +82,13 @@ Dias `Unplanned` nunca entram na fila de abono e nunca consomem credito mensal.
 
 O modelo tecnico deve manter essa separacao para evitar que o app perca o historico real do que foi estudado em cada dia.
 
+## Regra de streak
+
+- O abono mensal nao altera a streak.
+- A streak continua usando a regra bruta atual.
+- Dias abonados nao devem recuperar, criar ou prolongar sequencia.
+- A feature afeta a media mensal, o status efetivo mensal e o marcador visual de abono no calendario mensal, nao a sequencia diaria.
+
 ## Proposta tecnica
 
 ### Servico e regra de negocio
@@ -100,7 +107,8 @@ Recomendacao tecnica para esta feature:
 - manter `ApplyStatus(...)` como regra de status bruto;
 - adicionar uma camada derivada de avaliacao mensal, separada da persistencia bruta;
 - evitar regravar `Status` bruto apenas para representar o abono;
-- concentrar a distribuicao do credito em um helper interno do `RoutineService`, aplicado sobre uma colecao mensal ja normalizada.
+- concentrar a distribuicao do credito em um helper interno do `RoutineService`, aplicado sobre uma colecao mensal ja normalizada;
+- manter `GetCurrentStreakAsync(...)` na logica bruta atual, sem consumir status efetivo mensal nem sinal de abono.
 
 ### Modelo de dados
 
@@ -153,6 +161,7 @@ Os testes mais importantes devem ficar em `RoutineServiceTests.cs` e cobrir:
 - exclusao de dias `Unplanned` da fila e da media;
 - preservacao do `Status` bruto original;
 - calculo da media mensal com status efetivo;
+- confirmacao de que o abono nao altera a streak;
 - comportamento em virada de mes;
 - estabilidade com `DailyGoalMinutesAtTheTime` historico;
 - compatibilidade com JSONs antigos sem novos campos.
@@ -162,7 +171,7 @@ Os testes mais importantes devem ficar em `RoutineServiceTests.cs` e cobrir:
 - Media mensal:
   risco de regressao porque hoje a media usa `CompliancePercentage` bruto.
 - Streak:
-  o `GetCurrentStreakAsync(...)` hoje considera dias com estudo bruto maior que zero. E preciso decidir explicitamente se dia abonado sem estudo suficiente altera ou nao a streak.
+  decisao fechada: o abono nao muda a streak. O risco aqui passa a ser somente regressao acidental caso a implementacao misture status efetivo mensal com a regra bruta atual de `GetCurrentStreakAsync(...)`.
 - Calendario:
   risco de confundir cor bruta com estado efetivo se a UI nao separar bem os dois conceitos.
 - Retrocompatibilidade dos JSONs:
@@ -178,4 +187,5 @@ Os testes mais importantes devem ficar em `RoutineServiceTests.cs` e cobrir:
 - O calendario mensal deve continuar mostrando a cor do estado bruto.
 - O marcador de abono deve ser adicional e discreto.
 - A media mensal deve usar o estado efetivo.
+- A streak deve permanecer bruta e inalterada.
 - O mes deve ser a unidade maxima de credito.
