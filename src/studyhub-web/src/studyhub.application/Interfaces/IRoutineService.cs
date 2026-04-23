@@ -12,6 +12,7 @@ public interface IRoutineService
         IReadOnlyCollection<Guid> courseIds,
         DateTime date);
     Task<List<DailyStudyRecord>> GetMonthlyRecordsAsync(Guid courseId, int year, int month);
+    Task<List<DailyGoalEvaluation>> GetMonthlyGoalEvaluationsAsync(Guid courseId, int year, int month);
     Task AddStudyTimeAsync(Guid courseId, int minutes);
     Task CreditLessonProgressAsync(Guid courseId, Guid lessonId, int creditedMinutes, DateTime? date = null);
     Task<int> GetCurrentStreakAsync(Guid courseId, DateTime? referenceDate = null);

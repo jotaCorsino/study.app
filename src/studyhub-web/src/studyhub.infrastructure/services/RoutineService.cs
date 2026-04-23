@@ -149,6 +149,12 @@ public class RoutineService : IRoutineService
         return records;
     }
 
+    public async Task<List<DailyGoalEvaluation>> GetMonthlyGoalEvaluationsAsync(Guid courseId, int year, int month)
+    {
+        var records = await GetMonthlyRecordsAsync(courseId, year, month);
+        return BuildMonthlyGoalEvaluations(courseId, records, year, month, DateTime.Now.Date);
+    }
+
     public async Task AddStudyTimeAsync(Guid courseId, int minutes)
     {
         if (minutes <= 0) return;
@@ -338,6 +344,98 @@ public class RoutineService : IRoutineService
         {
             recordItem.Status = DailyStudyStatus.Completed;
         }
+    }
+
+    private static List<DailyGoalEvaluation> BuildMonthlyGoalEvaluations(
+        Guid courseId,
+        IReadOnlyCollection<DailyStudyRecord> monthlyRecords,
+        int year,
+        int month,
+        DateTime today)
+    {
+        var isCurrentMonth = year == today.Year && month == today.Month;
+        var evaluations = monthlyRecords
+            .OrderBy(record => record.Date)
+            .Select(record => BuildDailyGoalEvaluation(courseId, record, isCurrentMonth, today))
+            .ToList();
+
+        ApplyMonthlyCreditDistribution(evaluations);
+        return evaluations;
+    }
+
+    private static DailyGoalEvaluation BuildDailyGoalEvaluation(
+        Guid courseId,
+        DailyStudyRecord record,
+        bool isCurrentMonth,
+        DateTime today)
+    {
+        var isFutureDay = isCurrentMonth && record.Date.Date > today;
+        var isPlannedDay = record.Status != DailyStudyStatus.Unplanned;
+        var dailyGoal = isPlannedDay ? Math.Max(0, record.DailyGoalMinutesAtTheTime) : 0;
+        var rawCompliance = isPlannedDay ? record.CompliancePercentage : 0;
+        var extraMinutes = isPlannedDay && !isFutureDay && dailyGoal > 0
+            ? Math.Max(0, record.MinutesStudied - dailyGoal)
+            : 0;
+        var missingMinutes = isPlannedDay && !isFutureDay && dailyGoal > 0
+            ? Math.Max(0, dailyGoal - record.MinutesStudied)
+            : 0;
+        var countsAsEffectiveGoalMet = isPlannedDay && !isFutureDay && dailyGoal > 0 && record.MinutesStudied >= dailyGoal;
+
+        return new DailyGoalEvaluation
+        {
+            CourseId = courseId,
+            Date = record.Date.Date,
+            RawStatus = record.Status,
+            MinutesStudied = record.MinutesStudied,
+            DailyGoalMinutesAtTheTime = dailyGoal,
+            ExtraMinutes = extraMinutes,
+            MissingMinutes = missingMinutes,
+            IsMonthlyCreditApplied = false,
+            RawCompliancePercentage = rawCompliance,
+            EffectiveCompliancePercentage = countsAsEffectiveGoalMet ? 100d : rawCompliance,
+            CountsAsEffectiveGoalMet = countsAsEffectiveGoalMet,
+            IsPlannedDay = isPlannedDay,
+            IsFutureDay = isFutureDay
+        };
+    }
+
+    private static void ApplyMonthlyCreditDistribution(List<DailyGoalEvaluation> evaluations)
+    {
+        var remainingCredit = evaluations
+            .Where(CanGenerateMonthlyCredit)
+            .Sum(evaluation => evaluation.ExtraMinutes);
+
+        foreach (var evaluation in evaluations
+                     .Where(CanReceiveMonthlyCredit)
+                     .OrderByDescending(evaluation => evaluation.Date))
+        {
+            if (remainingCredit < evaluation.MissingMinutes)
+            {
+                break;
+            }
+
+            evaluation.IsMonthlyCreditApplied = true;
+            evaluation.EffectiveCompliancePercentage = 100d;
+            evaluation.CountsAsEffectiveGoalMet = true;
+            remainingCredit -= evaluation.MissingMinutes;
+        }
+    }
+
+    private static bool CanGenerateMonthlyCredit(DailyGoalEvaluation evaluation)
+    {
+        return evaluation.IsPlannedDay &&
+               !evaluation.IsFutureDay &&
+               evaluation.DailyGoalMinutesAtTheTime > 0 &&
+               evaluation.ExtraMinutes > 0;
+    }
+
+    private static bool CanReceiveMonthlyCredit(DailyGoalEvaluation evaluation)
+    {
+        return evaluation.IsPlannedDay &&
+               !evaluation.IsFutureDay &&
+               evaluation.DailyGoalMinutesAtTheTime > 0 &&
+               evaluation.MissingMinutes > 0 &&
+               !evaluation.CountsAsEffectiveGoalMet;
     }
 
     private static bool IsPlannedDay(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
