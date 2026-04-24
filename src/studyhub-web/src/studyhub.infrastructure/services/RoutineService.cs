@@ -390,6 +390,8 @@ public class RoutineService : IRoutineService
             DailyGoalMinutesAtTheTime = dailyGoal,
             ExtraMinutes = extraMinutes,
             MissingMinutes = missingMinutes,
+            ConsumedMonthlyCreditMinutes = 0,
+            AvailableMonthlyCreditMinutes = 0,
             IsMonthlyCreditApplied = false,
             RawCompliancePercentage = rawCompliance,
             EffectiveCompliancePercentage = countsAsEffectiveGoalMet ? 100d : rawCompliance,
@@ -415,9 +417,15 @@ public class RoutineService : IRoutineService
             }
 
             evaluation.IsMonthlyCreditApplied = true;
+            evaluation.ConsumedMonthlyCreditMinutes = evaluation.MissingMinutes;
             evaluation.EffectiveCompliancePercentage = 100d;
             evaluation.CountsAsEffectiveGoalMet = true;
             remainingCredit -= evaluation.MissingMinutes;
+        }
+
+        foreach (var evaluation in evaluations)
+        {
+            evaluation.AvailableMonthlyCreditMinutes = remainingCredit;
         }
     }
 

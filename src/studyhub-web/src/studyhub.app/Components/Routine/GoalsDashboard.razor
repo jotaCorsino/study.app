@@ -41,8 +41,8 @@
             <div class="month-summary-header">
                 <div class="month-summary-title text-xs text-tertiary uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
                 <span class="month-credit-badge"
-                      title="Creditos mensais acumulados por estudar acima da meta diaria.">
-                    @FormatMonthlyCreditMinutes(GetAccumulatedMonthlyCreditMinutes())
+                      title="Saldo disponivel de creditos mensais apos abonos.">
+                    @FormatMonthlyCreditMinutes(GetAvailableMonthlyCreditMinutes())
                 </span>
             </div>
             <div class="month-grid">
@@ -277,11 +277,9 @@
         return GetColorTextForPercentage(todayRecord.CompliancePercentage);
     }
 
-    private int GetAccumulatedMonthlyCreditMinutes()
+    private int GetAvailableMonthlyCreditMinutes()
     {
-        return monthlyEvaluations
-            .Where(evaluation => evaluation.IsPlannedDay && !evaluation.IsFutureDay)
-            .Sum(evaluation => Math.Max(0, evaluation.ExtraMinutes));
+        return monthlyEvaluations.FirstOrDefault()?.AvailableMonthlyCreditMinutes ?? 0;
     }
 
     private static string FormatMonthlyCreditMinutes(int minutes)

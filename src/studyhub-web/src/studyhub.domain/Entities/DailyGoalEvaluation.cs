@@ -9,6 +9,8 @@ public class DailyGoalEvaluation
     public int DailyGoalMinutesAtTheTime { get; set; }
     public int ExtraMinutes { get; set; }
     public int MissingMinutes { get; set; }
+    public int ConsumedMonthlyCreditMinutes { get; set; }
+    public int AvailableMonthlyCreditMinutes { get; set; }
     public bool IsMonthlyCreditApplied { get; set; }
     public double RawCompliancePercentage { get; set; }
     public double EffectiveCompliancePercentage { get; set; }

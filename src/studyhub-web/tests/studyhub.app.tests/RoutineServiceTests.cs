@@ -523,6 +523,110 @@ public sealed class RoutineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMonthlyGoalEvaluationsAsync_ConsumesCreditAndLeavesZeroAvailableBalance_WhenSingleAbonoUsesEverything()
+    {
+        var courseId = Guid.NewGuid();
+        var addedAt = new DateTime(2026, 3, 29);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, addedAt));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsAsync(storage, courseId, CreateSettings(addedAt, 60, DayOfWeek.Sunday, DayOfWeek.Monday, DayOfWeek.Tuesday));
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, new DateTime(2026, 3, 29), 0, 60),
+            CreateDailyRecord(courseId, new DateTime(2026, 3, 30), 0, 60),
+            CreateDailyRecord(courseId, new DateTime(2026, 3, 31), 120, 60)
+        ]);
+
+        var rawRecords = await service.GetMonthlyRecordsAsync(courseId, 2026, 3);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, 2026, 3);
+        var olderPendingDay = Assert.Single(evaluations, item => item.Date == new DateTime(2026, 3, 29));
+        var mostRecentPendingDay = Assert.Single(evaluations, item => item.Date == new DateTime(2026, 3, 30));
+        var extraDay = Assert.Single(evaluations, item => item.Date == new DateTime(2026, 3, 31));
+        var rawOlderPendingDay = Assert.Single(rawRecords, item => item.Date == new DateTime(2026, 3, 29));
+        var rawMostRecentPendingDay = Assert.Single(rawRecords, item => item.Date == new DateTime(2026, 3, 30));
+
+        Assert.Equal(60, extraDay.ExtraMinutes);
+        Assert.True(mostRecentPendingDay.IsMonthlyCreditApplied);
+        Assert.Equal(60, mostRecentPendingDay.ConsumedMonthlyCreditMinutes);
+        Assert.True(mostRecentPendingDay.CountsAsEffectiveGoalMet);
+        Assert.Equal(100d, mostRecentPendingDay.EffectiveCompliancePercentage);
+        Assert.Equal(0, mostRecentPendingDay.AvailableMonthlyCreditMinutes);
+        Assert.False(olderPendingDay.IsMonthlyCreditApplied);
+        Assert.Equal(0, olderPendingDay.ConsumedMonthlyCreditMinutes);
+        Assert.Equal(0, olderPendingDay.AvailableMonthlyCreditMinutes);
+        Assert.False(olderPendingDay.CountsAsEffectiveGoalMet);
+        Assert.Equal(DailyStudyStatus.NotStarted, rawOlderPendingDay.Status);
+        Assert.Equal(DailyStudyStatus.NotStarted, rawMostRecentPendingDay.Status);
+        Assert.Equal(DailyStudyStatus.NotStarted, olderPendingDay.RawStatus);
+        Assert.Equal(DailyStudyStatus.NotStarted, mostRecentPendingDay.RawStatus);
+    }
+
+    [Fact]
+    public async Task GetMonthlyGoalEvaluationsAsync_KeepsPositiveAvailableBalance_WhenCreditRemainsAfterAbono()
+    {
+        var courseId = Guid.NewGuid();
+        var addedAt = new DateTime(2026, 3, 30);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, addedAt));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsAsync(storage, courseId, CreateSettings(addedAt, 60, DayOfWeek.Monday, DayOfWeek.Tuesday));
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, new DateTime(2026, 3, 30), 0, 60),
+            CreateDailyRecord(courseId, new DateTime(2026, 3, 31), 180, 60)
+        ]);
+
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, 2026, 3);
+        var pendingDay = Assert.Single(evaluations, item => item.Date == new DateTime(2026, 3, 30));
+        var extraDay = Assert.Single(evaluations, item => item.Date == new DateTime(2026, 3, 31));
+
+        Assert.True(pendingDay.IsMonthlyCreditApplied);
+        Assert.Equal(60, pendingDay.ConsumedMonthlyCreditMinutes);
+        Assert.Equal(60, pendingDay.AvailableMonthlyCreditMinutes);
+        Assert.Equal(120, extraDay.ExtraMinutes);
+        Assert.Equal(60, extraDay.AvailableMonthlyCreditMinutes);
+    }
+
+    [Fact]
+    public async Task GetMonthlyGoalEvaluationsAsync_AvailableBalance_DoesNotUseCreditFromAnotherMonth()
+    {
+        var courseId = Guid.NewGuid();
+        var addedAt = new DateTime(2026, 2, 28);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, addedAt));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsAsync(storage, courseId, CreateSettings(addedAt, 60, DayOfWeek.Saturday, DayOfWeek.Tuesday));
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, new DateTime(2026, 2, 28), 180, 60),
+            CreateDailyRecord(courseId, new DateTime(2026, 3, 31), 0, 60)
+        ]);
+
+        var februaryEvaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, 2026, 2);
+        var marchEvaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, 2026, 3);
+        var februaryDay = Assert.Single(februaryEvaluations, item => item.Date == new DateTime(2026, 2, 28));
+        var marchPendingDay = Assert.Single(marchEvaluations, item => item.Date == new DateTime(2026, 3, 31));
+
+        Assert.Equal(120, februaryDay.ExtraMinutes);
+        Assert.Equal(120, februaryDay.AvailableMonthlyCreditMinutes);
+        Assert.False(marchPendingDay.IsMonthlyCreditApplied);
+        Assert.Equal(0, marchPendingDay.AvailableMonthlyCreditMinutes);
+    }
+
+    [Fact]
     public async Task GetCurrentStreakAsync_RemainsBasedOnRawStudyEvenWhenMonthlyCreditWouldAbonateToday()
     {
         var courseId = Guid.NewGuid();
@@ -604,11 +708,11 @@ public sealed class RoutineServiceTests : IDisposable
         };
     }
 
-    private static RoutineSettings CreateAllDaysSettings(DateTime lastUpdatedAt)
+    private static RoutineSettings CreateAllDaysSettings(DateTime lastUpdatedAt, int dailyGoalMinutes = 30)
     {
         return new RoutineSettings
         {
-            DailyGoalMinutes = 30,
+            DailyGoalMinutes = dailyGoalMinutes,
             SelectedDaysOfWeek =
             [
                 DayOfWeek.Sunday,
@@ -623,7 +727,17 @@ public sealed class RoutineServiceTests : IDisposable
         };
     }
 
-    private static DailyStudyRecord CreateDailyRecord(Guid courseId, DateTime date, int minutes)
+    private static RoutineSettings CreateSettings(DateTime lastUpdatedAt, int dailyGoalMinutes, params DayOfWeek[] selectedDays)
+    {
+        return new RoutineSettings
+        {
+            DailyGoalMinutes = dailyGoalMinutes,
+            SelectedDaysOfWeek = selectedDays.ToList(),
+            LastUpdatedAt = lastUpdatedAt
+        };
+    }
+
+    private static DailyStudyRecord CreateDailyRecord(Guid courseId, DateTime date, int minutes, int dailyGoalMinutes = 30)
     {
         return new DailyStudyRecord
         {
@@ -631,7 +745,7 @@ public sealed class RoutineServiceTests : IDisposable
             Date = date,
             NonLessonMinutesStudied = minutes,
             MinutesStudied = minutes,
-            DailyGoalMinutesAtTheTime = 30
+            DailyGoalMinutesAtTheTime = dailyGoalMinutes
         };
     }
 
