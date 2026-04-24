@@ -84,6 +84,8 @@ public sealed class ExternalLessonPlaybackServiceTests
 
     private sealed class StubProgressService : IProgressService
     {
+        public event Action<Guid>? DailyProgressChanged;
+
         public Task<Progress?> GetProgressByCourseAsync(Guid courseId)
             => Task.FromResult<Progress?>(null);
 

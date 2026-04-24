@@ -6,7 +6,46 @@
     border-radius: var(--radius-xl);
 }
 
+.month-summary-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    margin-bottom: var(--space-sm);
+}
+
+.month-summary-title {
+    grid-column: 2;
+    justify-self: center;
+    min-width: 0;
+    text-align: center;
+}
+
+.month-credit-badge {
+    grid-column: 3;
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid rgba(56, 142, 60, 0.35);
+    border-radius: 999px;
+    background: rgba(56, 142, 60, 0.12);
+    color: #8bc34a;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
 .day-box {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 20px;
     height: 20px;
     border-radius: 4px;
@@ -20,6 +59,21 @@
 .day-box.size-sm {
     width: 12px;
     height: 12px;
+}
+
+.day-box-credit-ring {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid #388e3c;
+    border-radius: 999px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.day-box.size-sm .day-box-credit-ring {
+    width: 7px;
+    height: 7px;
+    border-width: 1px;
 }
 
 /* 5 Discrete Levels for Routing Colors */
