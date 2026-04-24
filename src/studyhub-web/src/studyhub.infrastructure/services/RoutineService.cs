@@ -151,8 +151,13 @@ public class RoutineService : IRoutineService
 
     public async Task<List<DailyGoalEvaluation>> GetMonthlyGoalEvaluationsAsync(Guid courseId, int year, int month)
     {
+        return await GetMonthlyGoalEvaluationsAsync(courseId, year, month, DateTime.Now.Date);
+    }
+
+    public async Task<List<DailyGoalEvaluation>> GetMonthlyGoalEvaluationsAsync(Guid courseId, int year, int month, DateTime today)
+    {
         var records = await GetMonthlyRecordsAsync(courseId, year, month);
-        return BuildMonthlyGoalEvaluations(courseId, records, year, month, DateTime.Now.Date);
+        return BuildMonthlyGoalEvaluations(courseId, records, year, month, today.Date);
     }
 
     public async Task AddStudyTimeAsync(Guid courseId, int minutes)
@@ -359,7 +364,7 @@ public class RoutineService : IRoutineService
             .Select(record => BuildDailyGoalEvaluation(courseId, record, isCurrentMonth, today))
             .ToList();
 
-        ApplyMonthlyCreditDistribution(evaluations);
+        ApplyMonthlyCreditDistribution(evaluations, isCurrentMonth ? today.Date : null);
         return evaluations;
     }
 
@@ -401,14 +406,14 @@ public class RoutineService : IRoutineService
         };
     }
 
-    private static void ApplyMonthlyCreditDistribution(List<DailyGoalEvaluation> evaluations)
+    private static void ApplyMonthlyCreditDistribution(List<DailyGoalEvaluation> evaluations, DateTime? currentDate)
     {
         var remainingCredit = evaluations
             .Where(CanGenerateMonthlyCredit)
             .Sum(evaluation => evaluation.ExtraMinutes);
 
         foreach (var evaluation in evaluations
-                     .Where(CanReceiveMonthlyCredit)
+                     .Where(evaluation => CanReceiveMonthlyCredit(evaluation, currentDate))
                      .OrderByDescending(evaluation => evaluation.Date))
         {
             if (remainingCredit < evaluation.MissingMinutes)
@@ -437,10 +442,11 @@ public class RoutineService : IRoutineService
                evaluation.ExtraMinutes > 0;
     }
 
-    private static bool CanReceiveMonthlyCredit(DailyGoalEvaluation evaluation)
+    private static bool CanReceiveMonthlyCredit(DailyGoalEvaluation evaluation, DateTime? currentDate)
     {
         return evaluation.IsPlannedDay &&
                !evaluation.IsFutureDay &&
+               (!currentDate.HasValue || evaluation.Date.Date < currentDate.Value.Date) &&
                evaluation.DailyGoalMinutesAtTheTime > 0 &&
                evaluation.MissingMinutes > 0 &&
                !evaluation.CountsAsEffectiveGoalMet;
