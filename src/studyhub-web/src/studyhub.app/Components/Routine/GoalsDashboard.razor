@@ -40,10 +40,14 @@
         <div class="flex-1 flex flex-col items-center">
             <div class="text-xs text-tertiary mb-sm uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
             <div class="month-grid">
-                @foreach (var record in monthlyRecords)
+                @foreach (var evaluation in monthlyEvaluations)
                 {
-                    <div class="day-box @GetColorClassForDay(record, settings)"
-                         title="@record.Date.ToString("dd/MM/yyyy"): @record.MinutesStudied min (Meta: @record.DailyGoalMinutesAtTheTime min)">
+                    <div class="day-box @GetColorClassForDay(evaluation, settings)"
+                         title="@GetDayTitle(evaluation)">
+                        @if (evaluation.IsMonthlyCreditApplied)
+                        {
+                            <span class="day-box-credit-ring" aria-hidden="true"></span>
+                        }
                     </div>
                 }
             </div>
@@ -74,7 +78,7 @@
 
     private RoutineSettings settings = new();
     private DailyStudyRecord? todayRecord;
-    private List<DailyStudyRecord> monthlyRecords = new();
+    private List<DailyGoalEvaluation> monthlyEvaluations = new();
     private bool showSettings;
     private bool showExpandedView;
     private System.Timers.Timer? refreshTimer;
@@ -121,7 +125,7 @@
             return;
         }
 
-        var loadedMonthlyRecords = await RoutineService.GetMonthlyRecordsAsync(requestedCourseId, DateTime.Now.Year, DateTime.Now.Month);
+        var loadedMonthlyEvaluations = await RoutineService.GetMonthlyGoalEvaluationsAsync(requestedCourseId, DateTime.Now.Year, DateTime.Now.Month);
         if (!IsCurrentLoad(currentLoadVersion, requestedCourseId))
         {
             return;
@@ -129,7 +133,7 @@
 
         settings = loadedSettings;
         todayRecord = loadedTodayRecord;
-        monthlyRecords = loadedMonthlyRecords;
+        monthlyEvaluations = loadedMonthlyEvaluations;
         hasLoaded = true;
 
         await InvokeAsync(StateHasChanged);
@@ -147,7 +151,7 @@
     {
         settings = new RoutineSettings();
         todayRecord = null;
-        monthlyRecords = [];
+        monthlyEvaluations = [];
         showSettings = false;
         showExpandedView = false;
         hasLoaded = false;
@@ -267,17 +271,25 @@
         return GetColorTextForPercentage(todayRecord.CompliancePercentage);
     }
 
-    private string GetColorClassForDay(DailyStudyRecord record, RoutineSettings currentSettings)
+    private string GetColorClassForDay(DailyGoalEvaluation evaluation, RoutineSettings currentSettings)
     {
-        if (record.Date > DateTime.Now.Date) return "bg-neutral opacity-50";
+        if (evaluation.IsFutureDay) return "bg-neutral opacity-50";
         if (currentSettings.DailyGoalMinutes == 0) return "bg-neutral";
-        if (record.Status == DailyStudyStatus.Unplanned) return "bg-neutral";
+        if (!evaluation.IsPlannedDay || evaluation.RawStatus == DailyStudyStatus.Unplanned) return "bg-neutral";
 
-        var percentage = record.CompliancePercentage;
-        if (record.MinutesStudied == 0) return "bg-level-0";
+        var percentage = evaluation.RawCompliancePercentage;
+        if (evaluation.MinutesStudied == 0) return "bg-level-0";
         if (percentage < 25) return "bg-level-1";
         if (percentage < 50) return "bg-level-2";
         if (percentage < 75) return "bg-level-3";
         return "bg-level-4";
+    }
+
+    private string GetDayTitle(DailyGoalEvaluation evaluation)
+    {
+        var title = $"{evaluation.Date:dd/MM/yyyy}: {evaluation.MinutesStudied} min (Meta: {evaluation.DailyGoalMinutesAtTheTime} min)";
+        return evaluation.IsMonthlyCreditApplied
+            ? $"{title} | Abonado por credito mensal"
+            : title;
     }
 }

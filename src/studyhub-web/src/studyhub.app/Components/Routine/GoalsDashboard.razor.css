@@ -7,6 +7,10 @@
 }
 
 .day-box {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 20px;
     height: 20px;
     border-radius: 4px;
@@ -20,6 +24,21 @@
 .day-box.size-sm {
     width: 12px;
     height: 12px;
+}
+
+.day-box-credit-ring {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid #388e3c;
+    border-radius: 999px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.day-box.size-sm .day-box-credit-ring {
+    width: 7px;
+    height: 7px;
+    border-width: 1px;
 }
 
 /* 5 Discrete Levels for Routing Colors */
