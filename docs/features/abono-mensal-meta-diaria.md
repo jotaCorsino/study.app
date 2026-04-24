@@ -27,15 +27,18 @@ Um dia pode receber abono quando todas as regras abaixo forem verdadeiras:
 
 - pertence ao mesmo ano e mes da apuracao;
 - nao e dia futuro dentro da apuracao atual;
+- e anterior ao dia atual quando a apuracao estiver sendo feita no mes vigente;
 - e um dia planejado, ou seja, nao esta com `Status = Unplanned`;
 - possui `DailyGoalMinutesAtTheTime > 0`;
 - nao bateu a meta bruta do dia, portanto possui `Minutos faltantes > 0`.
 
 Dias `Unplanned` nunca entram na fila de abono e nunca consomem credito mensal.
+O dia atual nunca entra na fila de pendencias para abono, porque ainda esta em andamento e nao pode ser tratado como divida vencida.
 
 ### Formacao do credito mensal
 
 - O credito mensal nasce apenas de dias do mesmo mes em que `MinutesStudied > DailyGoalMinutesAtTheTime`.
+- Horas extras do dia atual tambem podem gerar credito mensal, desde que o dia seja planejado e nao seja futuro.
 - O credito e isolado por mes.
 - O credito de um mes nao pode ser usado em outro mes.
 - Nao existe transferencia manual ou automatica entre meses.
@@ -44,9 +47,11 @@ Dias `Unplanned` nunca entram na fila de abono e nunca consomem credito mensal.
 
 - A distribuicao deve acontecer de tras para frente.
 - A ordem e: dia pendente mais recente para o dia pendente mais antigo dentro do mesmo mes.
+- Apenas dias anteriores ao dia atual podem consumir credito mensal.
 - Nao deve haver salto para um dia mais antigo enquanto um dia mais recente ainda estiver na frente da fila.
 - O credito mensal e consumido nessa ordem.
 - Um dia so passa a ser considerado abonado quando seu faltante estiver totalmente coberto pelo credito acumulado na avaliacao daquele mes.
+- O dia atual pode gerar credito por horas extras, mas nao pode consumir esse credito no mesmo momento em que ainda esta em aberto.
 
 ### Escopo temporal
 
@@ -162,6 +167,8 @@ Os testes mais importantes devem ficar em `RoutineServiceTests.cs` e cobrir:
 - preservacao do `Status` bruto original;
 - calculo da media mensal com status efetivo;
 - confirmacao de que o abono nao altera a streak;
+- confirmacao de que o dia atual nao entra na fila de pendencias elegiveis para abono;
+- confirmacao de que horas extras do dia atual ainda podem abonar dias anteriores;
 - comportamento em virada de mes;
 - estabilidade com `DailyGoalMinutesAtTheTime` historico;
 - compatibilidade com JSONs antigos sem novos campos.

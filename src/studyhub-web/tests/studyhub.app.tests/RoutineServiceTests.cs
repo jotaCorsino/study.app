@@ -627,30 +627,101 @@ public sealed class RoutineServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetCurrentStreakAsync_RemainsBasedOnRawStudyEvenWhenMonthlyCreditWouldAbonateToday()
+    public async Task GetMonthlyGoalEvaluationsAsync_DoesNotLetCurrentDayConsumeAvailableCredit()
     {
         var courseId = Guid.NewGuid();
-        var referenceDate = new DateTime(2026, 3, 31);
+        var today = new DateTime(2026, 4, 24);
 
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
         var options = await CreateOptionsAsync(connection);
-        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 3, 1)));
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, today.AddDays(-1)));
 
         var service = CreateService(options, out var storage);
-        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(new DateTime(2026, 3, 1)));
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(today.AddDays(-1), 60));
         await WriteRecordsAsync(storage, courseId,
         [
-            CreateDailyRecord(courseId, new DateTime(2026, 3, 29), 30),
-            CreateDailyRecord(courseId, new DateTime(2026, 3, 30), 60),
-            CreateDailyRecord(courseId, referenceDate, 0)
+            CreateDailyRecord(courseId, today.AddDays(-1), 120, 60),
+            CreateDailyRecord(courseId, today, 0, 60)
         ]);
 
-        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, 2026, 3);
-        var todayEvaluation = Assert.Single(evaluations.Where(item => item.Date == referenceDate));
-        var streak = await service.GetCurrentStreakAsync(courseId, referenceDate);
+        var rawRecords = await service.GetMonthlyRecordsAsync(courseId, today.Year, today.Month);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, today.Year, today.Month, today);
+        var creditSourceDay = Assert.Single(evaluations, item => item.Date == today.AddDays(-1));
+        var currentDay = Assert.Single(evaluations, item => item.Date == today);
+        var rawCurrentDay = Assert.Single(rawRecords, item => item.Date == today);
 
-        Assert.True(todayEvaluation.IsMonthlyCreditApplied);
+        Assert.Equal(60, creditSourceDay.ExtraMinutes);
+        Assert.False(currentDay.IsMonthlyCreditApplied);
+        Assert.False(currentDay.CountsAsEffectiveGoalMet);
+        Assert.Equal(60, creditSourceDay.AvailableMonthlyCreditMinutes);
+        Assert.Equal(60, currentDay.AvailableMonthlyCreditMinutes);
+        Assert.Equal(DailyStudyStatus.NotStarted, rawCurrentDay.Status);
+        Assert.Equal(DailyStudyStatus.NotStarted, currentDay.RawStatus);
+    }
+
+    [Fact]
+    public async Task GetMonthlyGoalEvaluationsAsync_AllowsCurrentDayExtraToAbonatePreviousPendingDay()
+    {
+        var courseId = Guid.NewGuid();
+        var today = new DateTime(2026, 4, 24);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, today.AddDays(-1)));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(today.AddDays(-1), 60));
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, today.AddDays(-1), 0, 60),
+            CreateDailyRecord(courseId, today, 120, 60)
+        ]);
+
+        var rawRecords = await service.GetMonthlyRecordsAsync(courseId, today.Year, today.Month);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, today.Year, today.Month, today);
+        var previousDay = Assert.Single(evaluations, item => item.Date == today.AddDays(-1));
+        var currentDay = Assert.Single(evaluations, item => item.Date == today);
+        var rawPreviousDay = Assert.Single(rawRecords, item => item.Date == today.AddDays(-1));
+
+        Assert.True(previousDay.IsMonthlyCreditApplied);
+        Assert.Equal(60, previousDay.ConsumedMonthlyCreditMinutes);
+        Assert.True(previousDay.CountsAsEffectiveGoalMet);
+        Assert.False(currentDay.IsMonthlyCreditApplied);
+        Assert.Equal(60, currentDay.ExtraMinutes);
+        Assert.Equal(0, currentDay.AvailableMonthlyCreditMinutes);
+        Assert.Equal(DailyStudyStatus.NotStarted, rawPreviousDay.Status);
+        Assert.Equal(DailyStudyStatus.NotStarted, previousDay.RawStatus);
+        Assert.Equal(DailyStudyStatus.Completed, currentDay.RawStatus);
+    }
+
+    [Fact]
+    public async Task GetCurrentStreakAsync_RemainsBasedOnRawStudyWhenCurrentDayHasAvailableMonthlyCredit()
+    {
+        var courseId = Guid.NewGuid();
+        var today = new DateTime(2026, 4, 24);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, today.AddDays(-2)));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(today.AddDays(-2), 60));
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, today.AddDays(-2), 60, 60),
+            CreateDailyRecord(courseId, today.AddDays(-1), 120, 60),
+            CreateDailyRecord(courseId, today, 0, 60)
+        ]);
+
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, today.Year, today.Month, today);
+        var currentDay = Assert.Single(evaluations, item => item.Date == today);
+        var streak = await service.GetCurrentStreakAsync(courseId, today);
+
+        Assert.False(currentDay.IsMonthlyCreditApplied);
+        Assert.Equal(60, currentDay.AvailableMonthlyCreditMinutes);
         Assert.Equal(2, streak);
     }
 
