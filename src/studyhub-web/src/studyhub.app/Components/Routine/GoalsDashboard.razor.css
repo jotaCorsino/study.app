@@ -6,6 +6,36 @@
     border-radius: var(--radius-xl);
 }
 
+.month-summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    width: 100%;
+    margin-bottom: var(--space-sm);
+}
+
+.month-summary-title {
+    min-width: 0;
+}
+
+.month-credit-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid rgba(56, 142, 60, 0.35);
+    border-radius: 999px;
+    background: rgba(56, 142, 60, 0.12);
+    color: #8bc34a;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
 .day-box {
     position: relative;
     display: inline-flex;

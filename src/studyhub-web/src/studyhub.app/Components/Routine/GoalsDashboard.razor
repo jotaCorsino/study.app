@@ -38,7 +38,13 @@
         </div>
 
         <div class="flex-1 flex flex-col items-center">
-            <div class="text-xs text-tertiary mb-sm uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
+            <div class="month-summary-header">
+                <div class="month-summary-title text-xs text-tertiary uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
+                <span class="month-credit-badge"
+                      title="Creditos mensais acumulados por estudar acima da meta diaria.">
+                    @FormatMonthlyCreditMinutes(GetAccumulatedMonthlyCreditMinutes())
+                </span>
+            </div>
             <div class="month-grid">
                 @foreach (var evaluation in monthlyEvaluations)
                 {
@@ -269,6 +275,20 @@
         }
 
         return GetColorTextForPercentage(todayRecord.CompliancePercentage);
+    }
+
+    private int GetAccumulatedMonthlyCreditMinutes()
+    {
+        return monthlyEvaluations
+            .Where(evaluation => evaluation.IsPlannedDay && !evaluation.IsFutureDay)
+            .Sum(evaluation => Math.Max(0, evaluation.ExtraMinutes));
+    }
+
+    private static string FormatMonthlyCreditMinutes(int minutes)
+    {
+        var hours = minutes / 60;
+        var remainingMinutes = minutes % 60;
+        return $"+{hours}h{remainingMinutes:00}";
     }
 
     private string GetColorClassForDay(DailyGoalEvaluation evaluation, RoutineSettings currentSettings)
