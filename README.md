@@ -1,4 +1,4 @@
-## **NOTA IMPORTANTE** - Este projeto e 100% pessoal, 110% amador e 1000% criado apenas para satisfazer uma vontade particular de organizar meus cursos de um jeito que funcione para mim. Nao foi feito em padrao de mercado e pode ter decisoes simples ou improvisadas. Sou estudante e construo este app para me ajudar a estudar.
+## **NOTA IMPORTANTE** - Este projeto e 100% pessoal, 110% amador e 1000% criado apenas para satisfazer uma vontade particular de organizar meus cursos de um jeito que funcione para mim. Nao foi feito em padrao de mercado e pode ter decisoes simples ou improvisadas. Sou estudante e construí este app "vibe codando" com codex, só para me ajudar a estudar.
 
 # StudyHub
 
