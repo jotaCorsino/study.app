@@ -4,6 +4,27 @@
     background: var(--bg-surface);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-xl);
+    min-width: 0;
+    overflow: hidden;
+}
+
+.goals-dashboard-header {
+    gap: var(--space-md);
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.goals-dashboard-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.goals-dashboard-body {
+    min-width: 0;
+}
+
+.goals-dashboard-month {
+    min-width: 0;
 }
 
 .month-summary-header {
@@ -20,6 +41,7 @@
     justify-self: center;
     min-width: 0;
     text-align: center;
+    overflow-wrap: anywhere;
 }
 
 .month-credit-badge {
@@ -90,4 +112,46 @@
     grid-template-rows: repeat(2, auto);
     grid-auto-flow: column;
     gap: 5px;
+    max-width: 100%;
+}
+
+.month-legend {
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+@media (max-width: 760px) {
+    .goals-dashboard {
+        padding: var(--space-lg);
+    }
+
+    .goals-dashboard-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .goals-dashboard-today {
+        width: 100%;
+    }
+
+    .month-summary-header {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    .month-summary-title,
+    .month-credit-badge {
+        grid-column: auto;
+        justify-self: auto;
+    }
+
+    .month-grid {
+        gap: 4px;
+    }
+
+    .day-box {
+        width: 18px;
+        height: 18px;
+    }
 }

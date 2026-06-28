@@ -4,7 +4,7 @@
 @inject IRoutineService RoutineService
 
 <div class="goals-dashboard">
-    <div class="flex justify-between items-start mb-lg">
+    <div class="goals-dashboard-header flex justify-between items-start mb-lg">
         <div>
             <h2 class="text-lg font-bold">Minha Rotina neste Curso</h2>
             <p class="text-sm text-secondary">
@@ -18,7 +18,7 @@
                 }
             </p>
         </div>
-        <div class="flex gap-sm">
+        <div class="goals-dashboard-actions flex gap-sm">
             <button class="btn btn-secondary py-xs px-sm text-sm" @onclick="ToggleExpandedView">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                 <span class="ml-xs">Historico</span>
@@ -29,15 +29,15 @@
         </div>
     </div>
 
-    <div class="flex gap-lg items-center mt-md flex-wrap">
-        <div class="flex-shrink-0 text-center">
+    <div class="goals-dashboard-body flex gap-lg items-center mt-md flex-wrap">
+        <div class="goals-dashboard-today flex-shrink-0 text-center">
             <div class="text-sm text-secondary mb-xs">Hoje</div>
             <div class="text-3xl font-bold flex items-baseline gap-xs justify-center">
                 <span class="@GetTodayMinutesTextClass()">@FormatMinutes(todayRecord?.MinutesStudied ?? 0)</span>
             </div>
         </div>
 
-        <div class="flex-1 flex flex-col items-center">
+        <div class="goals-dashboard-month flex-1 flex flex-col items-center">
             <div class="month-summary-header">
                 <div class="month-summary-title text-xs text-tertiary uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
                 <span class="month-credit-badge"
