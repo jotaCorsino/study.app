@@ -5,15 +5,17 @@
     <div class="module-accordion-header" @onclick="Toggle">
         <div class="module-accordion-left">
             <div class="module-accordion-number">@ModuleNumber</div>
-            <div>
+            <div class="module-accordion-content">
                 <div class="module-accordion-title">@Module?.Title</div>
+                <div class="module-accordion-progress">
+                    @GetCompletedLessons() / @GetTotalLessons() concluidas
+                </div>
                 <div class="module-accordion-meta">
-                    @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) aulas - @(FormatDuration(Module?.Topics?.Sum(t => t.Lessons?.Sum(l => (int)l.Duration.TotalMinutes) ?? 0) ?? 0))
+                    @GetTotalLessons() aulas - @FormatDuration(GetTotalDurationMinutes())
                 </div>
             </div>
         </div>
         <div class="module-accordion-right">
-            <span class="text-xs text-tertiary">@GetCompletedLessons() / @(Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0) concluidas</span>
             <svg class="module-accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </div>
     </div>
@@ -72,6 +74,16 @@
         
         return Module.Topics.Sum(t => t.Lessons?.Count(l => 
             LessonStatuses.TryGetValue(l.Id, out var status) && status == LessonStatus.Completed) ?? 0);
+    }
+
+    private int GetTotalLessons()
+    {
+        return Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0;
+    }
+
+    private int GetTotalDurationMinutes()
+    {
+        return Module?.Topics?.Sum(t => t.Lessons?.Sum(l => (int)l.Duration.TotalMinutes) ?? 0) ?? 0;
     }
 
     private string FormatDuration(int totalMinutes)
