@@ -746,11 +746,12 @@
 .player-layout {
     display: flex;
     width: 100%;
-    height: auto;
+    height: 100vh;
+    max-height: 100vh;
     min-height: 0;
     min-width: 0;
     overflow-x: hidden;
-    overflow-y: visible;
+    overflow-y: hidden;
     align-items: stretch;
 }
 
@@ -760,12 +761,14 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    height: 100vh;
+    max-height: 100vh;
     align-self: stretch;
-    overflow: visible;
+    overflow: hidden;
 }
 
 .player-video-area {
-    width: 100%;
+    width: min(100%, calc((100vh - 18.75rem) * 1.77777778));
     min-width: 0;
     aspect-ratio: 16 / 9;
     background: #000;
@@ -773,10 +776,12 @@
     z-index: 1;
     overflow: hidden;
     isolation: isolate;
-    flex-shrink: 0;
-    max-height: none;
+    flex: 0 1 auto;
+    max-height: calc(100vh - 18.75rem);
+    min-height: 0;
     padding: 12px;
     box-sizing: border-box;
+    align-self: center;
     margin-bottom: 0;
 }
 
@@ -866,6 +871,16 @@
     font-size: var(--font-sm);
 }
 
+.player-bottom-panel {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+    border-top: 1px solid var(--border-subtle);
+    background: linear-gradient(180deg, rgba(15, 17, 24, 0.52) 0%, rgba(15, 17, 24, 0.9) 100%);
+}
+
 .player-controls {
     display: flex;
     align-items: center;
@@ -873,8 +888,7 @@
     gap: var(--space-md);
     flex-wrap: wrap;
     padding: var(--space-sm) var(--space-xl);
-    border-top: 1px solid var(--border-subtle);
-    background: linear-gradient(180deg, rgba(15, 17, 24, 0.52) 0%, rgba(15, 17, 24, 0.9) 100%);
+    background: transparent;
     flex-shrink: 0;
     position: relative;
     z-index: 3;
@@ -1407,8 +1421,27 @@
     .player-layout {
         flex-direction: column;
         align-items: stretch;
+        height: auto;
+        max-height: none;
         overflow-x: hidden;
         overflow-y: visible;
+    }
+
+    .player-main {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+    }
+
+    .player-video-area {
+        width: 100%;
+        max-height: none;
+        flex-shrink: 0;
+        align-self: stretch;
+    }
+
+    .player-bottom-panel {
+        flex: 0 0 auto;
     }
 
     .player-main,
