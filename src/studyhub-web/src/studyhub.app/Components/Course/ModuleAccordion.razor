@@ -3,15 +3,19 @@
 
 <div class="module-accordion @(isOpen ? "open" : "") @(IsActive ? "active" : "")">
     <div class="module-accordion-header" @onclick="Toggle">
+        @{
+            var totalLessons = GetTotalLessons();
+            var completedLessons = GetCompletedLessons();
+        }
         <div class="module-accordion-left">
             <div class="module-accordion-number">@ModuleNumber</div>
             <div class="module-accordion-content">
                 <div class="module-accordion-title">@Module?.Title</div>
-                <div class="module-accordion-progress">
-                    @GetCompletedLessons() / @GetTotalLessons() concluidas
+                <div class="module-accordion-progress @(IsModuleCompleted(completedLessons, totalLessons) ? "module-accordion-progress-completed" : string.Empty)">
+                    @completedLessons / @totalLessons concluidas
                 </div>
                 <div class="module-accordion-meta">
-                    @GetTotalLessons() aulas - @FormatDuration(GetTotalDurationMinutes())
+                    @totalLessons aulas - @FormatDuration(GetTotalDurationMinutes())
                 </div>
             </div>
         </div>
@@ -79,6 +83,11 @@
     private int GetTotalLessons()
     {
         return Module?.Topics?.Sum(t => t.Lessons?.Count ?? 0) ?? 0;
+    }
+
+    private static bool IsModuleCompleted(int completedLessons, int totalLessons)
+    {
+        return totalLessons > 0 && completedLessons == totalLessons;
     }
 
     private int GetTotalDurationMinutes()
