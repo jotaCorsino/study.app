@@ -6,8 +6,8 @@ internal static class CoursePresentationMergeHelper
 {
     public static void MergeExistingPresentation(Course target, Course existing)
     {
-        target.Title = ResolveDisplayValue(existing.RawTitle, existing.Title, target.RawTitle, target.Title);
-        target.Description = ResolveDisplayValue(existing.RawDescription, existing.Description, target.RawDescription, target.Description);
+        target.Title = ResolveCourseTitle(existing.RawTitle, existing.Title, target.RawTitle, target.Title);
+        target.Description = ResolveCourseDescription(existing.RawDescription, existing.Description, target.RawDescription, target.Description);
         target.LifecycleStatus = existing.LifecycleStatus;
         target.SourceMetadata = MergeSourceMetadata(target.SourceMetadata, existing.SourceMetadata);
 
@@ -109,6 +109,29 @@ internal static class CoursePresentationMergeHelper
     {
         if (!string.IsNullOrWhiteSpace(existingDisplay) &&
             string.Equals(existingRaw, newRaw, StringComparison.Ordinal))
+        {
+            return existingDisplay;
+        }
+
+        return defaultDisplay;
+    }
+
+    private static string ResolveCourseTitle(string existingRaw, string existingDisplay, string newRaw, string defaultDisplay)
+    {
+        if (!string.IsNullOrWhiteSpace(existingDisplay) &&
+            (string.Equals(existingRaw, newRaw, StringComparison.Ordinal) ||
+             !string.Equals(existingDisplay, existingRaw, StringComparison.Ordinal)))
+        {
+            return existingDisplay;
+        }
+
+        return defaultDisplay;
+    }
+
+    private static string ResolveCourseDescription(string existingRaw, string existingDisplay, string newRaw, string defaultDisplay)
+    {
+        if (string.Equals(existingRaw, newRaw, StringComparison.Ordinal) ||
+            !string.Equals(existingDisplay, existingRaw, StringComparison.Ordinal))
         {
             return existingDisplay;
         }

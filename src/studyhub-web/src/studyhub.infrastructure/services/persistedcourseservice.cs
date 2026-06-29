@@ -48,6 +48,30 @@ public class PersistedCourseService(
         return rehydratedCourse ?? record.ToDomain();
     }
 
+    public async Task<Course?> UpdateCourseDetailsAsync(Guid id, string title, string description)
+    {
+        var normalizedTitle = title?.Trim() ?? string.Empty;
+        var normalizedDescription = description?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedTitle))
+        {
+            return null;
+        }
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
+        {
+            return null;
+        }
+
+        record.Title = normalizedTitle;
+        record.Description = normalizedDescription;
+        await context.SaveChangesAsync();
+
+        return await GetCourseByIdAsync(id);
+    }
+
     public async Task<Course?> UpdateCourseLifecycleStatusAsync(Guid id, CourseLifecycleStatus status, DateTime? changedAt = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
