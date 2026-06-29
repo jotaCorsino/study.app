@@ -97,18 +97,10 @@ internal static class CoursePresentationMergeHelper
         {
             RootPath = current.RootPath,
             ImportedAt = current.ImportedAt,
-            LastEnrichedAt = existing.LastEnrichedAt,
             ScanVersion = current.ScanVersion,
             Provider = current.Provider,
-            RequestedTopic = existing.RequestedTopic,
-            RequestedObjective = existing.RequestedObjective,
-            SearchQueries = existing.SearchQueries.ToList(),
-            SourceUrls = existing.SourceUrls.ToList(),
-            PlaylistIds = existing.PlaylistIds.ToList(),
-            VideoIds = existing.VideoIds.ToList(),
-            CompletedSteps = existing.CompletedSteps.ToList(),
-            GenerationSummary = existing.GenerationSummary,
-            CuratedSources = existing.CuratedSources.ToList()
+            IntroSkipEnabled = existing.IntroSkipEnabled,
+            IntroSkipSeconds = existing.IntroSkipSeconds
         };
     }
 

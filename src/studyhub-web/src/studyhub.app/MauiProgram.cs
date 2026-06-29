@@ -26,9 +26,6 @@ public static class MauiProgram
         builder.Services.AddSingleton<IFolderPickerService, FolderPickerService>();
         builder.Services.AddSingleton<IVideoMetadataReader, VideoMetadataReader>();
         builder.Services.AddSingleton<NativeLessonPlaybackService>();
-        builder.Services.AddSingleton<ExternalLessonPlaybackService>();
-        builder.Services.AddSingleton<IIntegrationSettingsService, SecureStorageIntegrationSettingsService>();
-        builder.Services.AddSingleton<CourseIntentPromptService>();
 
 #if DEBUG
         builder.Services.AddBlazorWebViewDeveloperTools();

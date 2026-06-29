@@ -114,11 +114,7 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                 RootPath = detectedStructure.RootFolderPath,
                 ImportedAt = detectedStructure.ScannedAt,
                 ScanVersion = LocalScanVersion,
-                Provider = "LocalFileSystem",
-                CompletedSteps =
-                [
-                    "LocalStructureImported"
-                ]
+                Provider = "LocalFileSystem"
             },
             TotalDuration = TimeSpan.FromTicks(modules
                 .SelectMany(module => module.Topics)

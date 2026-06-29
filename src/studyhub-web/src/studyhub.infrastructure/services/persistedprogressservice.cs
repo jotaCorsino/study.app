@@ -56,8 +56,21 @@ public class PersistedProgressService(
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var course = await context.Courses.FirstOrDefaultAsync(item => item.Id == courseId);
+        var course = await context.Courses.FirstOrDefaultAsync(item =>
+            item.Id == courseId &&
+            item.SourceType == CourseSourceType.LocalFolder);
         if (course == null)
+        {
+            return;
+        }
+
+        var isLocalLesson = await context.Lessons.AnyAsync(lesson =>
+            lesson.Id == lessonId &&
+            lesson.SourceType == LessonSourceType.LocalFile &&
+            lesson.Topic != null &&
+            lesson.Topic.Module != null &&
+            lesson.Topic.Module.CourseId == courseId);
+        if (!isLocalLesson)
         {
             return;
         }
@@ -183,6 +196,7 @@ public class PersistedProgressService(
         lesson.Topic.Module.Course.CurrentLessonId = lesson.Id;
         lesson.Topic.Module.Course.TotalDurationMinutes = await context.Lessons
             .Where(item =>
+                item.SourceType == LessonSourceType.LocalFile &&
                 item.Topic != null &&
                 item.Topic.Module != null &&
                 item.Topic.Module.CourseId == courseId)
@@ -221,6 +235,7 @@ public class PersistedProgressService(
     {
         return context.Courses
             .AsNoTracking()
+            .Where(course => course.SourceType == CourseSourceType.LocalFolder)
             .Include(course => course.Modules)
                 .ThenInclude(module => module.Topics)
                     .ThenInclude(topic => topic.Lessons);
@@ -234,8 +249,11 @@ public class PersistedProgressService(
                     .ThenInclude(module => module.Course)
             .FirstOrDefaultAsync(lesson =>
                 lesson.Id == lessonId &&
+                lesson.SourceType == LessonSourceType.LocalFile &&
                 lesson.Topic != null &&
                 lesson.Topic.Module != null &&
+                lesson.Topic.Module.Course != null &&
+                lesson.Topic.Module.Course.SourceType == CourseSourceType.LocalFolder &&
                 lesson.Topic.Module.CourseId == courseId);
     }
 

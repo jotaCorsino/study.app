@@ -35,11 +35,6 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
             return null;
         }
 
-        if (record.SourceType != CourseSourceType.LocalFolder)
-        {
-            return record.ToDomain();
-        }
-
         var manifest = await LoadOrCreateLocalManifestAsync(context, record);
         if (manifest == null || !NeedsLocalRehydration(record, manifest))
         {
@@ -55,7 +50,7 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
-        if (record == null)
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
         {
             return null;
         }
@@ -107,7 +102,7 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
-        if (record == null)
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
         {
             return;
         }
@@ -131,6 +126,7 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
     {
         return context.Courses
             .AsNoTracking()
+            .Where(course => course.SourceType == CourseSourceType.LocalFolder)
             .Include(course => course.Modules)
                 .ThenInclude(module => module.Topics)
                     .ThenInclude(topic => topic.Lessons);
@@ -339,11 +335,6 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         };
 
         CoursePresentationMergeHelper.MergeExistingPresentation(rebuiltCourse, existingCourse);
-        rebuiltCourse.SourceMetadata.CompletedSteps = rebuiltCourse.SourceMetadata.CompletedSteps
-            .Concat(["LocalStructureRehydratedFromManifest"])
-            .Where(step => !string.IsNullOrWhiteSpace(step))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
 
         return rebuiltCourse;
     }
@@ -356,9 +347,6 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         metadata.ImportedAt ??= manifest.ScannedAt == default ? DateTime.UtcNow : manifest.ScannedAt;
         metadata.ScanVersion = FirstNonEmpty(metadata.ScanVersion, "local-folder-manifest");
         metadata.Provider = FirstNonEmpty(metadata.Provider, "LocalFileSystem");
-        metadata.CompletedSteps = metadata.CompletedSteps.Count == 0
-            ? ["LocalStructureImported"]
-            : metadata.CompletedSteps;
 
         return metadata;
     }

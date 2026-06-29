@@ -54,40 +54,6 @@
             </Border>
         </Grid>
 
-        <Grid x:Name="externalPlayerHost"
-              IsVisible="False"
-              BackgroundColor="Black"
-              ZIndex="11"
-              AbsoluteLayout.LayoutBounds="0,0,0,0"
-              AbsoluteLayout.LayoutFlags="None">
-            <WebView x:Name="externalPlayerWebView"
-                     BackgroundColor="Black" />
-
-            <Border x:Name="externalPlayerStatusOverlay"
-                    IsVisible="False"
-                    InputTransparent="True"
-                    Margin="16"
-                    Padding="12,10"
-                    HorizontalOptions="Fill"
-                    VerticalOptions="End"
-                    BackgroundColor="#CC0A0C10"
-                    StrokeThickness="1">
-                <Border.StrokeShape>
-                    <RoundRectangle CornerRadius="12" />
-                </Border.StrokeShape>
-
-                <VerticalStackLayout Spacing="2">
-                    <Label x:Name="externalPlayerStatusTitle"
-                           TextColor="White"
-                           FontSize="12"
-                           FontAttributes="Bold" />
-                    <Label x:Name="externalPlayerStatusMessage"
-                           TextColor="#C7FFFFFF"
-                           FontSize="11"
-                           LineBreakMode="WordWrap" />
-                </VerticalStackLayout>
-            </Border>
-        </Grid>
     </AbsoluteLayout>
 
 </ContentPage>

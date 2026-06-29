@@ -61,18 +61,6 @@ internal static class PersistenceMapper
         };
     }
 
-    public static List<RoadmapLevel> DeserializeRoadmap(string json)
-        => JsonSerializer.Deserialize<List<RoadmapLevel>>(json, JsonOptions) ?? [];
-
-    public static string SerializeRoadmap(List<RoadmapLevel> roadmapLevels)
-        => JsonSerializer.Serialize(roadmapLevels, JsonOptions);
-
-    public static List<Material> DeserializeMaterials(string json)
-        => JsonSerializer.Deserialize<List<Material>>(json, JsonOptions) ?? [];
-
-    public static string SerializeMaterials(List<Material> materials)
-        => JsonSerializer.Serialize(materials, JsonOptions);
-
     public static string SerializeCourseSourceMetadata(CourseSourceMetadata metadata)
         => JsonSerializer.Serialize(metadata ?? new CourseSourceMetadata(), JsonOptions);
 
@@ -107,6 +95,7 @@ internal static class PersistenceMapper
             Description = record.Description,
             Lessons = record.Lessons
                 .OrderBy(lesson => lesson.Order)
+                .Where(lesson => lesson.SourceType == LessonSourceType.LocalFile)
                 .Select(ToDomain)
                 .ToList()
         };
@@ -129,7 +118,6 @@ internal static class PersistenceMapper
             Description = record.Description,
             SourceType = record.SourceType,
             LocalFilePath = localFilePath,
-            ExternalUrl = record.ExternalUrl,
             Provider = record.Provider,
             Duration = TimeSpan.FromMinutes(record.DurationMinutes),
             Status = record.Status,
@@ -192,7 +180,6 @@ internal static class PersistenceMapper
             FilePath = localFilePath,
             SourceType = lesson.SourceType,
             LocalFilePath = localFilePath,
-            ExternalUrl = lesson.ExternalUrl,
             Provider = lesson.Provider,
             DurationMinutes = ConvertDuration(lesson.Duration),
             Status = lesson.Status,

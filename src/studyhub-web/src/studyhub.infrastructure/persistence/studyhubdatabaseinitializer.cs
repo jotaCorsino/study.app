@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using studyhub.application.Interfaces;
 using studyhub.domain.Entities;
-using studyhub.infrastructure.persistence.models;
 
 namespace studyhub.infrastructure.persistence;
 
@@ -13,7 +12,7 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
 
     private static readonly string[] RequiredTables =
     [
@@ -21,9 +20,7 @@ public class StudyHubDatabaseInitializer(
         "modules",
         "topics",
         "lessons",
-        "course_import_snapshots",
-        "course_roadmaps",
-        "course_materials"
+        "course_import_snapshots"
     ];
 
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory = contextFactory;
@@ -34,9 +31,7 @@ public class StudyHubDatabaseInitializer(
     {
         _storagePathsService.EnsureStorageDirectories();
         var databasePath = _storagePathsService.DatabasePath;
-        var startupMode = DatabaseExists(databasePath)
-            ? "existing"
-            : "new";
+        var startupMode = DatabaseExists(databasePath) ? "existing" : "new";
 
         _logger.LogInformation(
             "StudyHub database initialization started. Mode: {StartupMode}. Path: {DatabasePath}. BackupRoot: {BackupRoot}. RoutineRoot: {RoutineRoot}",
@@ -93,8 +88,6 @@ public class StudyHubDatabaseInitializer(
         await NormalizeSchemaVersionAsync(context);
         await ApplySchemaUpgradesAsync(context);
         await SetSchemaVersionAsync(context, CurrentSchemaVersion);
-        await SeedRoadmapsAsync(context);
-        await SeedMaterialsAsync(context);
     }
 
     private async Task<bool> TryRecoverStartupStateAsync(string? databasePath, CancellationToken cancellationToken)
@@ -243,11 +236,6 @@ public class StudyHubDatabaseInitializer(
 
     private static async Task ApplySchemaUpgradesAsync(StudyHubDbContext context)
     {
-        await EnsureCourseGenerationRunsTableAsync(context);
-        await EnsureCourseGenerationRunStateColumnsAsync(context);
-        await EnsureExternalLessonRuntimeStatesTableAsync(context);
-        await EnsureExternalCourseImportsTableAsync(context);
-        await EnsureExternalAssessmentsTableAsync(context);
         await EnsureCoursePresentationColumnsAsync(context);
         await EnsureModuleDescriptionColumnAsync(context);
         await EnsureModulePresentationColumnsAsync(context);
@@ -280,131 +268,6 @@ public class StudyHubDatabaseInitializer(
                 ALTER TABLE courses ADD COLUMN raw_description TEXT NOT NULL DEFAULT '';
                 """);
         }
-    }
-
-    private static async Task EnsureCourseGenerationRunsTableAsync(StudyHubDbContext context)
-    {
-        await context.Database.ExecuteSqlRawAsync(
-            """
-            CREATE TABLE IF NOT EXISTS course_generation_runs (
-                id TEXT NOT NULL PRIMARY KEY,
-                course_id TEXT NOT NULL,
-                step_key TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                status TEXT NOT NULL,
-                request_json TEXT NOT NULL DEFAULT '',
-                response_json TEXT NOT NULL DEFAULT '',
-                error_message TEXT NOT NULL DEFAULT '',
-                last_succeeded_at TEXT NULL,
-                last_failed_at TEXT NULL,
-                last_error_message TEXT NOT NULL DEFAULT '',
-                created_at TEXT NOT NULL
-            );
-            """);
-    }
-
-    private static async Task EnsureCourseGenerationRunStateColumnsAsync(StudyHubDbContext context)
-    {
-        if (!await ColumnExistsAsync(context, "course_generation_runs", "last_succeeded_at"))
-        {
-            await context.Database.ExecuteSqlRawAsync(
-                """
-                ALTER TABLE course_generation_runs ADD COLUMN last_succeeded_at TEXT NULL;
-                """);
-        }
-
-        if (!await ColumnExistsAsync(context, "course_generation_runs", "last_failed_at"))
-        {
-            await context.Database.ExecuteSqlRawAsync(
-                """
-                ALTER TABLE course_generation_runs ADD COLUMN last_failed_at TEXT NULL;
-                """);
-        }
-
-        if (!await ColumnExistsAsync(context, "course_generation_runs", "last_error_message"))
-        {
-            await context.Database.ExecuteSqlRawAsync(
-                """
-                ALTER TABLE course_generation_runs ADD COLUMN last_error_message TEXT NOT NULL DEFAULT '';
-                """);
-        }
-    }
-
-    private static async Task EnsureExternalLessonRuntimeStatesTableAsync(StudyHubDbContext context)
-    {
-        await context.Database.ExecuteSqlRawAsync(
-            """
-            CREATE TABLE IF NOT EXISTS external_lesson_runtime_states (
-                lesson_id TEXT NOT NULL PRIMARY KEY,
-                course_id TEXT NOT NULL,
-                provider TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT '',
-                external_url TEXT NOT NULL DEFAULT '',
-                last_error_code TEXT NOT NULL DEFAULT '',
-                last_error_message TEXT NOT NULL DEFAULT '',
-                fallback_launched INTEGER NOT NULL DEFAULT 0,
-                last_opened_at TEXT NULL,
-                last_succeeded_at TEXT NULL,
-                last_failed_at TEXT NULL,
-                updated_at TEXT NOT NULL
-            );
-            """);
-    }
-
-    private static async Task EnsureExternalCourseImportsTableAsync(StudyHubDbContext context)
-    {
-        await context.Database.ExecuteSqlRawAsync(
-            """
-            CREATE TABLE IF NOT EXISTS external_course_imports (
-                course_id TEXT NOT NULL PRIMARY KEY,
-                schema_version TEXT NOT NULL DEFAULT '',
-                source_kind TEXT NOT NULL DEFAULT '',
-                source_system TEXT NOT NULL DEFAULT '',
-                provider TEXT NOT NULL DEFAULT '',
-                external_course_id TEXT NOT NULL DEFAULT '',
-                payload_fingerprint TEXT NOT NULL DEFAULT '',
-                origin_url TEXT NOT NULL DEFAULT '',
-                payload_json TEXT NOT NULL DEFAULT '',
-                imported_at TEXT NOT NULL,
-                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
-            );
-            """);
-    }
-
-    private static async Task EnsureExternalAssessmentsTableAsync(StudyHubDbContext context)
-    {
-        await context.Database.ExecuteSqlRawAsync(
-            """
-            CREATE TABLE IF NOT EXISTS external_assessments (
-                id TEXT NOT NULL PRIMARY KEY,
-                course_id TEXT NOT NULL,
-                discipline_external_id TEXT NOT NULL DEFAULT '',
-                assessment_external_id TEXT NOT NULL DEFAULT '',
-                assessment_type TEXT NOT NULL DEFAULT '',
-                title TEXT NOT NULL DEFAULT '',
-                description TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT '',
-                weight_percentage REAL NULL,
-                availability_start_at TEXT NULL,
-                availability_end_at TEXT NULL,
-                grade REAL NULL,
-                metadata_json TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
-            );
-            """);
-
-        await context.Database.ExecuteSqlRawAsync(
-            """
-            CREATE INDEX IF NOT EXISTS ix_external_assessments_course_id
-            ON external_assessments (course_id);
-            """);
-
-        await context.Database.ExecuteSqlRawAsync(
-            """
-            CREATE INDEX IF NOT EXISTS ix_external_assessments_course_id_assessment_external_id
-            ON external_assessments (course_id, assessment_external_id);
-            """);
     }
 
     private static async Task EnsureModuleDescriptionColumnAsync(StudyHubDbContext context)
@@ -553,14 +416,6 @@ public class StudyHubDatabaseInitializer(
                 """);
         }
 
-        if (!await ColumnExistsAsync(context, "lessons", "external_url"))
-        {
-            await context.Database.ExecuteSqlRawAsync(
-                """
-                ALTER TABLE lessons ADD COLUMN external_url TEXT NOT NULL DEFAULT '';
-                """);
-        }
-
         if (!await ColumnExistsAsync(context, "lessons", "provider"))
         {
             await context.Database.ExecuteSqlRawAsync(
@@ -680,20 +535,14 @@ public class StudyHubDatabaseInitializer(
 
             var metadata = new CourseSourceMetadata
             {
-                RootPath = course.FolderPath,
+                RootPath = course.SourceType == CourseSourceType.LocalFolder ? course.FolderPath : string.Empty,
                 ImportedAt = course.AddedAt == default ? DateTime.UtcNow : course.AddedAt,
-                ScanVersion = course.SourceType switch
-                {
-                    CourseSourceType.OnlineCurated => "legacy-online-curated-v1",
-                    CourseSourceType.ExternalImport => "legacy-external-import-v1",
-                    _ => "legacy-local-folder-v1"
-                },
-                Provider = course.SourceType switch
-                {
-                    CourseSourceType.OnlineCurated => "YouTube",
-                    CourseSourceType.ExternalImport => "ExternalImport",
-                    _ => "LocalFileSystem"
-                }
+                ScanVersion = course.SourceType == CourseSourceType.LocalFolder
+                    ? "legacy-local-folder-v1"
+                    : "legacy-hidden-source-v1",
+                Provider = course.SourceType == CourseSourceType.LocalFolder
+                    ? "LocalFileSystem"
+                    : "LegacyHidden"
             };
 
             course.SourceMetadataJson = PersistenceMapper.SerializeCourseSourceMetadata(metadata);
@@ -816,69 +665,5 @@ public class StudyHubDatabaseInitializer(
         {
             await context.SaveChangesAsync();
         }
-    }
-
-    private static async Task SeedRoadmapsAsync(StudyHubDbContext context)
-    {
-        var existingCourseIds = await context.CourseRoadmaps
-            .Select(record => record.CourseId)
-            .ToListAsync();
-
-        var missingCourseIds = await context.Courses
-            .Where(record => !existingCourseIds.Contains(record.Id))
-            .Select(record => record.Id)
-            .ToListAsync();
-
-        if (missingCourseIds.Count == 0)
-        {
-            return;
-        }
-
-        var records = new List<CourseRoadmapRecord>();
-
-        foreach (var courseId in missingCourseIds)
-        {
-            records.Add(new CourseRoadmapRecord
-            {
-                CourseId = courseId,
-                LevelsJson = PersistenceMapper.SerializeRoadmap([]),
-                UpdatedAt = DateTime.Now
-            });
-        }
-
-        await context.CourseRoadmaps.AddRangeAsync(records);
-        await context.SaveChangesAsync();
-    }
-
-    private static async Task SeedMaterialsAsync(StudyHubDbContext context)
-    {
-        var existingCourseIds = await context.CourseMaterials
-            .Select(record => record.CourseId)
-            .ToListAsync();
-
-        var missingCourseIds = await context.Courses
-            .Where(record => !existingCourseIds.Contains(record.Id))
-            .Select(record => record.Id)
-            .ToListAsync();
-
-        if (missingCourseIds.Count == 0)
-        {
-            return;
-        }
-
-        var records = new List<CourseMaterialsRecord>();
-
-        foreach (var courseId in missingCourseIds)
-        {
-            records.Add(new CourseMaterialsRecord
-            {
-                CourseId = courseId,
-                MaterialsJson = PersistenceMapper.SerializeMaterials([]),
-                UpdatedAt = DateTime.Now
-            });
-        }
-
-        await context.CourseMaterials.AddRangeAsync(records);
-        await context.SaveChangesAsync();
     }
 }

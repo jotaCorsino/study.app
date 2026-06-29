@@ -94,7 +94,6 @@ public sealed class PersistedCourseServiceTests
                                         FilePath = $@"{rootA}\module-1\lesson-a1.mp4",
                                         SourceType = LessonSourceType.LocalFile,
                                         LocalFilePath = $@"{rootA}\module-1\lesson-a1.mp4",
-                                        ExternalUrl = string.Empty,
                                         Provider = "LocalFileSystem",
                                         DurationMinutes = 20,
                                         Status = LessonStatus.Completed,
@@ -158,7 +157,6 @@ public sealed class PersistedCourseServiceTests
                                         FilePath = $@"{rootB}\lesson-b1.mp4",
                                         SourceType = LessonSourceType.LocalFile,
                                         LocalFilePath = $@"{rootB}\lesson-b1.mp4",
-                                        ExternalUrl = string.Empty,
                                         Provider = "LocalFileSystem",
                                         DurationMinutes = 8
                                     }
@@ -340,7 +338,6 @@ public sealed class PersistedCourseServiceTests
                                         FilePath = $@"{rootPath}\module-1\lesson-1.mp4",
                                         SourceType = LessonSourceType.LocalFile,
                                         LocalFilePath = $@"{rootPath}\module-1\lesson-1.mp4",
-                                        ExternalUrl = string.Empty,
                                         Provider = "LocalFileSystem",
                                         DurationMinutes = 20,
                                         Status = LessonStatus.Completed,
@@ -526,7 +523,6 @@ public sealed class PersistedCourseServiceTests
                                         FilePath = $@"{rootPath}\lesson-1.mp4",
                                         SourceType = LessonSourceType.LocalFile,
                                         LocalFilePath = $@"{rootPath}\lesson-1.mp4",
-                                        ExternalUrl = string.Empty,
                                         Provider = "LocalFileSystem",
                                         DurationMinutes = 10
                                     }

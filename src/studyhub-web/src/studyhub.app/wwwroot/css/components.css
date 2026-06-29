@@ -1665,7 +1665,7 @@
     pointer-events: none;
 }
 
-/* --- Roadmap Timeline --- */
+/* --- Study Timeline --- */
 .roadmap-timeline {
     position: relative;
     padding-left: var(--space-xl);
@@ -2397,7 +2397,7 @@
     flex-shrink: 0;
 }
 
-/* --- Roadmap Page Polish --- */
+/* --- Study Page Polish --- */
 .roadmap-toolbar {
     display: flex;
     align-items: center;

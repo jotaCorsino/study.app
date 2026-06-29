@@ -16,7 +16,6 @@ public class LessonRecord
     public string FilePath { get; set; } = string.Empty;
     public LessonSourceType SourceType { get; set; } = LessonSourceType.LocalFile;
     public string LocalFilePath { get; set; } = string.Empty;
-    public string ExternalUrl { get; set; } = string.Empty;
     public string Provider { get; set; } = string.Empty;
     public int DurationMinutes { get; set; }
     public LessonStatus Status { get; set; }

@@ -84,12 +84,6 @@
                         <span>@(progress.OverallPercentage == 0 ? "Comecar curso" : "Continuar estudando")</span>
                     </button>
                     
-                    <div class="grid grid-cols-1 gap-md mt-sm">
-                        <button class="btn btn-secondary py-md flex-col text-sm border-subtle hover:border-accent hover:text-accent h-auto rounded-xl" @onclick="GoToMaterials">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"></polygon></svg>
-                            <span>Videos Gratuitos</span>
-                        </button>
-                    </div>
                 }
             </div>
         </div>
@@ -251,9 +245,6 @@
         nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
     }
     
-    private void GoToRoadmap() => nav.NavigateTo($"/course/{CourseId}/roadmap");
-    private void GoToMaterials() => nav.NavigateTo($"/course/{CourseId}/materials");
-
     private string FormatDuration(int totalMinutes)
     {
         var hours = totalMinutes / 60;
