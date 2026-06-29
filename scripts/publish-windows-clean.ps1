@@ -79,7 +79,7 @@ Important
 ---------
 - This package does not include your personal StudyHub data.
 - The app will create its own local database, routine files, and backups on the new machine.
-- The recipient must configure their own API keys and import their own courses.
+- The recipient imports their own local course folders.
 
 Do not include in the zip
 -------------------------
@@ -87,6 +87,7 @@ Do not include in the zip
 - your AppData StudyHub database
 - routine JSON files
 - StudyHub backups
+- files from src\studyhub-extension
 "@
 
 Set-Content -LiteralPath $guidePath -Value $guide -Encoding UTF8

@@ -9,6 +9,10 @@ StudyHub e um app de estudos para Windows que transforma cursos em pastas locais
 - progresso por aula/curso
 - retomada do ponto onde voce parou
 - rotina, metas, historico, backup e restauracao locais
+- status de curso: Ativo, Pausado e Concluido
+- edicao manual de nome e descricao por curso
+
+O app atual e focado exclusivamente em cursos locais. Recursos antigos de IA, roadmaps, materiais complementares, videos externos e cursos online foram removidos do fluxo ativo.
 
 ## Download da release
 
@@ -36,7 +40,7 @@ Os dados do StudyHub ficam no computador do proprio usuario (localmente), inclui
 
 - banco local do app
 - progresso das aulas
-- arquivos de rotina e backup do app
+- rotina com historico de vigencia das metas, pausas e backup do app
 - referencias para os cursos locais importados
 
 O pacote de release nao inclui dados pessoais de quem publicou a release.
@@ -47,7 +51,8 @@ O pacote de release nao inclui dados pessoais de quem publicou a release.
 2. Adicione um curso pela pasta local.
 3. Entre no curso e abra uma aula.
 4. Estude normalmente e acompanhe o progresso.
-5. Feche e reabra quando quiser: o app preserva o estado salvo.
+5. Pause, reative, conclua ou edite nome/descricao do curso quando precisar.
+6. Feche e reabra quando quiser: o app preserva o estado salvo.
 
 ## Como adicionar cursos
 
@@ -59,6 +64,14 @@ Use quando voce ja tem os videos no computador:
 2. Selecione a pasta raiz do curso.
 3. Aguarde a importacao.
 4. Abra o curso no catalogo.
+
+## Organizacao e progresso
+
+- O catalogo e a sidebar mostram cursos locais importados.
+- A sidebar separa cursos em Ativos, Pausados e Concluidos.
+- A pagina do curso permite alterar manualmente nome e descricao sem mudar a pasta original.
+- A rotina usa periodos de vigencia: metas antigas continuam valendo para o historico correto, e pausas/conclusoes deixam os dias cinza quando aplicavel.
+- Na lista de modulos, o progresso do modulo fica verde quando todas as aulas daquele modulo estao concluidas.
 
 ## Estrutura recomendada da pasta do curso
 
