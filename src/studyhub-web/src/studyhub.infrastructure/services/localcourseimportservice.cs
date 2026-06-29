@@ -179,6 +179,7 @@ public class LocalCourseImportService(
                 existingCourse.ThumbnailUrl = courseRecord.ThumbnailUrl;
                 existingCourse.FolderPath = courseRecord.FolderPath;
                 existingCourse.SourceType = courseRecord.SourceType;
+                existingCourse.LifecycleStatus = courseRecord.LifecycleStatus;
                 existingCourse.SourceMetadataJson = courseRecord.SourceMetadataJson;
                 existingCourse.TotalDurationMinutes = courseRecord.TotalDurationMinutes;
                 existingCourse.AddedAt = courseRecord.AddedAt;

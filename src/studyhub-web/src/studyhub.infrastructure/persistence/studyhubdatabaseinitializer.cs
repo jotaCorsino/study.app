@@ -12,7 +12,7 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 8;
+    private const int CurrentSchemaVersion = 9;
 
     private static readonly string[] RequiredTables =
     [
@@ -245,6 +245,7 @@ public class StudyHubDatabaseInitializer(
         await EnsureLessonDescriptionColumnAsync(context);
         await EnsureLessonPresentationColumnsAsync(context);
         await EnsureCourseSourceColumnsAsync(context);
+        await EnsureCourseLifecycleStatusColumnAsync(context);
         await EnsureLessonSourceColumnsAsync(context);
         await BackfillLegacyCourseOriginDataAsync(context);
         await BackfillLegacyPresentationDataAsync(context);
@@ -396,6 +397,19 @@ public class StudyHubDatabaseInitializer(
                 ALTER TABLE courses ADD COLUMN source_metadata_json TEXT NOT NULL DEFAULT '';
                 """);
         }
+    }
+
+    private static async Task EnsureCourseLifecycleStatusColumnAsync(StudyHubDbContext context)
+    {
+        if (await ColumnExistsAsync(context, "courses", "lifecycle_status"))
+        {
+            return;
+        }
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE courses ADD COLUMN lifecycle_status INTEGER NOT NULL DEFAULT 0;
+            """);
     }
 
     private static async Task EnsureLessonSourceColumnsAsync(StudyHubDbContext context)

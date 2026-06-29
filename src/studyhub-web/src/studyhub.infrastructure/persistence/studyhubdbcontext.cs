@@ -28,6 +28,9 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
             entity.Property(record => record.SourceType)
                 .HasColumnName("source_type")
                 .HasConversion<int>();
+            entity.Property(record => record.LifecycleStatus)
+                .HasColumnName("lifecycle_status")
+                .HasConversion<int>();
             entity.Property(record => record.SourceMetadataJson)
                 .HasColumnName("source_metadata_json")
                 .IsRequired();

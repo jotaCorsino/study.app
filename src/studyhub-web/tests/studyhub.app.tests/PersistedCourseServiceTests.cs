@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 using studyhub.application.Contracts.LocalImport;
 using studyhub.application.Interfaces;
 using studyhub.domain.Entities;
@@ -15,6 +16,203 @@ namespace studyhub.app.tests;
 public sealed class PersistedCourseServiceTests
 {
     private static readonly JsonSerializerOptions WebJsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Fact]
+    public async Task GetCourseByIdAsync_DefaultsCourseLifecycleStatusToActive()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(courseId, @"C:\courses\active-default", "{}"));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+
+        Assert.NotNull(loadedCourse);
+        Assert.Equal(CourseLifecycleStatus.Active, loadedCourse!.LifecycleStatus);
+    }
+
+    [Fact]
+    public async Task UpdateCourseLifecycleStatusAsync_PersistsStatusAcrossReads()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(CreateCourseRecord(courseId, @"C:\courses\paused-course", "{}"));
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var updatedCourse = await service.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Paused);
+        var loadedCourse = await service.GetCourseByIdAsync(courseId);
+
+        Assert.NotNull(updatedCourse);
+        Assert.NotNull(loadedCourse);
+        Assert.Equal(CourseLifecycleStatus.Paused, updatedCourse!.LifecycleStatus);
+        Assert.Equal(CourseLifecycleStatus.Paused, loadedCourse!.LifecycleStatus);
+    }
+
+    [Fact]
+    public async Task DatabaseInitializer_AddsLifecycleStatusColumnToLegacyDatabaseAsActive()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var storageRoot = Path.Combine(Path.GetTempPath(), "studyhub-course-status-tests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(CreateCourseRecord(courseId, @"C:\courses\legacy-status", "{}"));
+                await setupContext.SaveChangesAsync();
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE courses DROP COLUMN lifecycle_status;");
+            }
+
+            var initializer = new StudyHubDatabaseInitializer(
+                new TestDbContextFactory(options),
+                new TestStoragePathsService(storageRoot),
+                NullLogger<StudyHubDatabaseInitializer>.Instance);
+
+            await initializer.InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var loadedCourse = await assertContext.Courses.SingleAsync(course => course.Id == courseId);
+
+            Assert.Equal(CourseLifecycleStatus.Active, loadedCourse.LifecycleStatus);
+        }
+        finally
+        {
+            if (Directory.Exists(storageRoot))
+            {
+                Directory.Delete(storageRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task UpdateCourseLifecycleStatusAsync_DoesNotChangeLessonProgress()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+
+        var courseId = Guid.NewGuid();
+        var moduleId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var lessonId = Guid.NewGuid();
+        var rootPath = @"C:\courses\progress-safe";
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(new CourseRecord
+            {
+                Id = courseId,
+                RawTitle = "progress-safe",
+                RawDescription = "curso local",
+                Title = "Progress Safe",
+                Description = "Curso local",
+                Category = "Curso Local",
+                ThumbnailUrl = string.Empty,
+                FolderPath = rootPath,
+                SourceType = CourseSourceType.LocalFolder,
+                SourceMetadataJson = "{}",
+                TotalDurationMinutes = 10,
+                AddedAt = new DateTime(2026, 4, 17, 10, 0, 0, DateTimeKind.Utc),
+                Modules =
+                [
+                    new ModuleRecord
+                    {
+                        Id = moduleId,
+                        CourseId = courseId,
+                        Order = 1,
+                        RawTitle = "modulo",
+                        RawDescription = string.Empty,
+                        Title = "Modulo",
+                        Description = string.Empty,
+                        Topics =
+                        [
+                            new TopicRecord
+                            {
+                                Id = topicId,
+                                ModuleId = moduleId,
+                                Order = 1,
+                                RawTitle = "topico",
+                                RawDescription = string.Empty,
+                                Title = "Topico",
+                                Description = string.Empty,
+                                Lessons =
+                                [
+                                    new LessonRecord
+                                    {
+                                        Id = lessonId,
+                                        TopicId = topicId,
+                                        Order = 1,
+                                        RawTitle = "lesson",
+                                        RawDescription = string.Empty,
+                                        Title = "Lesson",
+                                        Description = string.Empty,
+                                        FilePath = $@"{rootPath}\lesson.mp4",
+                                        SourceType = LessonSourceType.LocalFile,
+                                        LocalFilePath = $@"{rootPath}\lesson.mp4",
+                                        Provider = "LocalFileSystem",
+                                        DurationMinutes = 10,
+                                        Status = LessonStatus.InProgress,
+                                        WatchedPercentage = 40,
+                                        LastPlaybackPositionSeconds = 240
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            });
+
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        await service.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Completed);
+
+        await using var assertContext = new StudyHubDbContext(options);
+        var lesson = await assertContext.Lessons.SingleAsync(item => item.Id == lessonId);
+        var course = await assertContext.Courses.SingleAsync(item => item.Id == courseId);
+
+        Assert.Equal(CourseLifecycleStatus.Completed, course.LifecycleStatus);
+        Assert.Equal(LessonStatus.InProgress, lesson.Status);
+        Assert.Equal(40d, lesson.WatchedPercentage);
+        Assert.Equal(240, lesson.LastPlaybackPositionSeconds);
+    }
 
     [Fact]
     public async Task GetCourseByIdAsync_PreservesLocalStructureAcrossCourseSwitching()
@@ -777,6 +975,37 @@ public sealed class PersistedCourseServiceTests
             AddedAt = new DateTime(2026, 4, 17, 10, 0, 0, DateTimeKind.Utc),
             Modules = []
         };
+    }
+
+    private sealed class TestStoragePathsService : IStoragePathsService
+    {
+        public TestStoragePathsService(string rootDirectory)
+        {
+            AppDataDirectory = rootDirectory;
+            DatabaseDirectory = rootDirectory;
+            BackupsDirectory = Path.Combine(rootDirectory, "backups");
+            DatabasePath = Path.Combine(rootDirectory, "studyhub.db");
+            RoutineDirectory = Path.Combine(rootDirectory, "routine");
+            EnsureStorageDirectories();
+        }
+
+        public string AppDataDirectory { get; }
+        public string DatabaseDirectory { get; }
+        public string DatabasePath { get; }
+        public string BackupsDirectory { get; }
+        public string RoutineDirectory { get; }
+
+        public void EnsureStorageDirectories()
+        {
+            Directory.CreateDirectory(AppDataDirectory);
+            Directory.CreateDirectory(DatabaseDirectory);
+            Directory.CreateDirectory(BackupsDirectory);
+            Directory.CreateDirectory(RoutineDirectory);
+        }
+
+        public bool IsManagedPath(string path) => true;
+        public bool IsBackupPath(string path) => false;
+        public string CreateUniqueBackupDirectory(string prefix) => Path.Combine(BackupsDirectory, prefix);
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<StudyHubDbContext> options) : IDbContextFactory<StudyHubDbContext>

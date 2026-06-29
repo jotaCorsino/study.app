@@ -6,6 +6,7 @@ public interface ICourseService
 {
     Task<List<Course>> GetAllCoursesAsync();
     Task<Course?> GetCourseByIdAsync(Guid id);
+    Task<Course?> UpdateCourseLifecycleStatusAsync(Guid id, CourseLifecycleStatus status, DateTime? changedAt = null);
     Task<CourseSourceMetadata?> UpdateCourseIntroSkipPreferenceAsync(Guid id, bool introSkipEnabled, int introSkipSeconds);
     Task<Lesson?> GetLessonByIdAsync(Guid courseId, Guid lessonId);
     Task<Lesson?> GetNextLessonAsync(Guid courseId, Guid currentLessonId);

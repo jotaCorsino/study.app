@@ -8,6 +8,7 @@ internal static class CoursePresentationMergeHelper
     {
         target.Title = ResolveDisplayValue(existing.RawTitle, existing.Title, target.RawTitle, target.Title);
         target.Description = ResolveDisplayValue(existing.RawDescription, existing.Description, target.RawDescription, target.Description);
+        target.LifecycleStatus = existing.LifecycleStatus;
         target.SourceMetadata = MergeSourceMetadata(target.SourceMetadata, existing.SourceMetadata);
 
         var existingModules = existing.Modules.ToDictionary(module => module.Id);

@@ -109,6 +109,7 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
             Category = "Curso Local",
             ThumbnailUrl = string.Empty,
             SourceType = CourseSourceType.LocalFolder,
+            LifecycleStatus = CourseLifecycleStatus.Active,
             SourceMetadata = new CourseSourceMetadata
             {
                 RootPath = detectedStructure.RootFolderPath,

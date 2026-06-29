@@ -297,6 +297,130 @@ public sealed class RoutineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateCourseLifecycleStatusAsync_PreservesRoutineSettings_WhenCourseIsPaused()
+    {
+        var courseId = Guid.NewGuid();
+        var pauseDate = new DateTime(2026, 4, 10);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 4, 1)));
+
+        var routineService = CreateService(options, out var storage);
+        var courseService = new PersistedCourseService(new TestDbContextFactory(options), routineService);
+        await WriteSettingsAsync(storage, courseId, CreateSettings(new DateTime(2026, 4, 1), 45, DayOfWeek.Monday, DayOfWeek.Wednesday));
+        var historicalDate = new DateTime(2026, 4, 1);
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, historicalDate, 45, 45)
+        ]);
+
+        await courseService.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Paused, pauseDate);
+
+        var settings = await routineService.GetSettingsAsync(courseId);
+        var historicalRecord = await routineService.GetDailyRecordAsync(courseId, historicalDate);
+
+        Assert.Equal(45, settings.DailyGoalMinutes);
+        Assert.Equal([DayOfWeek.Monday, DayOfWeek.Wednesday], settings.SelectedDaysOfWeek);
+        var period = Assert.Single(settings.SuspensionPeriods);
+        Assert.Equal(pauseDate, period.StartDate);
+        Assert.Null(period.EndDate);
+        Assert.Equal(RoutineSuspensionReason.Paused, period.Reason);
+        Assert.Equal(DailyStudyStatus.Completed, historicalRecord.Status);
+        Assert.Equal(45, historicalRecord.MinutesStudied);
+    }
+
+    [Fact]
+    public async Task GetMonthlyRecordsAsync_MarksPausedPeriodAsUnplanned()
+    {
+        var courseId = Guid.NewGuid();
+        var pauseDate = new DateTime(2026, 4, 10);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 4, 1)));
+
+        var routineService = CreateService(options, out var storage);
+        var courseService = new PersistedCourseService(new TestDbContextFactory(options), routineService);
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(new DateTime(2026, 4, 1)));
+
+        await courseService.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Paused, pauseDate);
+
+        var records = await routineService.GetMonthlyRecordsAsync(courseId, 2026, 4);
+        var beforePause = Assert.Single(records, record => record.Date == pauseDate.AddDays(-1));
+        var pauseStart = Assert.Single(records, record => record.Date == pauseDate);
+        var laterPausedDay = Assert.Single(records, record => record.Date == pauseDate.AddDays(5));
+
+        Assert.Equal(DailyStudyStatus.NotStarted, beforePause.Status);
+        Assert.Equal(30, beforePause.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, pauseStart.Status);
+        Assert.Equal(0, pauseStart.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, laterPausedDay.Status);
+        Assert.Equal(0, laterPausedDay.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task UpdateCourseLifecycleStatusAsync_ReactivatesRoutineOnlyFromReactivationDate()
+    {
+        var courseId = Guid.NewGuid();
+        var pauseDate = new DateTime(2026, 4, 10);
+        var reactivationDate = new DateTime(2026, 4, 13);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 4, 1)));
+
+        var routineService = CreateService(options, out var storage);
+        var courseService = new PersistedCourseService(new TestDbContextFactory(options), routineService);
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(new DateTime(2026, 4, 1)));
+
+        await courseService.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Paused, pauseDate);
+        await courseService.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Active, reactivationDate);
+
+        var settings = await routineService.GetSettingsAsync(courseId);
+        var records = await routineService.GetMonthlyRecordsAsync(courseId, 2026, 4);
+        var pauseStart = Assert.Single(records, record => record.Date == pauseDate);
+        var lastPausedDay = Assert.Single(records, record => record.Date == reactivationDate.AddDays(-1));
+        var resumedDay = Assert.Single(records, record => record.Date == reactivationDate);
+        var period = Assert.Single(settings.SuspensionPeriods);
+
+        Assert.Equal(reactivationDate.AddDays(-1), period.EndDate);
+        Assert.Equal(DailyStudyStatus.Unplanned, pauseStart.Status);
+        Assert.Equal(DailyStudyStatus.Unplanned, lastPausedDay.Status);
+        Assert.Equal(DailyStudyStatus.NotStarted, resumedDay.Status);
+        Assert.Equal(30, resumedDay.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task UpdateCourseLifecycleStatusAsync_MarksCompletedCourseDaysAsUnplanned()
+    {
+        var courseId = Guid.NewGuid();
+        var completedAt = new DateTime(2026, 4, 10);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 4, 1)));
+
+        var routineService = CreateService(options, out var storage);
+        var courseService = new PersistedCourseService(new TestDbContextFactory(options), routineService);
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(new DateTime(2026, 4, 1)));
+
+        await courseService.UpdateCourseLifecycleStatusAsync(courseId, CourseLifecycleStatus.Completed, completedAt);
+
+        var settings = await routineService.GetSettingsAsync(courseId);
+        var completedDay = await routineService.GetDailyRecordAsync(courseId, completedAt);
+        var period = Assert.Single(settings.SuspensionPeriods);
+
+        Assert.Equal(RoutineSuspensionReason.Completed, period.Reason);
+        Assert.Equal(DailyStudyStatus.Unplanned, completedDay.Status);
+        Assert.Equal(0, completedDay.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
     public async Task GetMonthlyGoalEvaluationsAsync_GeneratesCreditFromDayAboveGoal()
     {
         var courseId = Guid.NewGuid();

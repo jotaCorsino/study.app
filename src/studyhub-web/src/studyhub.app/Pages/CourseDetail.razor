@@ -2,12 +2,14 @@
 @using studyhub.application.Interfaces
 @using studyhub.domain.Entities
 @using studyhub.shared.Enums
+@using studyhub.app.state
 @using studyhub.app.Components.Course
 @using studyhub.app.Components.Shared
 @using studyhub.app.Components.Routine
 @inject ICourseService CourseService
 @inject IProgressService ProgressService
 @inject ICourseResumeService CourseResumeService
+@inject CourseCatalogState CourseCatalogState
 @inject NavigationManager nav
 
 <div class="page-container" @key="CourseId">
@@ -40,7 +42,7 @@
                 <div>
                     <div class="flex items-center gap-sm mb-xs">
                         <span class="text-xs font-semibold text-accent uppercase tracking-wider">@course.Category</span>
-                    @if (progress != null && progress.OverallPercentage == 100)
+                    @if (course.LifecycleStatus == CourseLifecycleStatus.Completed)
                     {
                         <StatusBadge Status="LessonStatus.Completed" />
                     }
@@ -55,7 +57,7 @@
                 </div>
                 
                 <div class="mt-auto">
-                    <GoalsDashboard @key="CourseId" CourseId="@CourseId" />
+                    <GoalsDashboard @key="@($"{CourseId}:{goalsDashboardVersion}")" CourseId="@CourseId" />
                 </div>
             </div>
             
@@ -77,6 +79,35 @@
                             <span>Em andamento: @progress.InProgressLessons</span>
                             <span>@(progress.CurrentStreak > 0 ? $"{progress.CurrentStreak} dias seguidos" : "Progresso salvo localmente")</span>
                         </div>
+                    </div>
+
+                    <div class="course-status-card">
+                        <div class="course-status-header">
+                            <div>
+                                <div class="text-xs text-secondary uppercase tracking-wider font-semibold mb-xs">Status do curso</div>
+                                <div class="course-status-current">@GetLifecycleStatusLabel()</div>
+                            </div>
+                        </div>
+
+                        <label class="player-switch-control course-status-switch">
+                            <input type="checkbox"
+                                   class="player-switch-input"
+                                   checked="@IsCourseActive"
+                                   disabled="@(isSavingLifecycleStatus || IsCourseCompleted)"
+                                   @onchange="HandleActiveSwitchChangedAsync" />
+                            <span class="player-switch-track" aria-hidden="true">
+                                <span class="player-switch-thumb"></span>
+                            </span>
+                            <span class="player-switch-label">@GetLifecycleSwitchLabel()</span>
+                        </label>
+
+                        <label class="course-status-checkbox">
+                            <input type="checkbox"
+                                   checked="@IsCourseCompleted"
+                                   disabled="@isSavingLifecycleStatus"
+                                   @onchange="HandleCompletedChangedAsync" />
+                            <span>Curso concluido</span>
+                        </label>
                     </div>
                     
                     <button class="btn btn-primary w-full py-md shadow-lg transition-transform hover:scale-105" @onclick="ResumeCourseAsync">
@@ -140,7 +171,11 @@
     private List<Breadcrumb.BreadcrumbItem> breadcrumbItems = new();
     private Dictionary<Guid, LessonStatus> lessonStatuses = new();
     private int loadVersion;
+    private int goalsDashboardVersion;
+    private bool isSavingLifecycleStatus;
     private int TotalLessons => course?.Modules?.Sum(module => module.Topics?.Sum(topic => topic.Lessons?.Count ?? 0) ?? 0) ?? 0;
+    private bool IsCourseActive => course?.LifecycleStatus == CourseLifecycleStatus.Active;
+    private bool IsCourseCompleted => course?.LifecycleStatus == CourseLifecycleStatus.Completed;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -243,6 +278,63 @@
     private void PlayLesson(Lesson lesson)
     {
         nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
+    }
+
+    private async Task HandleActiveSwitchChangedAsync(ChangeEventArgs args)
+    {
+        var isActive = args.Value is bool value && value;
+        await UpdateLifecycleStatusAsync(isActive ? CourseLifecycleStatus.Active : CourseLifecycleStatus.Paused);
+    }
+
+    private async Task HandleCompletedChangedAsync(ChangeEventArgs args)
+    {
+        var isCompleted = args.Value is bool value && value;
+        await UpdateLifecycleStatusAsync(isCompleted ? CourseLifecycleStatus.Completed : CourseLifecycleStatus.Active);
+    }
+
+    private async Task UpdateLifecycleStatusAsync(CourseLifecycleStatus status)
+    {
+        if (course == null || isSavingLifecycleStatus || course.LifecycleStatus == status)
+        {
+            return;
+        }
+
+        isSavingLifecycleStatus = true;
+
+        try
+        {
+            var updatedCourse = await CourseService.UpdateCourseLifecycleStatusAsync(CourseId, status);
+            if (updatedCourse != null)
+            {
+                course.LifecycleStatus = updatedCourse.LifecycleStatus;
+                goalsDashboardVersion++;
+                CourseCatalogState.NotifyChanged();
+            }
+        }
+        finally
+        {
+            isSavingLifecycleStatus = false;
+        }
+    }
+
+    private string GetLifecycleStatusLabel()
+    {
+        return course?.LifecycleStatus switch
+        {
+            CourseLifecycleStatus.Completed => "Curso concluido",
+            CourseLifecycleStatus.Paused => "Curso pausado",
+            _ => "Curso ativo"
+        };
+    }
+
+    private string GetLifecycleSwitchLabel()
+    {
+        return course?.LifecycleStatus switch
+        {
+            CourseLifecycleStatus.Completed => "Curso concluido",
+            CourseLifecycleStatus.Paused => "Curso pausado",
+            _ => "Curso ativo"
+        };
     }
     
     private string FormatDuration(int totalMinutes)

@@ -35,7 +35,9 @@ public class RoutineService : IRoutineService
         try
         {
             var json = await File.ReadAllTextAsync(path);
-            return JsonSerializer.Deserialize<RoutineSettings>(json) ?? new RoutineSettings();
+            var settings = JsonSerializer.Deserialize<RoutineSettings>(json) ?? new RoutineSettings();
+            NormalizeSettings(settings);
+            return settings;
         }
         catch
         {
@@ -45,9 +47,69 @@ public class RoutineService : IRoutineService
 
     public async Task SaveSettingsAsync(Guid courseId, RoutineSettings settings)
     {
-        settings.LastUpdatedAt = DateTime.Now;
-        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(GetSettingsPath(courseId), json);
+        await SaveSettingsFileAsync(courseId, settings, refreshLastUpdatedAt: true);
+    }
+
+    public async Task SuspendRoutineAsync(Guid courseId, RoutineSuspensionReason reason, DateTime? startDate = null)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return;
+        }
+
+        var suspensionStartDate = (startDate ?? DateTime.Now).Date;
+        var settings = await GetSettingsAsync(courseId);
+        var openPeriod = settings.SuspensionPeriods
+            .Where(period => !period.EndDate.HasValue)
+            .OrderByDescending(period => period.StartDate)
+            .FirstOrDefault();
+
+        if (openPeriod == null)
+        {
+            settings.SuspensionPeriods.Add(new RoutineSuspensionPeriod
+            {
+                StartDate = suspensionStartDate,
+                Reason = reason
+            });
+        }
+        else
+        {
+            openPeriod.Reason = reason;
+            if (suspensionStartDate < openPeriod.StartDate.Date)
+            {
+                openPeriod.StartDate = suspensionStartDate;
+            }
+        }
+
+        await SaveSettingsFileAsync(courseId, settings, refreshLastUpdatedAt: false);
+    }
+
+    public async Task ReactivateRoutineAsync(Guid courseId, DateTime? reactivatedAt = null)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return;
+        }
+
+        var reactivationDate = (reactivatedAt ?? DateTime.Now).Date;
+        var lastSuspendedDate = reactivationDate.AddDays(-1);
+        var settings = await GetSettingsAsync(courseId);
+        var openPeriods = settings.SuspensionPeriods
+            .Where(period => !period.EndDate.HasValue)
+            .ToList();
+
+        foreach (var period in openPeriods)
+        {
+            if (lastSuspendedDate < period.StartDate.Date)
+            {
+                settings.SuspensionPeriods.Remove(period);
+                continue;
+            }
+
+            period.EndDate = lastSuspendedDate;
+        }
+
+        await SaveSettingsFileAsync(courseId, settings, refreshLastUpdatedAt: false);
     }
 
     private async Task<List<DailyStudyRecord>> GetAllRecordsAsync(Guid courseId)
@@ -271,6 +333,30 @@ public class RoutineService : IRoutineService
         await File.WriteAllTextAsync(GetRecordsPath(courseId), json);
     }
 
+    private async Task SaveSettingsFileAsync(Guid courseId, RoutineSettings settings, bool refreshLastUpdatedAt)
+    {
+        NormalizeSettings(settings);
+
+        if (refreshLastUpdatedAt)
+        {
+            settings.LastUpdatedAt = DateTime.Now;
+        }
+
+        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(GetSettingsPath(courseId), json);
+    }
+
+    private static void NormalizeSettings(RoutineSettings settings)
+    {
+        settings.SelectedDaysOfWeek ??= [];
+        settings.SuspensionPeriods ??= [];
+        settings.SuspensionPeriods = settings.SuspensionPeriods
+            .Where(period => period.StartDate != default)
+            .Where(period => !period.EndDate.HasValue || period.EndDate.Value.Date >= period.StartDate.Date)
+            .OrderBy(period => period.StartDate)
+            .ToList();
+    }
+
     private static DailyStudyRecord GetOrCreateRecord(List<DailyStudyRecord> allRecords, Guid courseId, DateTime date)
     {
         var recordItem = allRecords.FirstOrDefault(r => r.Date.Date == date.Date);
@@ -460,6 +546,11 @@ public class RoutineService : IRoutineService
             return false;
         }
 
+        if (IsSuspendedDay(recordItem.Date.Date, settings))
+        {
+            return false;
+        }
+
         if (settings.DailyGoalMinutes <= 0 || settings.SelectedDaysOfWeek.Count == 0)
         {
             return false;
@@ -479,6 +570,15 @@ public class RoutineService : IRoutineService
         }
 
         return settings.SelectedDaysOfWeek.Contains(recordItem.Date.DayOfWeek);
+    }
+
+    private static bool IsSuspendedDay(DateTime date, RoutineSettings settings)
+    {
+        NormalizeSettings(settings);
+
+        return settings.SuspensionPeriods.Any(period =>
+            date.Date >= period.StartDate.Date &&
+            (!period.EndDate.HasValue || date.Date <= period.EndDate.Value.Date));
     }
 
     private async Task<DateTime?> ResolveEffectiveCourseStartDateAsync(

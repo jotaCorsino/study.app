@@ -37,6 +37,7 @@ internal static class CoursePersistenceHelper
             existingCourse.ThumbnailUrl = record.ThumbnailUrl;
             existingCourse.FolderPath = record.FolderPath;
             existingCourse.SourceType = record.SourceType;
+            existingCourse.LifecycleStatus = record.LifecycleStatus;
             existingCourse.SourceMetadataJson = record.SourceMetadataJson;
             existingCourse.TotalDurationMinutes = existingCourse.TotalDurationMinutes > 0
                 ? existingCourse.TotalDurationMinutes
@@ -99,6 +100,7 @@ internal static class CoursePersistenceHelper
         persistedCourse.ThumbnailUrl = record.ThumbnailUrl;
         persistedCourse.FolderPath = record.FolderPath;
         persistedCourse.SourceType = record.SourceType;
+        persistedCourse.LifecycleStatus = record.LifecycleStatus;
         persistedCourse.SourceMetadataJson = record.SourceMetadataJson;
         persistedCourse.TotalDurationMinutes = record.TotalDurationMinutes;
         persistedCourse.AddedAt = persistedCourse.AddedAt == default

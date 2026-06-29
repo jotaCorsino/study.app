@@ -13,6 +13,7 @@ public class CourseRecord
     public string ThumbnailUrl { get; set; } = string.Empty;
     public string FolderPath { get; set; } = string.Empty;
     public CourseSourceType SourceType { get; set; } = CourseSourceType.LocalFolder;
+    public CourseLifecycleStatus LifecycleStatus { get; set; } = CourseLifecycleStatus.Active;
     public string SourceMetadataJson { get; set; } = string.Empty;
     public int TotalDurationMinutes { get; set; }
     public DateTime AddedAt { get; set; }

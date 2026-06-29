@@ -7,10 +7,13 @@ using studyhub.infrastructure.persistence;
 
 namespace studyhub.infrastructure.services;
 
-public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> contextFactory) : ICourseService
+public class PersistedCourseService(
+    IDbContextFactory<StudyHubDbContext> contextFactory,
+    IRoutineService? routineService = null) : ICourseService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory = contextFactory;
+    private readonly IRoutineService? _routineService = routineService;
 
     public async Task<List<Course>> GetAllCoursesAsync()
     {
@@ -43,6 +46,31 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
 
         var rehydratedCourse = await RehydrateLocalCourseFromManifestAsync(id, manifest);
         return rehydratedCourse ?? record.ToDomain();
+    }
+
+    public async Task<Course?> UpdateCourseLifecycleStatusAsync(Guid id, CourseLifecycleStatus status, DateTime? changedAt = null)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
+        {
+            return null;
+        }
+
+        if (!Enum.IsDefined(status))
+        {
+            status = CourseLifecycleStatus.Active;
+        }
+
+        if (record.LifecycleStatus != status)
+        {
+            record.LifecycleStatus = status;
+            await context.SaveChangesAsync();
+        }
+
+        await ApplyRoutineLifecycleStatusAsync(id, status, changedAt);
+        return await GetCourseByIdAsync(id);
     }
 
     public async Task<CourseSourceMetadata?> UpdateCourseIntroSkipPreferenceAsync(Guid id, bool introSkipEnabled, int introSkipSeconds)
@@ -120,6 +148,26 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
             .SelectMany(module => module.Topics.OrderBy(topic => topic.Order))
             .SelectMany(topic => topic.Lessons.OrderBy(lesson => lesson.Order))
             .ToList() ?? [];
+    }
+
+    private async Task ApplyRoutineLifecycleStatusAsync(Guid courseId, CourseLifecycleStatus status, DateTime? changedAt)
+    {
+        if (_routineService == null)
+        {
+            return;
+        }
+
+        if (status == CourseLifecycleStatus.Active)
+        {
+            await _routineService.ReactivateRoutineAsync(courseId, changedAt);
+            return;
+        }
+
+        var reason = status == CourseLifecycleStatus.Completed
+            ? RoutineSuspensionReason.Completed
+            : RoutineSuspensionReason.Paused;
+
+        await _routineService.SuspendRoutineAsync(courseId, reason, changedAt);
     }
 
     private static IQueryable<persistence.models.CourseRecord> BuildCourseQuery(StudyHubDbContext context)
@@ -324,6 +372,7 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
             Category = FirstNonEmpty(existingCourse.Category, "Curso Local"),
             ThumbnailUrl = existingCourse.ThumbnailUrl,
             SourceType = CourseSourceType.LocalFolder,
+            LifecycleStatus = existingCourse.LifecycleStatus,
             SourceMetadata = BuildLocalMetadata(manifest, existingCourse.SourceMetadata),
             TotalDuration = TimeSpan.FromTicks(modules
                 .SelectMany(module => module.Topics)
