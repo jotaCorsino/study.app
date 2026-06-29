@@ -297,6 +297,236 @@ public sealed class RoutineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMonthlyRecordsAsync_KeepsDatesBeforeFirstRoutinePlanUnplanned()
+    {
+        var courseId = Guid.NewGuid();
+        var planStartDate = new DateTime(2026, 6, 10);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue), planStartDate);
+
+        var records = await service.GetMonthlyRecordsAsync(courseId, 2026, 6);
+        var beforePlan = Assert.Single(records, record => record.Date == planStartDate.AddDays(-1));
+        var planStart = Assert.Single(records, record => record.Date == planStartDate);
+
+        Assert.Equal(DailyStudyStatus.Unplanned, beforePlan.Status);
+        Assert.Equal(0, beforePlan.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.NotStarted, planStart.Status);
+        Assert.Equal(30, planStart.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_ReplacesOpenPlan_WhenChangedOnSameStartDate()
+    {
+        var courseId = Guid.NewGuid();
+        var planStartDate = new DateTime(2026, 6, 10);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), planStartDate);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 45), planStartDate);
+
+        var settings = await service.GetSettingsAsync(courseId);
+        var plan = Assert.Single(settings.PlanPeriods);
+        var planStart = await service.GetDailyRecordAsync(courseId, planStartDate);
+
+        Assert.Equal(planStartDate, plan.StartDate);
+        Assert.Null(plan.EndDate);
+        Assert.Equal(45, plan.DailyGoalMinutes);
+        Assert.Equal(45, planStart.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_ChangingGoalAndDaysKeepsPreviousPlanForEarlierDates()
+    {
+        var courseId = Guid.NewGuid();
+        var firstPlanDate = new DateTime(2026, 6, 10);
+        var changedDate = new DateTime(2026, 6, 20);
+        var sundayBeforeChange = new DateTime(2026, 6, 14);
+        var sundayAfterChange = new DateTime(2026, 6, 21);
+        var mondayAfterChange = new DateTime(2026, 6, 22);
+
+        Assert.Equal(DayOfWeek.Sunday, sundayBeforeChange.DayOfWeek);
+        Assert.Equal(DayOfWeek.Sunday, sundayAfterChange.DayOfWeek);
+        Assert.Equal(DayOfWeek.Monday, mondayAfterChange.DayOfWeek);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), firstPlanDate);
+        await service.SaveSettingsAsync(
+            courseId,
+            CreateSettings(DateTime.MinValue, 60, DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday),
+            changedDate);
+
+        var records = await service.GetMonthlyRecordsAsync(courseId, 2026, 6);
+        var oldSunday = Assert.Single(records, record => record.Date == sundayBeforeChange);
+        var newSunday = Assert.Single(records, record => record.Date == sundayAfterChange);
+        var newMonday = Assert.Single(records, record => record.Date == mondayAfterChange);
+
+        Assert.Equal(DailyStudyStatus.NotStarted, oldSunday.Status);
+        Assert.Equal(30, oldSunday.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, newSunday.Status);
+        Assert.Equal(0, newSunday.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.NotStarted, newMonday.Status);
+        Assert.Equal(60, newMonday.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_RemovingGoalPreservesHistoryCreditsAndCourseStatus()
+    {
+        var courseId = Guid.NewGuid();
+        var lessonId = Guid.NewGuid();
+        var planStartDate = new DateTime(2026, 6, 10);
+        var studiedDate = new DateTime(2026, 6, 12);
+        var removalDate = new DateTime(2026, 6, 25);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), planStartDate);
+        await service.CreditLessonProgressAsync(courseId, lessonId, 30, studiedDate);
+        await service.SaveSettingsAsync(courseId, new RoutineSettings(), removalDate);
+
+        var studiedRecord = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var removalRecord = await service.GetDailyRecordAsync(courseId, removalDate);
+        var settings = await service.GetSettingsAsync(courseId);
+
+        await using var assertContext = new StudyHubDbContext(options);
+        var courseStatus = await assertContext.Courses
+            .Where(course => course.Id == courseId)
+            .Select(course => course.LifecycleStatus)
+            .SingleAsync();
+
+        var plan = Assert.Single(settings.PlanPeriods);
+        var credit = Assert.Single(studiedRecord.LessonCredits);
+        Assert.Equal(removalDate.AddDays(-1), plan.EndDate);
+        Assert.Equal(DailyStudyStatus.Completed, studiedRecord.Status);
+        Assert.Equal(30, studiedRecord.MinutesStudied);
+        Assert.Equal(30, studiedRecord.DailyGoalMinutesAtTheTime);
+        Assert.Equal(lessonId, credit.LessonId);
+        Assert.Equal(30, credit.MinutesCredited);
+        Assert.Equal(DailyStudyStatus.Unplanned, removalRecord.Status);
+        Assert.Equal(0, removalRecord.DailyGoalMinutesAtTheTime);
+        Assert.Equal(CourseLifecycleStatus.Active, courseStatus);
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_RecreatingRoutineOnlyAppliesFromNewStartDate()
+    {
+        var courseId = Guid.NewGuid();
+        var firstPlanDate = new DateTime(2026, 6, 10);
+        var removalDate = new DateTime(2026, 6, 25);
+        var recreatedDate = new DateTime(2026, 6, 30);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), firstPlanDate);
+        await service.SaveSettingsAsync(courseId, new RoutineSettings(), removalDate);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 45), recreatedDate);
+
+        var records = await service.GetMonthlyRecordsAsync(courseId, 2026, 6);
+        var beforeRemoval = Assert.Single(records, record => record.Date == removalDate.AddDays(-1));
+        var afterRemoval = Assert.Single(records, record => record.Date == removalDate.AddDays(1));
+        var recreated = Assert.Single(records, record => record.Date == recreatedDate);
+        var settings = await service.GetSettingsAsync(courseId);
+
+        Assert.Equal(2, settings.PlanPeriods.Count);
+        Assert.Equal(removalDate.AddDays(-1), settings.PlanPeriods[0].EndDate);
+        Assert.Equal(recreatedDate, settings.PlanPeriods[1].StartDate);
+        Assert.Equal(DailyStudyStatus.NotStarted, beforeRemoval.Status);
+        Assert.Equal(30, beforeRemoval.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, afterRemoval.Status);
+        Assert.Equal(0, afterRemoval.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.NotStarted, recreated.Status);
+        Assert.Equal(45, recreated.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task GetMonthlyRecordsAsync_MigratesLegacySettingsWithoutPlanPeriodsAndPreservesHistoricalRecords()
+    {
+        var courseId = Guid.NewGuid();
+        var legacyPlanStartDate = new DateTime(2026, 6, 10);
+        var historicalRecordDate = new DateTime(2026, 6, 8);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsAsync(storage, courseId, CreateAllDaysSettings(legacyPlanStartDate, 30));
+        await WriteRecordsAsync(storage, courseId,
+        [
+            CreateDailyRecord(courseId, historicalRecordDate, 20, 20)
+        ]);
+
+        var settings = await service.GetSettingsAsync(courseId);
+        var records = await service.GetMonthlyRecordsAsync(courseId, 2026, 6);
+        var historicalRecord = Assert.Single(records, record => record.Date == historicalRecordDate);
+        var previousUnrecordedDay = Assert.Single(records, record => record.Date == legacyPlanStartDate.AddDays(-1));
+        var migratedStart = Assert.Single(records, record => record.Date == legacyPlanStartDate);
+        var plan = Assert.Single(settings.PlanPeriods);
+
+        Assert.Equal(legacyPlanStartDate, plan.StartDate);
+        Assert.Null(plan.EndDate);
+        Assert.Equal(DailyStudyStatus.Completed, historicalRecord.Status);
+        Assert.Equal(20, historicalRecord.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, previousUnrecordedDay.Status);
+        Assert.Equal(0, previousUnrecordedDay.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.NotStarted, migratedStart.Status);
+        Assert.Equal(30, migratedStart.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task GetMonthlyRecordsAsync_SuspensionHasPriorityOverActivePlan()
+    {
+        var courseId = Guid.NewGuid();
+        var planStartDate = new DateTime(2026, 6, 10);
+        var suspensionDate = new DateTime(2026, 6, 12);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 6, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), planStartDate);
+        await service.SuspendRoutineAsync(courseId, RoutineSuspensionReason.Paused, suspensionDate);
+
+        var records = await service.GetMonthlyRecordsAsync(courseId, 2026, 6);
+        var beforeSuspension = Assert.Single(records, record => record.Date == suspensionDate.AddDays(-1));
+        var suspendedDay = Assert.Single(records, record => record.Date == suspensionDate);
+        var laterSuspendedDay = Assert.Single(records, record => record.Date == suspensionDate.AddDays(5));
+
+        Assert.Equal(DailyStudyStatus.NotStarted, beforeSuspension.Status);
+        Assert.Equal(30, beforeSuspension.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, suspendedDay.Status);
+        Assert.Equal(0, suspendedDay.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyStudyStatus.Unplanned, laterSuspendedDay.Status);
+        Assert.Equal(0, laterSuspendedDay.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
     public async Task UpdateCourseLifecycleStatusAsync_PreservesRoutineSettings_WhenCourseIsPaused()
     {
         var courseId = Guid.NewGuid();
