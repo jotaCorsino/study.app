@@ -8,7 +8,11 @@ StudyHub e um app de estudos para Windows que transforma cursos em pastas locais
 - pagina interna por curso
 - progresso por aula/curso
 - retomada do ponto onde voce parou
-- roadmap e materiais complementares dentro do proprio app
+- rotina, metas, historico, backup e restauracao locais
+- status de curso: Ativo, Pausado e Concluido
+- edicao manual de nome e descricao por curso
+
+O app atual e focado exclusivamente em cursos locais. Recursos antigos de IA, roadmaps, materiais complementares, videos externos e cursos online foram removidos do fluxo ativo.
 
 ## Download da release
 
@@ -36,18 +40,18 @@ Os dados do StudyHub ficam no computador do proprio usuario (localmente), inclui
 
 - banco local do app
 - progresso das aulas
-- configuracoes
-- arquivos de rotina e backup do app
+- rotina com historico de vigencia das metas, pausas e backup do app
+- referencias para os cursos locais importados
 
 O pacote de release nao inclui dados pessoais de quem publicou a release.
 
 ## Fluxo rapido de uso
 
 1. Abra o app.
-2. (Opcional) Configure as chaves de integracao em Configuracoes.
-3. Adicione um curso pela pasta local.
-4. Entre no curso e abra uma aula.
-5. Estude normalmente e acompanhe o progresso.
+2. Adicione um curso pela pasta local.
+3. Entre no curso e abra uma aula.
+4. Estude normalmente e acompanhe o progresso.
+5. Pause, reative, conclua ou edite nome/descricao do curso quando precisar.
 6. Feche e reabra quando quiser: o app preserva o estado salvo.
 
 ## Como adicionar cursos
@@ -60,6 +64,14 @@ Use quando voce ja tem os videos no computador:
 2. Selecione a pasta raiz do curso.
 3. Aguarde a importacao.
 4. Abra o curso no catalogo.
+
+## Organizacao e progresso
+
+- O catalogo e a sidebar mostram cursos locais importados.
+- A sidebar separa cursos em Ativos, Pausados e Concluidos.
+- A pagina do curso permite alterar manualmente nome e descricao sem mudar a pasta original.
+- A rotina usa periodos de vigencia: metas antigas continuam valendo para o historico correto, e pausas/conclusoes deixam os dias cinza quando aplicavel.
+- Na lista de modulos, o progresso do modulo fica verde quando todas as aulas daquele modulo estao concluidas.
 
 ## Estrutura recomendada da pasta do curso
 
@@ -101,10 +113,3 @@ Boas praticas:
 - o intro skip so entra quando a aula comeca do zero
 - o skip e aplicado uma unica vez por abertura da aula
 - play/pause por clique direto na area do video local
-
-## Materiais extras (estado atual)
-
-- na tela do curso existe o botao **Videos Gratuitos**, que abre a pagina de **Materiais extras**
-- essa area tenta montar curadoria de conteudo complementar gratuito para o curso
-- ha acao para gerar/atualizar materiais quando necessario
-- os resultados dependem das integracoes configuradas e da disponibilidade de dados no momento

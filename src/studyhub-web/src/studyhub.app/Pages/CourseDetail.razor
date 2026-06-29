@@ -2,12 +2,14 @@
 @using studyhub.application.Interfaces
 @using studyhub.domain.Entities
 @using studyhub.shared.Enums
+@using studyhub.app.state
 @using studyhub.app.Components.Course
 @using studyhub.app.Components.Shared
 @using studyhub.app.Components.Routine
 @inject ICourseService CourseService
 @inject IProgressService ProgressService
 @inject ICourseResumeService CourseResumeService
+@inject CourseCatalogState CourseCatalogState
 @inject NavigationManager nav
 
 <div class="page-container" @key="CourseId">
@@ -35,12 +37,12 @@
     {
         <Breadcrumb Items="breadcrumbItems" />
         
-        <div class="page-header flex gap-2xl items-stretch">
-            <div class="flex-1 min-w-0 flex flex-col justify-between">
+        <div class="page-header course-detail-header flex gap-2xl items-stretch">
+            <div class="course-detail-summary flex-1 min-w-0 flex flex-col justify-between">
                 <div>
                     <div class="flex items-center gap-sm mb-xs">
                         <span class="text-xs font-semibold text-accent uppercase tracking-wider">@course.Category</span>
-                    @if (progress != null && progress.OverallPercentage == 100)
+                    @if (course.LifecycleStatus == CourseLifecycleStatus.Completed)
                     {
                         <StatusBadge Status="LessonStatus.Completed" />
                     }
@@ -50,16 +52,28 @@
                     }
                 </div>
                 
-                <h1>@course.Title</h1>
+                <div class="course-detail-title-row">
+                    <h1>@course.Title</h1>
+                    <button class="btn btn-ghost btn-sm course-detail-edit-button"
+                            type="button"
+                            title="Editar informações"
+                            @onclick="OpenCourseDetailsEditor">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 20h9"></path>
+                            <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+                        </svg>
+                        <span>Editar informações</span>
+                    </button>
+                </div>
                 <p class="page-subtitle mb-xl">@course.Description</p>
                 </div>
                 
                 <div class="mt-auto">
-                    <GoalsDashboard @key="CourseId" CourseId="@CourseId" />
+                    <GoalsDashboard @key="@($"{CourseId}:{goalsDashboardVersion}")" CourseId="@CourseId" />
                 </div>
             </div>
             
-            <div class="flex-shrink-0 w-80 flex flex-col justify-end gap-md">
+            <div class="course-detail-actions flex-shrink-0 w-80 flex flex-col justify-end gap-md">
                 @if (progress != null)
                 {
                     <div class="course-progress-card">
@@ -78,26 +92,49 @@
                             <span>@(progress.CurrentStreak > 0 ? $"{progress.CurrentStreak} dias seguidos" : "Progresso salvo localmente")</span>
                         </div>
                     </div>
+
+                    <div class="course-status-card">
+                        <div class="course-status-header">
+                            <div>
+                                <div class="text-xs text-secondary uppercase tracking-wider font-semibold mb-xs">Status do curso</div>
+                                <div class="course-status-current">@GetLifecycleStatusLabel()</div>
+                            </div>
+                        </div>
+
+                        <label class="player-switch-control course-status-switch">
+                            <input type="checkbox"
+                                   class="player-switch-input"
+                                   checked="@IsCourseActive"
+                                   disabled="@(isSavingLifecycleStatus || IsCourseCompleted)"
+                                   @onchange="HandleActiveSwitchChangedAsync" />
+                            <span class="player-switch-track" aria-hidden="true">
+                                <span class="player-switch-thumb"></span>
+                            </span>
+                            <span class="player-switch-label">@GetLifecycleSwitchLabel()</span>
+                        </label>
+
+                        <label class="course-status-checkbox">
+                            <input type="checkbox"
+                                   checked="@IsCourseCompleted"
+                                   disabled="@isSavingLifecycleStatus"
+                                   @onchange="HandleCompletedChangedAsync" />
+                            <span>Curso concluido</span>
+                        </label>
+                    </div>
                     
                     <button class="btn btn-primary w-full py-md shadow-lg transition-transform hover:scale-105" @onclick="ResumeCourseAsync">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><polygon points="8 5 19 12 8 19 8 5"></polygon></svg>
                         <span>@(progress.OverallPercentage == 0 ? "Comecar curso" : "Continuar estudando")</span>
                     </button>
                     
-                    <div class="grid grid-cols-1 gap-md mt-sm">
-                        <button class="btn btn-secondary py-md flex-col text-sm border-subtle hover:border-accent hover:text-accent h-auto rounded-xl" @onclick="GoToMaterials">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"></polygon></svg>
-                            <span>Videos Gratuitos</span>
-                        </button>
-                    </div>
                 }
             </div>
         </div>
 
-        <div class="mt-2xl max-w-4xl">
-            <div class="flex justify-between items-center mb-md">
+        <div class="course-detail-content mt-2xl max-w-4xl">
+            <div class="course-detail-content-heading flex justify-between items-center mb-md">
                 <h2 class="text-lg font-semibold text-primary mb-0">Conteudo do curso</h2>
-                <div class="flex items-center gap-md text-sm text-secondary">
+                <div class="course-detail-content-meta flex items-center gap-md text-sm text-secondary">
                     <div class="flex items-center gap-xs font-medium">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                         @(FormatDuration((int)course.TotalDuration.TotalMinutes))
@@ -134,6 +171,76 @@
                 }
             }
         </div>
+
+        @if (showCourseDetailsEditor)
+        {
+            <div class="course-edit-modal-overlay" role="presentation" @onclick="CloseCourseDetailsEditor">
+                <div class="course-edit-modal glass-strong animate-scale-in"
+                     role="dialog"
+                     aria-modal="true"
+                     aria-labelledby="course-edit-title"
+                     @onclick:stopPropagation="true">
+                    <div class="course-edit-modal-header">
+                        <h2 id="course-edit-title">Editar informações</h2>
+                        <button class="nav-add-course-button"
+                                title="Fechar"
+                                type="button"
+                                disabled="@isSavingCourseDetails"
+                                @onclick="CloseCourseDetailsEditor">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="course-edit-modal-body">
+                        <div class="input-group">
+                            <label class="input-label" for="course-edit-title-input">Nome do curso</label>
+                            <input id="course-edit-title-input"
+                                   class="input-field"
+                                   type="text"
+                                   value="@editCourseTitle"
+                                   disabled="@isSavingCourseDetails"
+                                   @oninput="HandleCourseTitleInput" />
+                        </div>
+
+                        <div class="input-group">
+                            <label class="input-label" for="course-edit-description-input">Descrição</label>
+                            <textarea id="course-edit-description-input"
+                                      class="input-field course-edit-description-field"
+                                      rows="4"
+                                      disabled="@isSavingCourseDetails"
+                                      @bind="editCourseDescription"></textarea>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(courseDetailsError))
+                        {
+                            <div class="input-error" role="alert">@courseDetailsError</div>
+                        }
+                    </div>
+
+                    <div class="course-edit-modal-footer">
+                        <button class="btn btn-secondary"
+                                type="button"
+                                disabled="@isSavingCourseDetails"
+                                @onclick="CloseCourseDetailsEditor">
+                            Cancelar
+                        </button>
+                        <button class="btn btn-primary"
+                                type="button"
+                                disabled="@isSavingCourseDetails"
+                                @onclick="SaveCourseDetailsAsync">
+                            @if (isSavingCourseDetails)
+                            {
+                                <span class="spinner" aria-hidden="true"></span>
+                            }
+                            <span>Salvar alterações</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
     }
 </div>
 
@@ -146,7 +253,16 @@
     private List<Breadcrumb.BreadcrumbItem> breadcrumbItems = new();
     private Dictionary<Guid, LessonStatus> lessonStatuses = new();
     private int loadVersion;
+    private int goalsDashboardVersion;
+    private bool isSavingLifecycleStatus;
+    private bool showCourseDetailsEditor;
+    private bool isSavingCourseDetails;
+    private string editCourseTitle = string.Empty;
+    private string editCourseDescription = string.Empty;
+    private string? courseDetailsError;
     private int TotalLessons => course?.Modules?.Sum(module => module.Topics?.Sum(topic => topic.Lessons?.Count ?? 0) ?? 0) ?? 0;
+    private bool IsCourseActive => course?.LifecycleStatus == CourseLifecycleStatus.Active;
+    private bool IsCourseCompleted => course?.LifecycleStatus == CourseLifecycleStatus.Completed;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -178,11 +294,7 @@
                 return;
             }
 
-            loadedBreadcrumbItems = new List<Breadcrumb.BreadcrumbItem>
-            {
-                new Breadcrumb.BreadcrumbItem("Catalogo", "/"),
-                new Breadcrumb.BreadcrumbItem(loadedCourse.Title)
-            };
+            loadedBreadcrumbItems = BuildBreadcrumbItems(loadedCourse.Title);
 
             loadedLessonStatuses = BuildLessonStatuses(loadedCourse);
         }
@@ -205,6 +317,11 @@
         progress = null;
         breadcrumbItems = [];
         lessonStatuses = [];
+        showCourseDetailsEditor = false;
+        isSavingCourseDetails = false;
+        editCourseTitle = string.Empty;
+        editCourseDescription = string.Empty;
+        courseDetailsError = null;
     }
 
     private bool IsCurrentLoad(int currentLoadVersion, Guid requestedCourseId)
@@ -250,10 +367,147 @@
     {
         nav.NavigateTo($"/course/{CourseId}/lesson/{lesson.Id}");
     }
-    
-    private void GoToRoadmap() => nav.NavigateTo($"/course/{CourseId}/roadmap");
-    private void GoToMaterials() => nav.NavigateTo($"/course/{CourseId}/materials");
 
+    private void OpenCourseDetailsEditor()
+    {
+        if (course == null)
+        {
+            return;
+        }
+
+        editCourseTitle = course.Title;
+        editCourseDescription = course.Description;
+        courseDetailsError = null;
+        showCourseDetailsEditor = true;
+    }
+
+    private void CloseCourseDetailsEditor()
+    {
+        if (isSavingCourseDetails)
+        {
+            return;
+        }
+
+        showCourseDetailsEditor = false;
+        courseDetailsError = null;
+    }
+
+    private void HandleCourseTitleInput(ChangeEventArgs args)
+    {
+        editCourseTitle = args.Value?.ToString() ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(editCourseTitle))
+        {
+            courseDetailsError = null;
+        }
+    }
+
+    private async Task SaveCourseDetailsAsync()
+    {
+        if (course == null || isSavingCourseDetails)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(editCourseTitle))
+        {
+            courseDetailsError = "Informe o nome do curso.";
+            return;
+        }
+
+        isSavingCourseDetails = true;
+        courseDetailsError = null;
+
+        try
+        {
+            var updatedCourse = await CourseService.UpdateCourseDetailsAsync(
+                CourseId,
+                editCourseTitle,
+                editCourseDescription);
+
+            if (updatedCourse == null)
+            {
+                courseDetailsError = "Não foi possível salvar as informações do curso.";
+                return;
+            }
+
+            course.Title = updatedCourse.Title;
+            course.Description = updatedCourse.Description;
+            breadcrumbItems = BuildBreadcrumbItems(updatedCourse.Title);
+            CourseCatalogState.NotifyChanged();
+            showCourseDetailsEditor = false;
+        }
+        finally
+        {
+            isSavingCourseDetails = false;
+        }
+    }
+
+    private async Task HandleActiveSwitchChangedAsync(ChangeEventArgs args)
+    {
+        var isActive = args.Value is bool value && value;
+        await UpdateLifecycleStatusAsync(isActive ? CourseLifecycleStatus.Active : CourseLifecycleStatus.Paused);
+    }
+
+    private async Task HandleCompletedChangedAsync(ChangeEventArgs args)
+    {
+        var isCompleted = args.Value is bool value && value;
+        await UpdateLifecycleStatusAsync(isCompleted ? CourseLifecycleStatus.Completed : CourseLifecycleStatus.Active);
+    }
+
+    private async Task UpdateLifecycleStatusAsync(CourseLifecycleStatus status)
+    {
+        if (course == null || isSavingLifecycleStatus || course.LifecycleStatus == status)
+        {
+            return;
+        }
+
+        isSavingLifecycleStatus = true;
+
+        try
+        {
+            var updatedCourse = await CourseService.UpdateCourseLifecycleStatusAsync(CourseId, status);
+            if (updatedCourse != null)
+            {
+                course.LifecycleStatus = updatedCourse.LifecycleStatus;
+                goalsDashboardVersion++;
+                CourseCatalogState.NotifyChanged();
+            }
+        }
+        finally
+        {
+            isSavingLifecycleStatus = false;
+        }
+    }
+
+    private string GetLifecycleStatusLabel()
+    {
+        return course?.LifecycleStatus switch
+        {
+            CourseLifecycleStatus.Completed => "Curso concluido",
+            CourseLifecycleStatus.Paused => "Curso pausado",
+            _ => "Curso ativo"
+        };
+    }
+
+    private string GetLifecycleSwitchLabel()
+    {
+        return course?.LifecycleStatus switch
+        {
+            CourseLifecycleStatus.Completed => "Curso concluido",
+            CourseLifecycleStatus.Paused => "Curso pausado",
+            _ => "Curso ativo"
+        };
+    }
+
+    private static List<Breadcrumb.BreadcrumbItem> BuildBreadcrumbItems(string courseTitle)
+    {
+        return
+        [
+            new Breadcrumb.BreadcrumbItem("Catalogo", "/"),
+            new Breadcrumb.BreadcrumbItem(courseTitle)
+        ];
+    }
+    
     private string FormatDuration(int totalMinutes)
     {
         var hours = totalMinutes / 60;

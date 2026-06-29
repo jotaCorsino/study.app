@@ -9,6 +9,10 @@
 
 ## Operational concepts
 
+- Current scope:
+  StudyHub runs as a local-course study app. Active flows are local folder import, local video playback, progress, routine, course lifecycle status, backups, restore, reset, and manual course title/description editing.
+- Removed flows:
+  AI integrations, API keys, roadmaps, supplementary materials, free external videos, online course creation/curation, external video playback, and YouTube/Gemini workflows are not active release features.
 - Recovery:
   Startup-first attempt to recover the SQLite runtime without destroying data when the database still passes integrity checks.
 - Reset:
@@ -27,18 +31,20 @@ Each backup folder contains:
 
 Backups are timestamped and never overwrite older backups.
 
-## Safe maintenance operations
+## Current user-facing operations
 
-Available service-level maintenance operations:
+Available local operations:
 
-- regenerate course presentation
-- regenerate text refinement
-- regenerate supplementary materials
-- revalidate online course
-- resync local course
-- clear broken operational state
+- import or resync a course from a local folder
+- open local videos with the native player
+- save lesson progress and resume playback
+- set routine goals with historical validity periods
+- pause, reactivate, and complete courses
+- group courses in the sidebar by Active, Paused, and Completed status
+- edit course title and description without changing `RawTitle`, `RawDescription`, folder path, modules, topics, lessons, progress, routine, or lifecycle status
+- backup, restore, and reset StudyHub app data
 
-These operations target only the requested `CourseId` and do not delete physical course files.
+These operations do not delete physical course files.
 
 ## Backup and restore flow
 
@@ -94,7 +100,7 @@ The receiving user should:
 
 1. Extract the folder anywhere on disk.
 2. Run `abrir-studyhub.cmd`.
-3. Configure their own API keys and import their own courses.
+3. Import their own local course folders.
 
 Do not include in the zip:
 
@@ -103,10 +109,18 @@ Do not include in the zip:
 - `%LOCALAPPDATA%\StudyHub\Routine\` JSON files;
 - `FileSystem.AppDataDirectory\backups\` contents;
 - any manually exported personal backup folder;
+- extension files from `src\studyhub-extension\`;
 - the repository root instead of the publish output.
 
 The publish folder is intended to remain stateless relative to your personal data. StudyHub creates its own app-data structure on first run for each user.
 The clean wrapper folder exists only to make navigation and sharing easier; the app still creates its real local state in the user's own app-data folders.
+
+Packaging audit:
+
+- `scripts\publish-windows-clean.ps1` publishes only `src\studyhub-web\src\studyhub.app\studyhub.app.csproj`.
+- The script writes a clean wrapper under `dist\windows\studyhub-windows-x64\` with `runtime\`, `abrir-studyhub.cmd`, and `como-abrir.txt`.
+- The script does not copy `%LOCALAPPDATA%\StudyHub`, SQLite user databases, routine JSON, backup folders, local course folders, or extension files.
+- Zip only the clean wrapper folder, never the repository root.
 
 ## Recommended public distribution
 
@@ -119,6 +133,8 @@ Recommended flow:
 3. Push the repository source changes.
 4. Create a GitHub Release.
 5. Upload `studyhub-windows-x64.zip` as a Release asset.
+
+For local release-candidate validation, stop at step 2 and do not upload the zip.
 
 Recommended local staging path for the release zip:
 

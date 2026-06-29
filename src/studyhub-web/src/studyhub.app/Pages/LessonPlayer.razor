@@ -13,7 +13,6 @@
 @inject ICourseService CourseService
 @inject IProgressService ProgressService
 @inject NativeLessonPlaybackService NativePlaybackService
-@inject ExternalLessonPlaybackService ExternalPlaybackService
 @inject IJSRuntime JS
 @inject ILogger<LessonPlayer> Logger
 @inject NavigationManager nav
@@ -72,12 +71,12 @@
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
                                     Lesson="currentLesson"
-                                    LocalInitialStartOffset="localInitialStartOffset"
-                                    ExternalInitialStartOffset="externalInitialStartOffset"
+                                    InitialStartOffset="initialStartOffset"
                                     RequestedPlaybackSpeed="selectedPlaybackSpeed"
                                     OnLessonCompleted="HandleLessonCompletedAsync" />
             </div>
 
+            <div class="player-bottom-panel">
             <div class="player-controls">
                 <div class="player-controls-primary">
                     @if (IsLessonCompleted())
@@ -196,14 +195,8 @@
                         }
                     </div>
 
-                    @if (ShouldShowExternalPlaybackFallback)
-                    {
-                        <span class="player-speed-effective-hint player-speed-effective-hint-inline">
-                            YouTube aplicou @FormatPlaybackSpeed(externalPlaybackSnapshot.EffectivePlaybackSpeed)
-                            (solicitado @FormatPlaybackSpeed(externalPlaybackSnapshot.RequestedPlaybackSpeed)).
-                        </span>
-                    }
                 </div>
+            </div>
             </div>
         </div>
         
@@ -267,9 +260,7 @@
     private bool isSavingIntroSkipPreference;
     private string introSkipSaveError = string.Empty;
     private PlayerControlsSettingsMode settingsInlineMode = PlayerControlsSettingsMode.Normal;
-    private TimeSpan localInitialStartOffset = TimeSpan.Zero;
-    private TimeSpan externalInitialStartOffset = TimeSpan.Zero;
-    private ExternalLessonPlaybackSnapshot externalPlaybackSnapshot = ExternalLessonPlaybackSnapshot.Hidden;
+    private TimeSpan initialStartOffset = TimeSpan.Zero;
 
     private enum PlayerControlsSettingsMode
     {
@@ -278,18 +269,8 @@
         IntroInline
     }
 
-    private bool ShouldShowExternalPlaybackFallback =>
-        currentLesson?.SourceType == LessonSourceType.ExternalVideo &&
-        currentLesson.Id != Guid.Empty &&
-        externalPlaybackSnapshot.SessionToken != 0 &&
-        externalPlaybackSnapshot.LessonId == currentLesson.Id &&
-        externalPlaybackSnapshot.Status != ExternalLessonPlaybackStatus.Error &&
-        Math.Abs(externalPlaybackSnapshot.RequestedPlaybackSpeed - externalPlaybackSnapshot.EffectivePlaybackSpeed) >= 0.01;
-
     protected override void OnInitialized()
     {
-        externalPlaybackSnapshot = ExternalPlaybackService.Snapshot;
-        ExternalPlaybackService.StateChanged += HandleExternalPlaybackStateChanged;
         NativePlaybackService.LessonNavigationRequested += HandleNativeLessonNavigationRequested;
     }
 
@@ -536,8 +517,7 @@
         isSavingIntroSkipPreference = false;
         introSkipSaveError = string.Empty;
         settingsInlineMode = PlayerControlsSettingsMode.Normal;
-        localInitialStartOffset = TimeSpan.Zero;
-        externalInitialStartOffset = TimeSpan.Zero;
+        initialStartOffset = TimeSpan.Zero;
     }
 
     private void ApplyIntroSkipPreferenceFromCourse(Course loadedCourse)
@@ -629,15 +609,8 @@
 
     private void UpdateInitialStartOffsets()
     {
-        localInitialStartOffset = LessonInitialStartOffsetCalculator.ResolveForLesson(
+        initialStartOffset = LessonInitialStartOffsetCalculator.ResolveForLesson(
             currentLesson,
-            LessonSourceType.LocalFile,
-            introSkipEnabled,
-            introSkipSeconds);
-
-        externalInitialStartOffset = LessonInitialStartOffsetCalculator.ResolveForLesson(
-            currentLesson,
-            LessonSourceType.ExternalVideo,
             introSkipEnabled,
             introSkipSeconds);
     }
@@ -670,15 +643,6 @@
         return $"{speed.ToString("0.0##", CultureInfo.InvariantCulture)}x";
     }
 
-    private void HandleExternalPlaybackStateChanged(ExternalLessonPlaybackSnapshot snapshot)
-    {
-        _ = InvokeAsync(() =>
-        {
-            externalPlaybackSnapshot = snapshot;
-            StateHasChanged();
-        });
-    }
-
     private void HandleNativeLessonNavigationRequested(NativeLessonNavigationCommand command)
     {
         _ = InvokeAsync(() =>
@@ -702,20 +666,7 @@
 
     public void Dispose()
     {
-        ExternalPlaybackService.StateChanged -= HandleExternalPlaybackStateChanged;
         NativePlaybackService.LessonNavigationRequested -= HandleNativeLessonNavigationRequested;
-    }
-
-    private string GetLessonReference()
-    {
-        if (currentLesson == null)
-        {
-            return string.Empty;
-        }
-
-        return currentLesson.SourceType == LessonSourceType.ExternalVideo
-            ? currentLesson.ExternalUrl
-            : currentLesson.FilePath;
     }
 }
 

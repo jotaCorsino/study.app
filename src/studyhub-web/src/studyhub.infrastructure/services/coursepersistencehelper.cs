@@ -20,7 +20,6 @@ internal static class CoursePersistenceHelper
         if (existingCourse == null)
         {
             await context.Courses.AddAsync(record, cancellationToken);
-            await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -38,6 +37,7 @@ internal static class CoursePersistenceHelper
             existingCourse.ThumbnailUrl = record.ThumbnailUrl;
             existingCourse.FolderPath = record.FolderPath;
             existingCourse.SourceType = record.SourceType;
+            existingCourse.LifecycleStatus = record.LifecycleStatus;
             existingCourse.SourceMetadataJson = record.SourceMetadataJson;
             existingCourse.TotalDurationMinutes = existingCourse.TotalDurationMinutes > 0
                 ? existingCourse.TotalDurationMinutes
@@ -47,7 +47,6 @@ internal static class CoursePersistenceHelper
                 : existingCourse.AddedAt;
             existingCourse.LastAccessedAt = record.LastAccessedAt ?? existingCourse.LastAccessedAt;
 
-            await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -89,7 +88,6 @@ internal static class CoursePersistenceHelper
         if (persistedCourse == null)
         {
             await context.Courses.AddAsync(record, cancellationToken);
-            await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
             await context.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -102,6 +100,7 @@ internal static class CoursePersistenceHelper
         persistedCourse.ThumbnailUrl = record.ThumbnailUrl;
         persistedCourse.FolderPath = record.FolderPath;
         persistedCourse.SourceType = record.SourceType;
+        persistedCourse.LifecycleStatus = record.LifecycleStatus;
         persistedCourse.SourceMetadataJson = record.SourceMetadataJson;
         persistedCourse.TotalDurationMinutes = record.TotalDurationMinutes;
         persistedCourse.AddedAt = persistedCourse.AddedAt == default
@@ -127,31 +126,7 @@ internal static class CoursePersistenceHelper
 
         await context.Modules.AddRangeAsync(record.Modules, cancellationToken);
 
-        await SaveAncillaryRecordsAsync(context, record.Id, cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
-    }
-
-    public static async Task SaveAncillaryRecordsAsync(StudyHubDbContext context, Guid courseId, CancellationToken cancellationToken = default)
-    {
-        if (!await context.CourseRoadmaps.AnyAsync(item => item.CourseId == courseId, cancellationToken))
-        {
-            await context.CourseRoadmaps.AddAsync(new CourseRoadmapRecord
-            {
-                CourseId = courseId,
-                LevelsJson = PersistenceMapper.SerializeRoadmap([]),
-                UpdatedAt = DateTime.Now
-            }, cancellationToken);
-        }
-
-        if (!await context.CourseMaterials.AnyAsync(item => item.CourseId == courseId, cancellationToken))
-        {
-            await context.CourseMaterials.AddAsync(new CourseMaterialsRecord
-            {
-                CourseId = courseId,
-                MaterialsJson = PersistenceMapper.SerializeMaterials([]),
-                UpdatedAt = DateTime.Now
-            }, cancellationToken);
-        }
     }
 
     private static void ApplyPreservedLessonState(

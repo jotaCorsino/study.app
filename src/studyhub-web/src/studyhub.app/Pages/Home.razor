@@ -41,9 +41,11 @@
     }
     else
     {
-        var inProgressCourses = filteredCourses.Where(course => GetProgress(course.Id)?.OverallPercentage > 0 && GetProgress(course.Id)?.OverallPercentage < 100).ToList();
-        var newCourses = filteredCourses.Where(course => GetProgress(course.Id)?.OverallPercentage == 0 || GetProgress(course.Id) == null).ToList();
-        var completedCourses = filteredCourses.Where(course => GetProgress(course.Id)?.OverallPercentage == 100).ToList();
+        var activeCourses = filteredCourses.Where(course => course.LifecycleStatus == CourseLifecycleStatus.Active).ToList();
+        var inProgressCourses = activeCourses.Where(course => GetProgress(course.Id)?.OverallPercentage > 0).ToList();
+        var newCourses = activeCourses.Where(course => GetProgress(course.Id)?.OverallPercentage == 0 || GetProgress(course.Id) == null).ToList();
+        var pausedCourses = filteredCourses.Where(course => course.LifecycleStatus == CourseLifecycleStatus.Paused).ToList();
+        var completedCourses = filteredCourses.Where(course => course.LifecycleStatus == CourseLifecycleStatus.Completed).ToList();
 
         if (inProgressCourses.Count > 0)
         {
@@ -64,6 +66,19 @@
                 <h2 class="text-lg font-bold mb-md">Novos Cursos</h2>
                 <div class="grid grid-cols-3 gap-lg">
                     @foreach (var course in newCourses)
+                    {
+                        <CourseCard Course="@course" Progress="@GetProgress(course.Id)" OnCourseSelected="NavigateToCourse" />
+                    }
+                </div>
+            </div>
+        }
+
+        if (pausedCourses.Count > 0)
+        {
+            <div class="mb-2xl">
+                <h2 class="text-lg font-bold mb-md">Cursos Pausados</h2>
+                <div class="grid grid-cols-3 gap-lg opacity-90">
+                    @foreach (var course in pausedCourses)
                     {
                         <CourseCard Course="@course" Progress="@GetProgress(course.Id)" OnCourseSelected="NavigateToCourse" />
                     }

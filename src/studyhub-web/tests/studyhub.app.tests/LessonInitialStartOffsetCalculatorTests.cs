@@ -47,19 +47,6 @@ public sealed class LessonInitialStartOffsetCalculatorTests
     }
 
     [Fact]
-    public void ResolveForLesson_ReturnsZero_WhenLessonIsExternal()
-    {
-        var lesson = CreateLesson(LessonSourceType.ExternalVideo, TimeSpan.Zero);
-
-        var offset = LessonInitialStartOffsetCalculator.ResolveForLesson(
-            lesson,
-            introSkipEnabled: true,
-            introSkipSeconds: 15);
-
-        Assert.Equal(TimeSpan.Zero, offset);
-    }
-
-    [Fact]
     public void ResolveForLesson_ReturnsZero_WhenIntroSkipSecondsIsInvalid()
     {
         var lesson = CreateLesson(LessonSourceType.LocalFile, TimeSpan.Zero);
@@ -73,41 +60,13 @@ public sealed class LessonInitialStartOffsetCalculatorTests
     }
 
     [Fact]
-    public void ResolveForLesson_ReturnsResumePosition_ForExternalWhenResumeExists()
+    public void ResolveForLesson_ReturnsZero_WhenRequestedSourceDoesNotMatch()
     {
-        var lesson = CreateLesson(LessonSourceType.ExternalVideo, TimeSpan.FromSeconds(84));
+        var lesson = CreateLesson(LessonSourceType.LocalFile, TimeSpan.Zero);
 
         var offset = LessonInitialStartOffsetCalculator.ResolveForLesson(
             lesson,
-            LessonSourceType.ExternalVideo,
-            introSkipEnabled: true,
-            introSkipSeconds: 10);
-
-        Assert.Equal(TimeSpan.FromSeconds(84), offset);
-    }
-
-    [Fact]
-    public void ResolveForLesson_ReturnsIntroSkip_ForExternalWhenStartingFromZero()
-    {
-        var lesson = CreateLesson(LessonSourceType.ExternalVideo, TimeSpan.Zero);
-
-        var offset = LessonInitialStartOffsetCalculator.ResolveForLesson(
-            lesson,
-            LessonSourceType.ExternalVideo,
-            introSkipEnabled: true,
-            introSkipSeconds: 10);
-
-        Assert.Equal(TimeSpan.FromSeconds(10), offset);
-    }
-
-    [Fact]
-    public void ResolveForLesson_ReturnsZero_ForExternalWhenRequestedSourceDoesNotMatch()
-    {
-        var lesson = CreateLesson(LessonSourceType.ExternalVideo, TimeSpan.Zero);
-
-        var offset = LessonInitialStartOffsetCalculator.ResolveForLesson(
-            lesson,
-            LessonSourceType.LocalFile,
+            (LessonSourceType)1,
             introSkipEnabled: true,
             introSkipSeconds: 10);
 

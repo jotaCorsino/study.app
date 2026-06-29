@@ -14,14 +14,12 @@ public class LocalCourseImportService(
     IDbContextFactory<StudyHubDbContext> contextFactory,
     IFolderPickerService folderPickerService,
     ILocalFolderCourseBuilder localFolderCourseBuilder,
-    ICourseEnrichmentOrchestrator courseEnrichmentOrchestrator,
     ILogger<LocalCourseImportService> logger) : ILocalCourseImportService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory = contextFactory;
     private readonly IFolderPickerService _folderPickerService = folderPickerService;
     private readonly ILocalFolderCourseBuilder _localFolderCourseBuilder = localFolderCourseBuilder;
-    private readonly ICourseEnrichmentOrchestrator _courseEnrichmentOrchestrator = courseEnrichmentOrchestrator;
     private readonly ILogger<LocalCourseImportService> _logger = logger;
 
     public async Task<LocalCourseImportResult> PickAndImportAsync(CancellationToken cancellationToken = default)
@@ -143,12 +141,9 @@ public class LocalCourseImportService(
             }
 
             var currentLessonId = existingCourse?.CurrentLessonId;
-            var existingRoadmap = await context.CourseRoadmaps.FirstOrDefaultAsync(item => item.CourseId == detectedStructure.CourseId, cancellationToken);
-            var existingMaterials = await context.CourseMaterials.FirstOrDefaultAsync(item => item.CourseId == detectedStructure.CourseId, cancellationToken);
             var importSnapshot = await context.CourseImportSnapshots.FirstOrDefaultAsync(item => item.CourseId == detectedStructure.CourseId, cancellationToken);
 
             var course = buildResult.Course;
-            var structureChanged = existingCourseDomain == null || CoursePresentationMergeHelper.HasStructureChanged(course, existingCourseDomain);
             if (existingCourseDomain != null)
             {
                 CoursePresentationMergeHelper.MergeExistingPresentation(course, existingCourseDomain);
@@ -184,6 +179,7 @@ public class LocalCourseImportService(
                 existingCourse.ThumbnailUrl = courseRecord.ThumbnailUrl;
                 existingCourse.FolderPath = courseRecord.FolderPath;
                 existingCourse.SourceType = courseRecord.SourceType;
+                existingCourse.LifecycleStatus = courseRecord.LifecycleStatus;
                 existingCourse.SourceMetadataJson = courseRecord.SourceMetadataJson;
                 existingCourse.TotalDurationMinutes = courseRecord.TotalDurationMinutes;
                 existingCourse.AddedAt = courseRecord.AddedAt;
@@ -211,29 +207,8 @@ public class LocalCourseImportService(
             importSnapshot.StructureJson = structureJson;
             importSnapshot.ImportedAt = DateTime.UtcNow;
 
-            if (existingRoadmap == null)
-            {
-                await context.CourseRoadmaps.AddAsync(new CourseRoadmapRecord
-                {
-                    CourseId = detectedStructure.CourseId,
-                    LevelsJson = PersistenceMapper.SerializeRoadmap(new List<RoadmapLevel>()),
-                    UpdatedAt = DateTime.Now
-                }, cancellationToken);
-            }
-
-            if (existingMaterials == null)
-            {
-                await context.CourseMaterials.AddAsync(new CourseMaterialsRecord
-                {
-                    CourseId = detectedStructure.CourseId,
-                    MaterialsJson = PersistenceMapper.SerializeMaterials(new List<Material>()),
-                    UpdatedAt = DateTime.Now
-                }, cancellationToken);
-            }
-
             await context.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            TriggerPostImportEnrichment(detectedStructure.CourseId, structureChanged);
 
             _logger.LogInformation(
                 "Local course import completed. CourseId: {CourseId}. Status: {Status}. FolderPath: {FolderPath}. Modules: {ModuleCount}. Topics: {TopicCount}. Lessons: {LessonCount}",
@@ -282,24 +257,5 @@ public class LocalCourseImportService(
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons)
             .Any(lesson => lesson.Id == lessonId);
-    }
-
-    private void TriggerPostImportEnrichment(Guid courseId, bool structureChanged)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await _courseEnrichmentOrchestrator.EnrichLocalCourseAsync(new studyhub.application.Contracts.Integrations.LocalCourseEnrichmentRequest
-                {
-                    CourseId = courseId,
-                    StructureChanged = structureChanged
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Background enrichment for local course {CourseId} failed after import.", courseId);
-            }
-        });
     }
 }

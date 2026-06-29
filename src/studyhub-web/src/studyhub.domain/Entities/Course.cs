@@ -12,6 +12,7 @@ public class Course
     public string Category { get; set; } = string.Empty;
     public string ThumbnailUrl { get; set; } = string.Empty;
     public CourseSourceType SourceType { get; set; } = CourseSourceType.LocalFolder;
+    public CourseLifecycleStatus LifecycleStatus { get; set; } = CourseLifecycleStatus.Active;
     public CourseSourceMetadata SourceMetadata
     {
         get => _sourceMetadata;

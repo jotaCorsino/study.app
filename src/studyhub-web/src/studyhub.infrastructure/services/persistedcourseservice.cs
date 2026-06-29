@@ -7,10 +7,13 @@ using studyhub.infrastructure.persistence;
 
 namespace studyhub.infrastructure.services;
 
-public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> contextFactory) : ICourseService
+public class PersistedCourseService(
+    IDbContextFactory<StudyHubDbContext> contextFactory,
+    IRoutineService? routineService = null) : ICourseService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory = contextFactory;
+    private readonly IRoutineService? _routineService = routineService;
 
     public async Task<List<Course>> GetAllCoursesAsync()
     {
@@ -35,11 +38,6 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
             return null;
         }
 
-        if (record.SourceType != CourseSourceType.LocalFolder)
-        {
-            return record.ToDomain();
-        }
-
         var manifest = await LoadOrCreateLocalManifestAsync(context, record);
         if (manifest == null || !NeedsLocalRehydration(record, manifest))
         {
@@ -50,12 +48,61 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         return rehydratedCourse ?? record.ToDomain();
     }
 
+    public async Task<Course?> UpdateCourseDetailsAsync(Guid id, string title, string description)
+    {
+        var normalizedTitle = title?.Trim() ?? string.Empty;
+        var normalizedDescription = description?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(normalizedTitle))
+        {
+            return null;
+        }
+
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
+        {
+            return null;
+        }
+
+        record.Title = normalizedTitle;
+        record.Description = normalizedDescription;
+        await context.SaveChangesAsync();
+
+        return await GetCourseByIdAsync(id);
+    }
+
+    public async Task<Course?> UpdateCourseLifecycleStatusAsync(Guid id, CourseLifecycleStatus status, DateTime? changedAt = null)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
+        {
+            return null;
+        }
+
+        if (!Enum.IsDefined(status))
+        {
+            status = CourseLifecycleStatus.Active;
+        }
+
+        if (record.LifecycleStatus != status)
+        {
+            record.LifecycleStatus = status;
+            await context.SaveChangesAsync();
+        }
+
+        await ApplyRoutineLifecycleStatusAsync(id, status, changedAt);
+        return await GetCourseByIdAsync(id);
+    }
+
     public async Task<CourseSourceMetadata?> UpdateCourseIntroSkipPreferenceAsync(Guid id, bool introSkipEnabled, int introSkipSeconds)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
-        if (record == null)
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
         {
             return null;
         }
@@ -107,7 +154,7 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var record = await context.Courses.FirstOrDefaultAsync(course => course.Id == id);
-        if (record == null)
+        if (record == null || record.SourceType != CourseSourceType.LocalFolder)
         {
             return;
         }
@@ -127,10 +174,31 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
             .ToList() ?? [];
     }
 
+    private async Task ApplyRoutineLifecycleStatusAsync(Guid courseId, CourseLifecycleStatus status, DateTime? changedAt)
+    {
+        if (_routineService == null)
+        {
+            return;
+        }
+
+        if (status == CourseLifecycleStatus.Active)
+        {
+            await _routineService.ReactivateRoutineAsync(courseId, changedAt);
+            return;
+        }
+
+        var reason = status == CourseLifecycleStatus.Completed
+            ? RoutineSuspensionReason.Completed
+            : RoutineSuspensionReason.Paused;
+
+        await _routineService.SuspendRoutineAsync(courseId, reason, changedAt);
+    }
+
     private static IQueryable<persistence.models.CourseRecord> BuildCourseQuery(StudyHubDbContext context)
     {
         return context.Courses
             .AsNoTracking()
+            .Where(course => course.SourceType == CourseSourceType.LocalFolder)
             .Include(course => course.Modules)
                 .ThenInclude(module => module.Topics)
                     .ThenInclude(topic => topic.Lessons);
@@ -328,6 +396,7 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
             Category = FirstNonEmpty(existingCourse.Category, "Curso Local"),
             ThumbnailUrl = existingCourse.ThumbnailUrl,
             SourceType = CourseSourceType.LocalFolder,
+            LifecycleStatus = existingCourse.LifecycleStatus,
             SourceMetadata = BuildLocalMetadata(manifest, existingCourse.SourceMetadata),
             TotalDuration = TimeSpan.FromTicks(modules
                 .SelectMany(module => module.Topics)
@@ -339,11 +408,6 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         };
 
         CoursePresentationMergeHelper.MergeExistingPresentation(rebuiltCourse, existingCourse);
-        rebuiltCourse.SourceMetadata.CompletedSteps = rebuiltCourse.SourceMetadata.CompletedSteps
-            .Concat(["LocalStructureRehydratedFromManifest"])
-            .Where(step => !string.IsNullOrWhiteSpace(step))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
 
         return rebuiltCourse;
     }
@@ -356,9 +420,6 @@ public class PersistedCourseService(IDbContextFactory<StudyHubDbContext> context
         metadata.ImportedAt ??= manifest.ScannedAt == default ? DateTime.UtcNow : manifest.ScannedAt;
         metadata.ScanVersion = FirstNonEmpty(metadata.ScanVersion, "local-folder-manifest");
         metadata.Provider = FirstNonEmpty(metadata.Provider, "LocalFileSystem");
-        metadata.CompletedSteps = metadata.CompletedSteps.Count == 0
-            ? ["LocalStructureImported"]
-            : metadata.CompletedSteps;
 
         return metadata;
     }

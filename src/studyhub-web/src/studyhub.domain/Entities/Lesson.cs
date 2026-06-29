@@ -19,7 +19,6 @@ public class Lesson
         get => _localFilePath;
         set => _localFilePath = value ?? string.Empty;
     }
-    public string ExternalUrl { get; set; } = string.Empty;
     public string Provider { get; set; } = string.Empty;
     public string FilePath
     {

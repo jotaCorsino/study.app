@@ -5,7 +5,9 @@ namespace studyhub.application.Interfaces;
 public interface IRoutineService
 {
     Task<RoutineSettings> GetSettingsAsync(Guid courseId);
-    Task SaveSettingsAsync(Guid courseId, RoutineSettings settings);
+    Task SaveSettingsAsync(Guid courseId, RoutineSettings settings, DateTime? changedAt = null);
+    Task SuspendRoutineAsync(Guid courseId, RoutineSuspensionReason reason, DateTime? startDate = null);
+    Task ReactivateRoutineAsync(Guid courseId, DateTime? reactivatedAt = null);
     
     Task<DailyStudyRecord> GetDailyRecordAsync(Guid courseId, DateTime date);
     Task<IReadOnlyDictionary<Guid, DailyStudyRecord>> GetDailyRecordsAsync(

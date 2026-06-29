@@ -35,7 +35,9 @@ public class RoutineService : IRoutineService
         try
         {
             var json = await File.ReadAllTextAsync(path);
-            return JsonSerializer.Deserialize<RoutineSettings>(json) ?? new RoutineSettings();
+            var settings = JsonSerializer.Deserialize<RoutineSettings>(json) ?? new RoutineSettings();
+            NormalizeSettings(settings, migrateLegacyPlanPeriods: true);
+            return settings;
         }
         catch
         {
@@ -43,11 +45,88 @@ public class RoutineService : IRoutineService
         }
     }
 
-    public async Task SaveSettingsAsync(Guid courseId, RoutineSettings settings)
+    public async Task SaveSettingsAsync(Guid courseId, RoutineSettings settings, DateTime? changedAt = null)
     {
-        settings.LastUpdatedAt = DateTime.Now;
-        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(GetSettingsPath(courseId), json);
+        var changedAtValue = changedAt ?? DateTime.Now;
+        var currentSettings = await GetSettingsAsync(courseId);
+        var settingsToSave = new RoutineSettings
+        {
+            DailyGoalMinutes = settings.DailyGoalMinutes,
+            SelectedDaysOfWeek = settings.SelectedDaysOfWeek?.ToList() ?? [],
+            LastUpdatedAt = changedAtValue,
+            PlanPeriods = currentSettings.PlanPeriods.Count > 0
+                ? ClonePlanPeriods(currentSettings.PlanPeriods)
+                : ClonePlanPeriods(settings.PlanPeriods),
+            SuspensionPeriods = currentSettings.SuspensionPeriods.Count > 0
+                ? CloneSuspensionPeriods(currentSettings.SuspensionPeriods)
+                : CloneSuspensionPeriods(settings.SuspensionPeriods)
+        };
+
+        ApplyPlanChange(settingsToSave, changedAtValue.Date);
+        settingsToSave.LastUpdatedAt = changedAtValue;
+        await SaveSettingsFileAsync(courseId, settingsToSave, refreshLastUpdatedAt: false);
+    }
+
+    public async Task SuspendRoutineAsync(Guid courseId, RoutineSuspensionReason reason, DateTime? startDate = null)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return;
+        }
+
+        var suspensionStartDate = (startDate ?? DateTime.Now).Date;
+        var settings = await GetSettingsAsync(courseId);
+        var openPeriod = settings.SuspensionPeriods
+            .Where(period => !period.EndDate.HasValue)
+            .OrderByDescending(period => period.StartDate)
+            .FirstOrDefault();
+
+        if (openPeriod == null)
+        {
+            settings.SuspensionPeriods.Add(new RoutineSuspensionPeriod
+            {
+                StartDate = suspensionStartDate,
+                Reason = reason
+            });
+        }
+        else
+        {
+            openPeriod.Reason = reason;
+            if (suspensionStartDate < openPeriod.StartDate.Date)
+            {
+                openPeriod.StartDate = suspensionStartDate;
+            }
+        }
+
+        await SaveSettingsFileAsync(courseId, settings, refreshLastUpdatedAt: false);
+    }
+
+    public async Task ReactivateRoutineAsync(Guid courseId, DateTime? reactivatedAt = null)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return;
+        }
+
+        var reactivationDate = (reactivatedAt ?? DateTime.Now).Date;
+        var lastSuspendedDate = reactivationDate.AddDays(-1);
+        var settings = await GetSettingsAsync(courseId);
+        var openPeriods = settings.SuspensionPeriods
+            .Where(period => !period.EndDate.HasValue)
+            .ToList();
+
+        foreach (var period in openPeriods)
+        {
+            if (lastSuspendedDate < period.StartDate.Date)
+            {
+                settings.SuspensionPeriods.Remove(period);
+                continue;
+            }
+
+            period.EndDate = lastSuspendedDate;
+        }
+
+        await SaveSettingsFileAsync(courseId, settings, refreshLastUpdatedAt: false);
     }
 
     private async Task<List<DailyStudyRecord>> GetAllRecordsAsync(Guid courseId)
@@ -271,6 +350,161 @@ public class RoutineService : IRoutineService
         await File.WriteAllTextAsync(GetRecordsPath(courseId), json);
     }
 
+    private async Task SaveSettingsFileAsync(Guid courseId, RoutineSettings settings, bool refreshLastUpdatedAt)
+    {
+        NormalizeSettings(settings);
+
+        if (refreshLastUpdatedAt)
+        {
+            settings.LastUpdatedAt = DateTime.Now;
+        }
+
+        var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(GetSettingsPath(courseId), json);
+    }
+
+    private static void ApplyPlanChange(RoutineSettings settings, DateTime effectiveDate)
+    {
+        NormalizeSettings(settings);
+        var hasValidPlan = HasValidCurrentPlan(settings);
+        var openPlan = settings.PlanPeriods
+            .Where(period => !period.EndDate.HasValue)
+            .OrderByDescending(period => period.StartDate)
+            .FirstOrDefault();
+
+        if (openPlan != null && hasValidPlan && PlanMatches(openPlan, settings))
+        {
+            return;
+        }
+
+        if (openPlan == null)
+        {
+            if (hasValidPlan)
+            {
+                settings.PlanPeriods.Add(CreatePlanPeriod(settings, effectiveDate));
+            }
+
+            NormalizeSettings(settings);
+            return;
+        }
+
+        if (effectiveDate <= openPlan.StartDate.Date)
+        {
+            settings.PlanPeriods.RemoveAll(period => period.StartDate.Date >= effectiveDate);
+            if (hasValidPlan)
+            {
+                settings.PlanPeriods.Add(CreatePlanPeriod(settings, effectiveDate));
+            }
+
+            NormalizeSettings(settings);
+            return;
+        }
+
+        openPlan.EndDate = effectiveDate.AddDays(-1);
+        if (hasValidPlan)
+        {
+            settings.PlanPeriods.Add(CreatePlanPeriod(settings, effectiveDate));
+        }
+
+        NormalizeSettings(settings);
+    }
+
+    private static bool HasValidCurrentPlan(RoutineSettings settings)
+    {
+        return settings.DailyGoalMinutes > 0 && settings.SelectedDaysOfWeek.Count > 0;
+    }
+
+    private static RoutinePlanPeriod CreatePlanPeriod(RoutineSettings settings, DateTime startDate)
+    {
+        return new RoutinePlanPeriod
+        {
+            StartDate = startDate.Date,
+            DailyGoalMinutes = settings.DailyGoalMinutes,
+            SelectedDaysOfWeek = settings.SelectedDaysOfWeek.ToList()
+        };
+    }
+
+    private static bool PlanMatches(RoutinePlanPeriod period, RoutineSettings settings)
+    {
+        return period.DailyGoalMinutes == settings.DailyGoalMinutes &&
+               period.SelectedDaysOfWeek.SequenceEqual(settings.SelectedDaysOfWeek);
+    }
+
+    private static List<RoutinePlanPeriod> ClonePlanPeriods(IEnumerable<RoutinePlanPeriod>? periods)
+    {
+        return (periods ?? [])
+            .Select(period => new RoutinePlanPeriod
+            {
+                StartDate = period.StartDate,
+                EndDate = period.EndDate,
+                DailyGoalMinutes = period.DailyGoalMinutes,
+                SelectedDaysOfWeek = period.SelectedDaysOfWeek?.ToList() ?? []
+            })
+            .ToList();
+    }
+
+    private static List<RoutineSuspensionPeriod> CloneSuspensionPeriods(IEnumerable<RoutineSuspensionPeriod>? periods)
+    {
+        return (periods ?? [])
+            .Select(period => new RoutineSuspensionPeriod
+            {
+                StartDate = period.StartDate,
+                EndDate = period.EndDate,
+                Reason = period.Reason
+            })
+            .ToList();
+    }
+
+    private static void NormalizeSettings(RoutineSettings settings, bool migrateLegacyPlanPeriods = false)
+    {
+        settings.SelectedDaysOfWeek = NormalizeSelectedDays(settings.SelectedDaysOfWeek);
+        settings.PlanPeriods ??= [];
+        settings.PlanPeriods = settings.PlanPeriods
+            .Where(period => period.StartDate != default)
+            .Select(period => new RoutinePlanPeriod
+            {
+                StartDate = period.StartDate.Date,
+                EndDate = period.EndDate?.Date,
+                DailyGoalMinutes = Math.Max(0, period.DailyGoalMinutes),
+                SelectedDaysOfWeek = NormalizeSelectedDays(period.SelectedDaysOfWeek)
+            })
+            .Where(period => period.DailyGoalMinutes > 0)
+            .Where(period => period.SelectedDaysOfWeek.Count > 0)
+            .Where(period => !period.EndDate.HasValue || period.EndDate.Value.Date >= period.StartDate.Date)
+            .OrderBy(period => period.StartDate)
+            .ToList();
+
+        if (migrateLegacyPlanPeriods &&
+            settings.PlanPeriods.Count == 0 &&
+            HasValidCurrentPlan(settings) &&
+            settings.LastUpdatedAt != DateTime.MinValue)
+        {
+            settings.PlanPeriods.Add(CreatePlanPeriod(settings, settings.LastUpdatedAt.Date));
+        }
+
+        settings.SuspensionPeriods ??= [];
+        settings.SuspensionPeriods = settings.SuspensionPeriods
+            .Where(period => period.StartDate != default)
+            .Select(period => new RoutineSuspensionPeriod
+            {
+                StartDate = period.StartDate.Date,
+                EndDate = period.EndDate?.Date,
+                Reason = period.Reason
+            })
+            .Where(period => !period.EndDate.HasValue || period.EndDate.Value.Date >= period.StartDate.Date)
+            .OrderBy(period => period.StartDate)
+            .ToList();
+    }
+
+    private static List<DayOfWeek> NormalizeSelectedDays(IEnumerable<DayOfWeek>? days)
+    {
+        return (days ?? [])
+            .Where(day => Enum.IsDefined(typeof(DayOfWeek), day))
+            .Distinct()
+            .OrderBy(day => (int)day)
+            .ToList();
+    }
+
     private static DailyStudyRecord GetOrCreateRecord(List<DailyStudyRecord> allRecords, Guid courseId, DateTime date)
     {
         var recordItem = allRecords.FirstOrDefault(r => r.Date.Date == date.Date);
@@ -319,14 +553,10 @@ public class RoutineService : IRoutineService
 
     private static void ApplyStatus(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
     {
-        var isPlannedDay = IsPlannedDay(recordItem, settings, effectiveStartDate);
-        var preservedHistoricalGoal = recordItem.Date.Date < settings.LastUpdatedAt.Date && recordItem.DailyGoalMinutesAtTheTime > 0
-            ? recordItem.DailyGoalMinutesAtTheTime
-            : settings.DailyGoalMinutes;
+        var dailyGoalMinutes = ResolveDailyGoalMinutes(recordItem, settings, effectiveStartDate);
+        recordItem.DailyGoalMinutesAtTheTime = dailyGoalMinutes ?? 0;
 
-        recordItem.DailyGoalMinutesAtTheTime = isPlannedDay ? Math.Max(0, preservedHistoricalGoal) : 0;
-
-        if (!isPlannedDay)
+        if (!dailyGoalMinutes.HasValue)
         {
             recordItem.Status = DailyStudyStatus.Unplanned;
             return;
@@ -452,33 +682,51 @@ public class RoutineService : IRoutineService
                !evaluation.CountsAsEffectiveGoalMet;
     }
 
-    private static bool IsPlannedDay(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
+    private static int? ResolveDailyGoalMinutes(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
     {
         // Days before the course effectively existed in StudyHub must stay outside the routine window.
         if (effectiveStartDate.HasValue && recordItem.Date.Date < effectiveStartDate.Value.Date)
         {
-            return false;
+            return null;
         }
 
-        if (settings.DailyGoalMinutes <= 0 || settings.SelectedDaysOfWeek.Count == 0)
+        var recordDate = recordItem.Date.Date;
+        if (IsSuspendedDay(recordDate, settings))
         {
-            return false;
+            return null;
         }
 
-        if (settings.LastUpdatedAt != DateTime.MinValue && recordItem.Date.Date < settings.LastUpdatedAt.Date)
+        var activePlan = settings.PlanPeriods
+            .Where(period => recordDate >= period.StartDate.Date)
+            .Where(period => !period.EndDate.HasValue || recordDate <= period.EndDate.Value.Date)
+            .OrderByDescending(period => period.StartDate)
+            .FirstOrDefault();
+
+        if (activePlan != null)
         {
-            if (recordItem.Status == DailyStudyStatus.Unplanned)
-            {
-                return false;
-            }
-
-            if (recordItem.DailyGoalMinutesAtTheTime > 0)
-            {
-                return true;
-            }
+            return activePlan.SelectedDaysOfWeek.Contains(recordDate.DayOfWeek)
+                ? activePlan.DailyGoalMinutes
+                : null;
         }
 
-        return settings.SelectedDaysOfWeek.Contains(recordItem.Date.DayOfWeek);
+        var firstKnownPlanDate = settings.PlanPeriods
+            .Select(period => period.StartDate.Date)
+            .OrderBy(date => date)
+            .FirstOrDefault();
+
+        var isBeforeKnownPlanHistory = firstKnownPlanDate == default || recordDate < firstKnownPlanDate;
+        return isBeforeKnownPlanHistory && recordItem.DailyGoalMinutesAtTheTime > 0
+            ? recordItem.DailyGoalMinutesAtTheTime
+            : null;
+    }
+
+    private static bool IsSuspendedDay(DateTime date, RoutineSettings settings)
+    {
+        NormalizeSettings(settings);
+
+        return settings.SuspensionPeriods.Any(period =>
+            date.Date >= period.StartDate.Date &&
+            (!period.EndDate.HasValue || date.Date <= period.EndDate.Value.Date));
     }
 
     private async Task<DateTime?> ResolveEffectiveCourseStartDateAsync(
@@ -509,6 +757,17 @@ public class RoutineService : IRoutineService
         if (firstRecordedDate != default)
         {
             return firstRecordedDate;
+        }
+
+        var firstPlanStartDate = settings.PlanPeriods
+            .Where(period => period.StartDate != default)
+            .Select(period => period.StartDate.Date)
+            .OrderBy(date => date)
+            .FirstOrDefault();
+
+        if (firstPlanStartDate != default)
+        {
+            return firstPlanStartDate;
         }
 
         if (settings.LastUpdatedAt != DateTime.MinValue)

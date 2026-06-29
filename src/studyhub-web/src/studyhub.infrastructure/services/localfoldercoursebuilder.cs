@@ -109,16 +109,13 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
             Category = "Curso Local",
             ThumbnailUrl = string.Empty,
             SourceType = CourseSourceType.LocalFolder,
+            LifecycleStatus = CourseLifecycleStatus.Active,
             SourceMetadata = new CourseSourceMetadata
             {
                 RootPath = detectedStructure.RootFolderPath,
                 ImportedAt = detectedStructure.ScannedAt,
                 ScanVersion = LocalScanVersion,
-                Provider = "LocalFileSystem",
-                CompletedSteps =
-                [
-                    "LocalStructureImported"
-                ]
+                Provider = "LocalFileSystem"
             },
             TotalDuration = TimeSpan.FromTicks(modules
                 .SelectMany(module => module.Topics)

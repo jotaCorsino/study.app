@@ -6,8 +6,9 @@ internal static class CoursePresentationMergeHelper
 {
     public static void MergeExistingPresentation(Course target, Course existing)
     {
-        target.Title = ResolveDisplayValue(existing.RawTitle, existing.Title, target.RawTitle, target.Title);
-        target.Description = ResolveDisplayValue(existing.RawDescription, existing.Description, target.RawDescription, target.Description);
+        target.Title = ResolveCourseTitle(existing.RawTitle, existing.Title, target.RawTitle, target.Title);
+        target.Description = ResolveCourseDescription(existing.RawDescription, existing.Description, target.RawDescription, target.Description);
+        target.LifecycleStatus = existing.LifecycleStatus;
         target.SourceMetadata = MergeSourceMetadata(target.SourceMetadata, existing.SourceMetadata);
 
         var existingModules = existing.Modules.ToDictionary(module => module.Id);
@@ -97,18 +98,10 @@ internal static class CoursePresentationMergeHelper
         {
             RootPath = current.RootPath,
             ImportedAt = current.ImportedAt,
-            LastEnrichedAt = existing.LastEnrichedAt,
             ScanVersion = current.ScanVersion,
             Provider = current.Provider,
-            RequestedTopic = existing.RequestedTopic,
-            RequestedObjective = existing.RequestedObjective,
-            SearchQueries = existing.SearchQueries.ToList(),
-            SourceUrls = existing.SourceUrls.ToList(),
-            PlaylistIds = existing.PlaylistIds.ToList(),
-            VideoIds = existing.VideoIds.ToList(),
-            CompletedSteps = existing.CompletedSteps.ToList(),
-            GenerationSummary = existing.GenerationSummary,
-            CuratedSources = existing.CuratedSources.ToList()
+            IntroSkipEnabled = existing.IntroSkipEnabled,
+            IntroSkipSeconds = existing.IntroSkipSeconds
         };
     }
 
@@ -116,6 +109,29 @@ internal static class CoursePresentationMergeHelper
     {
         if (!string.IsNullOrWhiteSpace(existingDisplay) &&
             string.Equals(existingRaw, newRaw, StringComparison.Ordinal))
+        {
+            return existingDisplay;
+        }
+
+        return defaultDisplay;
+    }
+
+    private static string ResolveCourseTitle(string existingRaw, string existingDisplay, string newRaw, string defaultDisplay)
+    {
+        if (!string.IsNullOrWhiteSpace(existingDisplay) &&
+            (string.Equals(existingRaw, newRaw, StringComparison.Ordinal) ||
+             !string.Equals(existingDisplay, existingRaw, StringComparison.Ordinal)))
+        {
+            return existingDisplay;
+        }
+
+        return defaultDisplay;
+    }
+
+    private static string ResolveCourseDescription(string existingRaw, string existingDisplay, string newRaw, string defaultDisplay)
+    {
+        if (string.Equals(existingRaw, newRaw, StringComparison.Ordinal) ||
+            !string.Equals(existingDisplay, existingRaw, StringComparison.Ordinal))
         {
             return existingDisplay;
         }

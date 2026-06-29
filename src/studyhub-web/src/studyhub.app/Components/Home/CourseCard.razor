@@ -46,9 +46,14 @@
 
     private string GetStatusLabel()
     {
-        if (Progress?.OverallPercentage == 100)
+        if (Course.LifecycleStatus == CourseLifecycleStatus.Completed)
         {
             return "Concluído";
+        }
+
+        if (Course.LifecycleStatus == CourseLifecycleStatus.Paused)
+        {
+            return "Pausado";
         }
 
         if (Progress?.OverallPercentage > 0)
@@ -61,9 +66,14 @@
 
     private string GetStatusClass()
     {
-        if (Progress?.OverallPercentage == 100)
+        if (Course.LifecycleStatus == CourseLifecycleStatus.Completed)
         {
             return "completed";
+        }
+
+        if (Course.LifecycleStatus == CourseLifecycleStatus.Paused)
+        {
+            return "paused";
         }
 
         if (Progress?.OverallPercentage > 0)
