@@ -137,6 +137,26 @@
     position: relative;
 }
 
+.nav-course-group {
+    min-width: 0;
+}
+
+.nav-course-group + .nav-course-group {
+    margin-top: var(--space-sm);
+}
+
+.nav-course-group-title {
+    padding: var(--space-xs) var(--space-md);
+    color: var(--text-tertiary);
+    font-size: var(--font-xs);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .nav-course-link {
     width: 100%;
     background: transparent;

@@ -43,44 +43,51 @@
 
     @if (courses.Count > 0)
     {
-        @foreach (var course in courses)
+        @foreach (var group in GetCourseGroups())
         {
-            var isActive = IsCourseActive(course.Id);
+            <div class="nav-course-group">
+                <div class="nav-course-group-title">@group.Title</div>
 
-            <div class="nav-course-row">
-                <button type="button"
-                        class="nav-item nav-course-link @(isActive ? "active" : string.Empty)"
-                        @onclick="() => NavigateToCourse(course.Id)">
-                    <span class="nav-course-daily-indicator @GetDailyIndicatorClass(course.Id)" aria-hidden="true"></span>
-                    <span class="nav-icon text-tertiary">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                        </svg>
-                    </span>
-                    <span class="truncate text-sm">@course.Title</span>
-                </button>
-
-                <button type="button"
-                        class="nav-course-action @(openCourseMenuId == course.Id ? "visible" : string.Empty)"
-                        title="Gerenciar curso"
-                        @onclick="() => ToggleCourseMenu(course.Id)"
-                        @onclick:stopPropagation="true">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="1"></circle>
-                        <circle cx="19" cy="12" r="1"></circle>
-                        <circle cx="5" cy="12" r="1"></circle>
-                    </svg>
-                </button>
-
-                @if (openCourseMenuId == course.Id)
+                @foreach (var course in group.Courses)
                 {
-                    <div class="nav-course-menu">
+                    var isActive = IsCourseActive(course.Id);
+
+                    <div class="nav-course-row">
                         <button type="button"
-                                class="nav-course-menu-item danger"
-                                @onclick="() => ConfirmRemoveCourseAsync(course)"
-                                @onclick:stopPropagation="true">
-                            Remover curso
+                                class="nav-item nav-course-link @(isActive ? "active" : string.Empty)"
+                                @onclick="() => NavigateToCourse(course.Id)">
+                            <span class="nav-course-daily-indicator @GetDailyIndicatorClass(course.Id)" aria-hidden="true"></span>
+                            <span class="nav-icon text-tertiary">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                </svg>
+                            </span>
+                            <span class="truncate text-sm">@course.Title</span>
                         </button>
+
+                        <button type="button"
+                                class="nav-course-action @(openCourseMenuId == course.Id ? "visible" : string.Empty)"
+                                title="Gerenciar curso"
+                                @onclick="() => ToggleCourseMenu(course.Id)"
+                                @onclick:stopPropagation="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="1"></circle>
+                                <circle cx="19" cy="12" r="1"></circle>
+                                <circle cx="5" cy="12" r="1"></circle>
+                            </svg>
+                        </button>
+
+                        @if (openCourseMenuId == course.Id)
+                        {
+                            <div class="nav-course-menu">
+                                <button type="button"
+                                        class="nav-course-menu-item danger"
+                                        @onclick="() => ConfirmRemoveCourseAsync(course)"
+                                        @onclick:stopPropagation="true">
+                                    Remover curso
+                                </button>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -140,6 +147,27 @@
             }
 
             dailyIndicatorClassByCourseId[courseId] = ResolveDailyIndicatorClass(record);
+        }
+    }
+
+    private List<CourseNavGroup> GetCourseGroups()
+    {
+        var groups = new List<CourseNavGroup>();
+        AddCourseGroup(groups, "Ativos", CourseLifecycleStatus.Active);
+        AddCourseGroup(groups, "Pausados", CourseLifecycleStatus.Paused);
+        AddCourseGroup(groups, "Concluidos", CourseLifecycleStatus.Completed);
+        return groups;
+    }
+
+    private void AddCourseGroup(List<CourseNavGroup> groups, string title, CourseLifecycleStatus status)
+    {
+        var groupCourses = courses
+            .Where(course => course.LifecycleStatus == status)
+            .ToList();
+
+        if (groupCourses.Count > 0)
+        {
+            groups.Add(new CourseNavGroup(title, groupCourses));
         }
     }
 
@@ -277,4 +305,6 @@
         dailyIndicatorClassByCourseId[courseId] = ResolveDailyIndicatorClass(record);
         StateHasChanged();
     }
+
+    private sealed record CourseNavGroup(string Title, IReadOnlyList<Course> Courses);
 }
