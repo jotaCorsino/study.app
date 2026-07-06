@@ -17,5 +17,6 @@ public interface IRoutineService
     Task<List<DailyGoalEvaluation>> GetMonthlyGoalEvaluationsAsync(Guid courseId, int year, int month);
     Task AddStudyTimeAsync(Guid courseId, int minutes);
     Task CreditLessonProgressAsync(Guid courseId, Guid lessonId, int creditedMinutes, DateTime? date = null);
+    Task<bool> CreditStudyUnitProgressAsync(Guid courseId, Guid studyUnitId, DateTime? date = null);
     Task<int> GetCurrentStreakAsync(Guid courseId, DateTime? referenceDate = null);
 }

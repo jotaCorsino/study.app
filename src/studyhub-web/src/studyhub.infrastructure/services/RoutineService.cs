@@ -8,8 +8,13 @@ namespace studyhub.infrastructure.services;
 
 public class RoutineService : IRoutineService
 {
+    private const string MinutesGoalUnit = "minutes";
+    private const string StudyUnitsGoalUnit = "study-units";
+
     private readonly string _baseDirectory;
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory;
+
+    private readonly record struct DailyGoalSnapshot(DailyGoalMode GoalMode, int GoalValue);
 
     public RoutineService(IStoragePathsService storagePathsService, IDbContextFactory<StudyHubDbContext> contextFactory)
     {
@@ -51,7 +56,9 @@ public class RoutineService : IRoutineService
         var currentSettings = await GetSettingsAsync(courseId);
         var settingsToSave = new RoutineSettings
         {
+            GoalMode = settings.GoalMode,
             DailyGoalMinutes = settings.DailyGoalMinutes,
+            DailyGoalStudyUnits = settings.DailyGoalStudyUnits,
             SelectedDaysOfWeek = settings.SelectedDaysOfWeek?.ToList() ?? [],
             LastUpdatedAt = changedAtValue,
             PlanPeriods = currentSettings.PlanPeriods.Count > 0
@@ -236,7 +243,10 @@ public class RoutineService : IRoutineService
     public async Task<List<DailyGoalEvaluation>> GetMonthlyGoalEvaluationsAsync(Guid courseId, int year, int month, DateTime today)
     {
         var records = await GetMonthlyRecordsAsync(courseId, year, month);
-        return BuildMonthlyGoalEvaluations(courseId, records, year, month, today.Date);
+        var allRecords = await GetAllRecordsAsync(courseId);
+        var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
+        return BuildMonthlyGoalEvaluations(courseId, records, settings, effectiveStartDate, year, month, today.Date);
     }
 
     public async Task AddStudyTimeAsync(Guid courseId, int minutes)
@@ -291,21 +301,49 @@ public class RoutineService : IRoutineService
         await SaveAllRecordsAsync(courseId, allRecords);
     }
 
+    public async Task<bool> CreditStudyUnitProgressAsync(Guid courseId, Guid studyUnitId, DateTime? date = null)
+    {
+        if (courseId == Guid.Empty || studyUnitId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var studyDate = (date ?? DateTime.Now).Date;
+        var allRecords = await GetAllRecordsAsync(courseId);
+        var settings = await GetSettingsAsync(courseId);
+        var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
+        var recordItem = GetOrCreateRecord(allRecords, courseId, studyDate);
+        var added = !recordItem.CompletedStudyUnitIds.Contains(studyUnitId);
+
+        if (added)
+        {
+            recordItem.CompletedStudyUnitIds.Add(studyUnitId);
+        }
+
+        NormalizeRecord(courseId, recordItem);
+        ApplyStatus(recordItem, settings, effectiveStartDate);
+
+        await SaveAllRecordsAsync(courseId, allRecords);
+        return added;
+    }
+
     public async Task<int> GetCurrentStreakAsync(Guid courseId, DateTime? referenceDate = null)
     {
         var settings = await GetSettingsAsync(courseId);
         var allRecords = await GetAllRecordsAsync(courseId);
         var effectiveStartDate = await ResolveEffectiveCourseStartDateAsync(courseId, allRecords, settings);
-        var studiedDates = allRecords
+        var recordsByDate = allRecords
             .Select(record =>
             {
                 NormalizeRecord(courseId, record);
                 ApplyStatus(record, settings, effectiveStartDate);
                 return record;
             })
-            .Where(record => record.Status != DailyStudyStatus.Unplanned && record.MinutesStudied > 0)
+            .GroupBy(record => record.Date.Date)
+            .ToDictionary(group => group.Key, group => group.First());
+        var studiedDates = recordsByDate.Values
+            .Where(record => record.Status != DailyStudyStatus.Unplanned && HasStudyActivity(record))
             .Select(record => record.Date.Date)
-            .Distinct()
             .ToHashSet();
 
         if (studiedDates.Count == 0)
@@ -314,21 +352,24 @@ public class RoutineService : IRoutineService
         }
 
         var today = (referenceDate ?? DateTime.Now).Date;
-        var anchor = studiedDates.Contains(today)
-            ? today
-            : studiedDates.Contains(today.AddDays(-1))
-                ? today.AddDays(-1)
-                : DateTime.MinValue;
-
-        if (anchor == DateTime.MinValue)
-        {
-            return 0;
-        }
-
+        var earliestStudiedDate = studiedDates.Min();
         var streak = 0;
-        var cursor = anchor;
-        while (studiedDates.Contains(cursor))
+        var cursor = studiedDates.Contains(today) ? today : today.AddDays(-1);
+
+        while (cursor >= earliestStudiedDate)
         {
+            var record = ResolveRecordForStreak(courseId, cursor, recordsByDate, settings, effectiveStartDate);
+            if (record.Status == DailyStudyStatus.Unplanned)
+            {
+                cursor = cursor.AddDays(-1);
+                continue;
+            }
+
+            if (!studiedDates.Contains(cursor))
+            {
+                break;
+            }
+
             streak++;
             cursor = cursor.AddDays(-1);
         }
@@ -411,7 +452,7 @@ public class RoutineService : IRoutineService
 
     private static bool HasValidCurrentPlan(RoutineSettings settings)
     {
-        return settings.DailyGoalMinutes > 0 && settings.SelectedDaysOfWeek.Count > 0;
+        return settings.SelectedDaysOfWeek.Count > 0 && HasValidGoal(settings.GoalMode, settings.DailyGoalMinutes, settings.DailyGoalStudyUnits);
     }
 
     private static RoutinePlanPeriod CreatePlanPeriod(RoutineSettings settings, DateTime startDate)
@@ -419,14 +460,17 @@ public class RoutineService : IRoutineService
         return new RoutinePlanPeriod
         {
             StartDate = startDate.Date,
+            GoalMode = settings.GoalMode,
             DailyGoalMinutes = settings.DailyGoalMinutes,
+            DailyGoalStudyUnits = settings.DailyGoalStudyUnits,
             SelectedDaysOfWeek = settings.SelectedDaysOfWeek.ToList()
         };
     }
 
     private static bool PlanMatches(RoutinePlanPeriod period, RoutineSettings settings)
     {
-        return period.DailyGoalMinutes == settings.DailyGoalMinutes &&
+        return period.GoalMode == settings.GoalMode &&
+               GetActiveGoalValue(period) == GetActiveGoalValue(settings) &&
                period.SelectedDaysOfWeek.SequenceEqual(settings.SelectedDaysOfWeek);
     }
 
@@ -437,7 +481,9 @@ public class RoutineService : IRoutineService
             {
                 StartDate = period.StartDate,
                 EndDate = period.EndDate,
+                GoalMode = NormalizeGoalMode(period.GoalMode),
                 DailyGoalMinutes = period.DailyGoalMinutes,
+                DailyGoalStudyUnits = period.DailyGoalStudyUnits,
                 SelectedDaysOfWeek = period.SelectedDaysOfWeek?.ToList() ?? []
             })
             .ToList();
@@ -457,6 +503,9 @@ public class RoutineService : IRoutineService
 
     private static void NormalizeSettings(RoutineSettings settings, bool migrateLegacyPlanPeriods = false)
     {
+        settings.GoalMode = NormalizeGoalMode(settings.GoalMode);
+        settings.DailyGoalMinutes = Math.Max(0, settings.DailyGoalMinutes);
+        settings.DailyGoalStudyUnits = Math.Max(1, settings.DailyGoalStudyUnits);
         settings.SelectedDaysOfWeek = NormalizeSelectedDays(settings.SelectedDaysOfWeek);
         settings.PlanPeriods ??= [];
         settings.PlanPeriods = settings.PlanPeriods
@@ -465,10 +514,12 @@ public class RoutineService : IRoutineService
             {
                 StartDate = period.StartDate.Date,
                 EndDate = period.EndDate?.Date,
+                GoalMode = NormalizeGoalMode(period.GoalMode),
                 DailyGoalMinutes = Math.Max(0, period.DailyGoalMinutes),
+                DailyGoalStudyUnits = Math.Max(1, period.DailyGoalStudyUnits),
                 SelectedDaysOfWeek = NormalizeSelectedDays(period.SelectedDaysOfWeek)
             })
-            .Where(period => period.DailyGoalMinutes > 0)
+            .Where(HasValidPlanPeriod)
             .Where(period => period.SelectedDaysOfWeek.Count > 0)
             .Where(period => !period.EndDate.HasValue || period.EndDate.Value.Date >= period.StartDate.Date)
             .OrderBy(period => period.StartDate)
@@ -529,6 +580,7 @@ public class RoutineService : IRoutineService
         record.CourseId = courseId;
         record.NonLessonMinutesStudied = Math.Max(0, record.NonLessonMinutesStudied);
         record.LessonCredits ??= [];
+        record.CompletedStudyUnitIds = record.CompletedStudyUnitIds;
 
         if (record.NonLessonMinutesStudied == 0 &&
             record.LessonCredits.Count == 0 &&
@@ -553,16 +605,19 @@ public class RoutineService : IRoutineService
 
     private static void ApplyStatus(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
     {
-        var dailyGoalMinutes = ResolveDailyGoalMinutes(recordItem, settings, effectiveStartDate);
-        recordItem.DailyGoalMinutesAtTheTime = dailyGoalMinutes ?? 0;
+        var dailyGoal = ResolveDailyGoal(recordItem, settings, effectiveStartDate);
+        recordItem.DailyGoalMinutesAtTheTime = dailyGoal.HasValue && dailyGoal.Value.GoalMode == DailyGoalMode.TimeMinutes
+            ? dailyGoal.Value.GoalValue
+            : 0;
 
-        if (!dailyGoalMinutes.HasValue)
+        if (!dailyGoal.HasValue)
         {
             recordItem.Status = DailyStudyStatus.Unplanned;
             return;
         }
 
-        var compliance = recordItem.CompliancePercentage;
+        var completedGoalValue = GetCompletedGoalValue(recordItem, dailyGoal.Value.GoalMode);
+        var compliance = CalculateCompliancePercentage(completedGoalValue, dailyGoal.Value.GoalValue);
         if (compliance == 0)
         {
             recordItem.Status = DailyStudyStatus.NotStarted;
@@ -584,6 +639,8 @@ public class RoutineService : IRoutineService
     private static List<DailyGoalEvaluation> BuildMonthlyGoalEvaluations(
         Guid courseId,
         IReadOnlyCollection<DailyStudyRecord> monthlyRecords,
+        RoutineSettings settings,
+        DateTime? effectiveStartDate,
         int year,
         int month,
         DateTime today)
@@ -591,7 +648,7 @@ public class RoutineService : IRoutineService
         var isCurrentMonth = year == today.Year && month == today.Month;
         var evaluations = monthlyRecords
             .OrderBy(record => record.Date)
-            .Select(record => BuildDailyGoalEvaluation(courseId, record, isCurrentMonth, today))
+            .Select(record => BuildDailyGoalEvaluation(courseId, record, settings, effectiveStartDate, isCurrentMonth, today))
             .ToList();
 
         ApplyMonthlyCreditDistribution(evaluations, isCurrentMonth ? today.Date : null);
@@ -601,28 +658,38 @@ public class RoutineService : IRoutineService
     private static DailyGoalEvaluation BuildDailyGoalEvaluation(
         Guid courseId,
         DailyStudyRecord record,
+        RoutineSettings settings,
+        DateTime? effectiveStartDate,
         bool isCurrentMonth,
         DateTime today)
     {
         var isFutureDay = isCurrentMonth && record.Date.Date > today;
         var isPlannedDay = record.Status != DailyStudyStatus.Unplanned;
-        var dailyGoal = isPlannedDay ? Math.Max(0, record.DailyGoalMinutesAtTheTime) : 0;
-        var rawCompliance = isPlannedDay ? record.CompliancePercentage : 0;
-        var extraMinutes = isPlannedDay && !isFutureDay && dailyGoal > 0
-            ? Math.Max(0, record.MinutesStudied - dailyGoal)
+        var dailyGoal = isPlannedDay ? ResolveDailyGoal(record, settings, effectiveStartDate) : null;
+        var goalMode = dailyGoal?.GoalMode ?? DailyGoalMode.TimeMinutes;
+        var goalValue = dailyGoal?.GoalValue ?? 0;
+        var completedGoalValue = dailyGoal.HasValue ? GetCompletedGoalValue(record, goalMode) : 0;
+        var rawCompliance = isPlannedDay ? CalculateCompliancePercentage(completedGoalValue, goalValue) : 0;
+        var isTimeGoal = goalMode == DailyGoalMode.TimeMinutes;
+        var extraMinutes = isTimeGoal && isPlannedDay && !isFutureDay && goalValue > 0
+            ? Math.Max(0, record.MinutesStudied - goalValue)
             : 0;
-        var missingMinutes = isPlannedDay && !isFutureDay && dailyGoal > 0
-            ? Math.Max(0, dailyGoal - record.MinutesStudied)
+        var missingMinutes = isTimeGoal && isPlannedDay && !isFutureDay && goalValue > 0
+            ? Math.Max(0, goalValue - record.MinutesStudied)
             : 0;
-        var countsAsEffectiveGoalMet = isPlannedDay && !isFutureDay && dailyGoal > 0 && record.MinutesStudied >= dailyGoal;
+        var countsAsEffectiveGoalMet = isPlannedDay && !isFutureDay && goalValue > 0 && completedGoalValue >= goalValue;
 
         return new DailyGoalEvaluation
         {
             CourseId = courseId,
             Date = record.Date.Date,
+            GoalMode = goalMode,
+            GoalValueAtTheTime = goalValue,
+            CompletedGoalValue = completedGoalValue,
+            GoalUnit = GetGoalUnit(goalMode),
             RawStatus = record.Status,
             MinutesStudied = record.MinutesStudied,
-            DailyGoalMinutesAtTheTime = dailyGoal,
+            DailyGoalMinutesAtTheTime = isTimeGoal ? goalValue : 0,
             ExtraMinutes = extraMinutes,
             MissingMinutes = missingMinutes,
             ConsumedMonthlyCreditMinutes = 0,
@@ -666,7 +733,8 @@ public class RoutineService : IRoutineService
 
     private static bool CanGenerateMonthlyCredit(DailyGoalEvaluation evaluation)
     {
-        return evaluation.IsPlannedDay &&
+        return evaluation.GoalMode == DailyGoalMode.TimeMinutes &&
+               evaluation.IsPlannedDay &&
                !evaluation.IsFutureDay &&
                evaluation.DailyGoalMinutesAtTheTime > 0 &&
                evaluation.ExtraMinutes > 0;
@@ -674,7 +742,8 @@ public class RoutineService : IRoutineService
 
     private static bool CanReceiveMonthlyCredit(DailyGoalEvaluation evaluation, DateTime? currentDate)
     {
-        return evaluation.IsPlannedDay &&
+        return evaluation.GoalMode == DailyGoalMode.TimeMinutes &&
+               evaluation.IsPlannedDay &&
                !evaluation.IsFutureDay &&
                (!currentDate.HasValue || evaluation.Date.Date < currentDate.Value.Date) &&
                evaluation.DailyGoalMinutesAtTheTime > 0 &&
@@ -682,7 +751,7 @@ public class RoutineService : IRoutineService
                !evaluation.CountsAsEffectiveGoalMet;
     }
 
-    private static int? ResolveDailyGoalMinutes(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
+    private static DailyGoalSnapshot? ResolveDailyGoal(DailyStudyRecord recordItem, RoutineSettings settings, DateTime? effectiveStartDate)
     {
         // Days before the course effectively existed in StudyHub must stay outside the routine window.
         if (effectiveStartDate.HasValue && recordItem.Date.Date < effectiveStartDate.Value.Date)
@@ -704,9 +773,16 @@ public class RoutineService : IRoutineService
 
         if (activePlan != null)
         {
-            return activePlan.SelectedDaysOfWeek.Contains(recordDate.DayOfWeek)
-                ? activePlan.DailyGoalMinutes
-                : null;
+            if (!activePlan.SelectedDaysOfWeek.Contains(recordDate.DayOfWeek))
+            {
+                return null;
+            }
+
+            return activePlan.GoalMode switch
+            {
+                DailyGoalMode.StudyUnits => new DailyGoalSnapshot(DailyGoalMode.StudyUnits, activePlan.DailyGoalStudyUnits),
+                _ => new DailyGoalSnapshot(DailyGoalMode.TimeMinutes, activePlan.DailyGoalMinutes)
+            };
         }
 
         var firstKnownPlanDate = settings.PlanPeriods
@@ -716,8 +792,99 @@ public class RoutineService : IRoutineService
 
         var isBeforeKnownPlanHistory = firstKnownPlanDate == default || recordDate < firstKnownPlanDate;
         return isBeforeKnownPlanHistory && recordItem.DailyGoalMinutesAtTheTime > 0
-            ? recordItem.DailyGoalMinutesAtTheTime
+            ? new DailyGoalSnapshot(DailyGoalMode.TimeMinutes, recordItem.DailyGoalMinutesAtTheTime)
             : null;
+    }
+
+    private static DailyStudyRecord ResolveRecordForStreak(
+        Guid courseId,
+        DateTime date,
+        IReadOnlyDictionary<DateTime, DailyStudyRecord> recordsByDate,
+        RoutineSettings settings,
+        DateTime? effectiveStartDate)
+    {
+        if (recordsByDate.TryGetValue(date.Date, out var record))
+        {
+            return record;
+        }
+
+        record = new DailyStudyRecord
+        {
+            CourseId = courseId,
+            Date = date.Date
+        };
+        NormalizeRecord(courseId, record);
+        ApplyStatus(record, settings, effectiveStartDate);
+        return record;
+    }
+
+    private static bool HasStudyActivity(DailyStudyRecord record)
+    {
+        return record.MinutesStudied > 0 || record.CompletedStudyUnitCount > 0;
+    }
+
+    private static int GetCompletedGoalValue(DailyStudyRecord record, DailyGoalMode goalMode)
+    {
+        return goalMode switch
+        {
+            DailyGoalMode.StudyUnits => record.CompletedStudyUnitCount,
+            _ => record.MinutesStudied
+        };
+    }
+
+    private static double CalculateCompliancePercentage(int completedGoalValue, int goalValue)
+    {
+        return goalValue > 0
+            ? Math.Min(100.0, (double)completedGoalValue / goalValue * 100)
+            : 0;
+    }
+
+    private static string GetGoalUnit(DailyGoalMode goalMode)
+    {
+        return goalMode switch
+        {
+            DailyGoalMode.StudyUnits => StudyUnitsGoalUnit,
+            _ => MinutesGoalUnit
+        };
+    }
+
+    private static bool HasValidPlanPeriod(RoutinePlanPeriod period)
+    {
+        return HasValidGoal(period.GoalMode, period.DailyGoalMinutes, period.DailyGoalStudyUnits);
+    }
+
+    private static bool HasValidGoal(DailyGoalMode goalMode, int dailyGoalMinutes, int dailyGoalStudyUnits)
+    {
+        return goalMode switch
+        {
+            DailyGoalMode.StudyUnits => dailyGoalStudyUnits > 0,
+            _ => dailyGoalMinutes > 0
+        };
+    }
+
+    private static int GetActiveGoalValue(RoutineSettings settings)
+    {
+        return settings.GoalMode switch
+        {
+            DailyGoalMode.StudyUnits => settings.DailyGoalStudyUnits,
+            _ => settings.DailyGoalMinutes
+        };
+    }
+
+    private static int GetActiveGoalValue(RoutinePlanPeriod period)
+    {
+        return period.GoalMode switch
+        {
+            DailyGoalMode.StudyUnits => period.DailyGoalStudyUnits,
+            _ => period.DailyGoalMinutes
+        };
+    }
+
+    private static DailyGoalMode NormalizeGoalMode(DailyGoalMode goalMode)
+    {
+        return Enum.IsDefined(typeof(DailyGoalMode), goalMode)
+            ? goalMode
+            : DailyGoalMode.TimeMinutes;
     }
 
     private static bool IsSuspendedDay(DateTime date, RoutineSettings settings)

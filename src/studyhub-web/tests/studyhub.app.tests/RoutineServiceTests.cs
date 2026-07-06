@@ -651,6 +651,309 @@ public sealed class RoutineServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task TimeMinutesGoal_ContinuesUsingMinutesForStatusAndEvaluation()
+    {
+        var courseId = Guid.NewGuid();
+        var lessonId = Guid.NewGuid();
+        var addedAt = new DateTime(2026, 7, 1);
+        var studiedDate = new DateTime(2026, 7, 2);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, addedAt));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), addedAt);
+        await service.CreditLessonProgressAsync(courseId, lessonId, 30, studiedDate);
+
+        var record = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, studiedDate.Year, studiedDate.Month, studiedDate);
+        var evaluation = Assert.Single(evaluations, item => item.Date == studiedDate);
+
+        Assert.Equal(DailyStudyStatus.Completed, record.Status);
+        Assert.Equal(30, record.MinutesStudied);
+        Assert.Equal(30, record.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyGoalMode.TimeMinutes, evaluation.GoalMode);
+        Assert.Equal(30, evaluation.GoalValueAtTheTime);
+        Assert.Equal(30, evaluation.CompletedGoalValue);
+        Assert.Equal("minutes", evaluation.GoalUnit);
+        Assert.Equal(30, evaluation.DailyGoalMinutesAtTheTime);
+        Assert.True(evaluation.CountsAsEffectiveGoalMet);
+    }
+
+    [Fact]
+    public async Task LegacyPlanWithoutGoalMode_UsesTimeMinutes()
+    {
+        var courseId = Guid.NewGuid();
+        var addedAt = new DateTime(2026, 7, 1);
+        var targetDate = new DateTime(2026, 7, 2);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, addedAt));
+
+        var service = CreateService(options, out var storage);
+        await WriteSettingsJsonAsync(storage, courseId, """
+        {
+          "DailyGoalMinutes": 30,
+          "SelectedDaysOfWeek": [0, 1, 2, 3, 4, 5, 6],
+          "LastUpdatedAt": "2026-07-01T00:00:00",
+          "PlanPeriods": [
+            {
+              "StartDate": "2026-07-01T00:00:00",
+              "DailyGoalMinutes": 30,
+              "SelectedDaysOfWeek": [0, 1, 2, 3, 4, 5, 6]
+            }
+          ],
+          "SuspensionPeriods": []
+        }
+        """);
+
+        var settings = await service.GetSettingsAsync(courseId);
+        var record = await service.GetDailyRecordAsync(courseId, targetDate);
+
+        var plan = Assert.Single(settings.PlanPeriods);
+        Assert.Equal(DailyGoalMode.TimeMinutes, settings.GoalMode);
+        Assert.Equal(DailyGoalMode.TimeMinutes, plan.GoalMode);
+        Assert.Equal(DailyStudyStatus.NotStarted, record.Status);
+        Assert.Equal(30, record.DailyGoalMinutesAtTheTime);
+    }
+
+    [Fact]
+    public async Task StudyUnitsGoal_UsesCompletedStudyUnitsForStatusAndEvaluation()
+    {
+        var courseId = Guid.NewGuid();
+        var firstTopicId = Guid.NewGuid();
+        var secondTopicId = Guid.NewGuid();
+        var addedAt = new DateTime(2026, 7, 1);
+        var studiedDate = new DateTime(2026, 7, 2);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, addedAt));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysStudyUnitSettings(DateTime.MinValue, 1), addedAt);
+
+        var emptyRecord = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var firstCreditAdded = await service.CreditStudyUnitProgressAsync(courseId, firstTopicId, studiedDate);
+        var secondCreditAdded = await service.CreditStudyUnitProgressAsync(courseId, secondTopicId, studiedDate);
+        var creditedRecord = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, studiedDate.Year, studiedDate.Month, studiedDate);
+        var evaluation = Assert.Single(evaluations, item => item.Date == studiedDate);
+
+        Assert.Equal(DailyStudyStatus.NotStarted, emptyRecord.Status);
+        Assert.Equal(0, emptyRecord.CompletedStudyUnitCount);
+        Assert.True(firstCreditAdded);
+        Assert.True(secondCreditAdded);
+        Assert.Equal(DailyStudyStatus.Completed, creditedRecord.Status);
+        Assert.Equal(2, creditedRecord.CompletedStudyUnitCount);
+        Assert.Equal(0, creditedRecord.MinutesStudied);
+        Assert.Equal(0, creditedRecord.DailyGoalMinutesAtTheTime);
+        Assert.Equal(DailyGoalMode.StudyUnits, evaluation.GoalMode);
+        Assert.Equal(1, evaluation.GoalValueAtTheTime);
+        Assert.Equal(2, evaluation.CompletedGoalValue);
+        Assert.Equal("study-units", evaluation.GoalUnit);
+        Assert.Equal(0, evaluation.DailyGoalMinutesAtTheTime);
+        Assert.Equal(100d, evaluation.RawCompliancePercentage);
+        Assert.True(evaluation.CountsAsEffectiveGoalMet);
+    }
+
+    [Fact]
+    public async Task CreditStudyUnitProgressAsync_IsIdempotentForSameTopicOnSameDay()
+    {
+        var courseId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var studiedDate = new DateTime(2026, 7, 2);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 7, 1)));
+
+        var service = CreateService(options, out var storage);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysStudyUnitSettings(DateTime.MinValue, 1), studiedDate.AddDays(-1));
+
+        var firstCreditAdded = await service.CreditStudyUnitProgressAsync(courseId, topicId, studiedDate);
+        var duplicateCreditAdded = await service.CreditStudyUnitProgressAsync(courseId, topicId, studiedDate);
+        var record = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var storedRecords = await ReadRecordsAsync(storage, courseId);
+        var storedRecord = Assert.Single(storedRecords, item => item.Date == studiedDate);
+
+        Assert.True(firstCreditAdded);
+        Assert.False(duplicateCreditAdded);
+        Assert.Equal(1, record.CompletedStudyUnitCount);
+        Assert.Equal([topicId], record.CompletedStudyUnitIds);
+        Assert.Equal([topicId], storedRecord.CompletedStudyUnitIds);
+    }
+
+    [Fact]
+    public async Task StudyUnitsGoal_IgnoresMinutesWhenNoStudyUnitWasCompleted()
+    {
+        var courseId = Guid.NewGuid();
+        var lessonId = Guid.NewGuid();
+        var studiedDate = new DateTime(2026, 7, 2);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 7, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysStudyUnitSettings(DateTime.MinValue, 1), studiedDate.AddDays(-1));
+        await service.CreditLessonProgressAsync(courseId, lessonId, 120, studiedDate);
+
+        var record = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, studiedDate.Year, studiedDate.Month, studiedDate);
+        var evaluation = Assert.Single(evaluations, item => item.Date == studiedDate);
+
+        Assert.Equal(120, record.MinutesStudied);
+        Assert.Equal(0, record.CompletedStudyUnitCount);
+        Assert.Equal(DailyStudyStatus.NotStarted, record.Status);
+        Assert.Equal(DailyGoalMode.StudyUnits, evaluation.GoalMode);
+        Assert.Equal(1, evaluation.GoalValueAtTheTime);
+        Assert.Equal(0, evaluation.CompletedGoalValue);
+        Assert.False(evaluation.CountsAsEffectiveGoalMet);
+    }
+
+    [Fact]
+    public async Task TimeMinutesGoal_IgnoresStudyUnitsWhenNoMinutesWereStudied()
+    {
+        var courseId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var studiedDate = new DateTime(2026, 7, 2);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, new DateTime(2026, 7, 1)));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), studiedDate.AddDays(-1));
+        await service.CreditStudyUnitProgressAsync(courseId, topicId, studiedDate);
+
+        var record = await service.GetDailyRecordAsync(courseId, studiedDate);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, studiedDate.Year, studiedDate.Month, studiedDate);
+        var evaluation = Assert.Single(evaluations, item => item.Date == studiedDate);
+
+        Assert.Equal(0, record.MinutesStudied);
+        Assert.Equal(1, record.CompletedStudyUnitCount);
+        Assert.Equal(DailyStudyStatus.NotStarted, record.Status);
+        Assert.Equal(DailyGoalMode.TimeMinutes, evaluation.GoalMode);
+        Assert.Equal(30, evaluation.GoalValueAtTheTime);
+        Assert.Equal(0, evaluation.CompletedGoalValue);
+        Assert.False(evaluation.CountsAsEffectiveGoalMet);
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_ChangingFromTimeMinutesToStudyUnitsCreatesNewPlanAndPreservesHistory()
+    {
+        var courseId = Guid.NewGuid();
+        var lessonId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var firstPlanDate = new DateTime(2026, 7, 1);
+        var timeModeDate = new DateTime(2026, 7, 2);
+        var modeChangeDate = new DateTime(2026, 7, 10);
+        var studyUnitDate = new DateTime(2026, 7, 11);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, firstPlanDate));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysSettings(DateTime.MinValue, 30), firstPlanDate);
+        await service.CreditLessonProgressAsync(courseId, lessonId, 30, timeModeDate);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysStudyUnitSettings(DateTime.MinValue, 1), modeChangeDate);
+        await service.CreditStudyUnitProgressAsync(courseId, topicId, studyUnitDate);
+
+        var settings = await service.GetSettingsAsync(courseId);
+        var evaluations = await service.GetMonthlyGoalEvaluationsAsync(courseId, 2026, 7, studyUnitDate);
+        var timeEvaluation = Assert.Single(evaluations, item => item.Date == timeModeDate);
+        var studyUnitEvaluation = Assert.Single(evaluations, item => item.Date == studyUnitDate);
+
+        Assert.Equal(2, settings.PlanPeriods.Count);
+        Assert.Equal(DailyGoalMode.TimeMinutes, settings.PlanPeriods[0].GoalMode);
+        Assert.Equal(firstPlanDate, settings.PlanPeriods[0].StartDate);
+        Assert.Equal(modeChangeDate.AddDays(-1), settings.PlanPeriods[0].EndDate);
+        Assert.Equal(DailyGoalMode.StudyUnits, settings.PlanPeriods[1].GoalMode);
+        Assert.Equal(modeChangeDate, settings.PlanPeriods[1].StartDate);
+        Assert.Null(settings.PlanPeriods[1].EndDate);
+        Assert.Equal(DailyGoalMode.TimeMinutes, timeEvaluation.GoalMode);
+        Assert.Equal(30, timeEvaluation.GoalValueAtTheTime);
+        Assert.Equal(30, timeEvaluation.CompletedGoalValue);
+        Assert.Equal(DailyGoalMode.StudyUnits, studyUnitEvaluation.GoalMode);
+        Assert.Equal(1, studyUnitEvaluation.GoalValueAtTheTime);
+        Assert.Equal(1, studyUnitEvaluation.CompletedGoalValue);
+    }
+
+    [Fact]
+    public async Task SaveSettingsAsync_ChangingOnlyInactiveGoalValueDoesNotCreatePlanPeriod()
+    {
+        var courseId = Guid.NewGuid();
+        var firstPlanDate = new DateTime(2026, 7, 1);
+        var inactiveGoalChangeDate = new DateTime(2026, 7, 5);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, firstPlanDate));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysStudyUnitSettings(DateTime.MinValue, 1, 90), firstPlanDate);
+        await service.SaveSettingsAsync(courseId, CreateAllDaysStudyUnitSettings(DateTime.MinValue, 1, 120), inactiveGoalChangeDate);
+
+        var settings = await service.GetSettingsAsync(courseId);
+        var plan = Assert.Single(settings.PlanPeriods);
+
+        Assert.Equal(DailyGoalMode.StudyUnits, settings.GoalMode);
+        Assert.Equal(120, settings.DailyGoalMinutes);
+        Assert.Equal(DailyGoalMode.StudyUnits, plan.GoalMode);
+        Assert.Equal(1, plan.DailyGoalStudyUnits);
+        Assert.Null(plan.EndDate);
+    }
+
+    [Fact]
+    public async Task StudyUnitsGoal_UnplannedDaysRemainUnplannedAndDoNotBreakStreak()
+    {
+        var courseId = Guid.NewGuid();
+        var mondayTopicId = Guid.NewGuid();
+        var tuesdayTopicId = Guid.NewGuid();
+        var wednesdayTopicId = Guid.NewGuid();
+        var monday = new DateTime(2026, 7, 6);
+        var tuesday = monday.AddDays(1);
+        var wednesday = monday.AddDays(2);
+
+        Assert.Equal(DayOfWeek.Monday, monday.DayOfWeek);
+        Assert.Equal(DayOfWeek.Tuesday, tuesday.DayOfWeek);
+        Assert.Equal(DayOfWeek.Wednesday, wednesday.DayOfWeek);
+
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = await CreateOptionsAsync(connection);
+        await SeedCourseAsync(options, CreateCourseRecord(courseId, monday));
+
+        var service = CreateService(options, out _);
+        await service.SaveSettingsAsync(
+            courseId,
+            CreateStudyUnitSettings(DateTime.MinValue, 1, 30, DayOfWeek.Monday, DayOfWeek.Wednesday),
+            monday);
+        await service.CreditStudyUnitProgressAsync(courseId, mondayTopicId, monday);
+        await service.CreditStudyUnitProgressAsync(courseId, tuesdayTopicId, tuesday);
+        await service.CreditStudyUnitProgressAsync(courseId, wednesdayTopicId, wednesday);
+
+        var tuesdayRecord = await service.GetDailyRecordAsync(courseId, tuesday);
+        var streak = await service.GetCurrentStreakAsync(courseId, wednesday);
+
+        Assert.Equal(DailyStudyStatus.Unplanned, tuesdayRecord.Status);
+        Assert.Equal(1, tuesdayRecord.CompletedStudyUnitCount);
+        Assert.Equal(2, streak);
+    }
+
+    [Fact]
     public async Task GetMonthlyGoalEvaluationsAsync_GeneratesCreditFromDayAboveGoal()
     {
         var courseId = Guid.NewGuid();
@@ -1152,11 +1455,51 @@ public sealed class RoutineServiceTests : IDisposable
         };
     }
 
+    private static RoutineSettings CreateAllDaysStudyUnitSettings(
+        DateTime lastUpdatedAt,
+        int dailyGoalStudyUnits = 1,
+        int dailyGoalMinutes = 30)
+    {
+        return new RoutineSettings
+        {
+            GoalMode = DailyGoalMode.StudyUnits,
+            DailyGoalMinutes = dailyGoalMinutes,
+            DailyGoalStudyUnits = dailyGoalStudyUnits,
+            SelectedDaysOfWeek =
+            [
+                DayOfWeek.Sunday,
+                DayOfWeek.Monday,
+                DayOfWeek.Tuesday,
+                DayOfWeek.Wednesday,
+                DayOfWeek.Thursday,
+                DayOfWeek.Friday,
+                DayOfWeek.Saturday
+            ],
+            LastUpdatedAt = lastUpdatedAt
+        };
+    }
+
     private static RoutineSettings CreateSettings(DateTime lastUpdatedAt, int dailyGoalMinutes, params DayOfWeek[] selectedDays)
     {
         return new RoutineSettings
         {
             DailyGoalMinutes = dailyGoalMinutes,
+            SelectedDaysOfWeek = selectedDays.ToList(),
+            LastUpdatedAt = lastUpdatedAt
+        };
+    }
+
+    private static RoutineSettings CreateStudyUnitSettings(
+        DateTime lastUpdatedAt,
+        int dailyGoalStudyUnits,
+        int dailyGoalMinutes,
+        params DayOfWeek[] selectedDays)
+    {
+        return new RoutineSettings
+        {
+            GoalMode = DailyGoalMode.StudyUnits,
+            DailyGoalMinutes = dailyGoalMinutes,
+            DailyGoalStudyUnits = dailyGoalStudyUnits,
             SelectedDaysOfWeek = selectedDays.ToList(),
             LastUpdatedAt = lastUpdatedAt
         };
@@ -1182,6 +1525,13 @@ public sealed class RoutineServiceTests : IDisposable
         await File.WriteAllTextAsync(path, json);
     }
 
+    private static async Task WriteSettingsJsonAsync(TestStoragePathsService storage, Guid courseId, string json)
+    {
+        var courseDirectory = EnsureCourseDirectory(storage, courseId);
+        var path = Path.Combine(courseDirectory, "routine_settings.json");
+        await File.WriteAllTextAsync(path, json);
+    }
+
     private static async Task WriteRecordsAsync(
         TestStoragePathsService storage,
         Guid courseId,
@@ -1191,6 +1541,13 @@ public sealed class RoutineServiceTests : IDisposable
         var path = Path.Combine(courseDirectory, "daily_records.json");
         var json = JsonSerializer.Serialize(records, new JsonSerializerOptions { WriteIndented = true });
         await File.WriteAllTextAsync(path, json);
+    }
+
+    private static async Task<List<DailyStudyRecord>> ReadRecordsAsync(TestStoragePathsService storage, Guid courseId)
+    {
+        var path = Path.Combine(EnsureCourseDirectory(storage, courseId), "daily_records.json");
+        var json = await File.ReadAllTextAsync(path);
+        return JsonSerializer.Deserialize<List<DailyStudyRecord>>(json) ?? [];
     }
 
     private static string EnsureCourseDirectory(TestStoragePathsService storage, Guid courseId)
