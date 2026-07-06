@@ -10,5 +10,6 @@ public class TopicRecord
     public string RawDescription { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public DateTime? CompletedAtUtc { get; set; }
     public List<LessonRecord> Lessons { get; set; } = [];
 }

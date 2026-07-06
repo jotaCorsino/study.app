@@ -75,6 +75,8 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
             entity.Property(record => record.Description)
                 .HasColumnName("description")
                 .IsRequired();
+            entity.Property(record => record.CompletedAtUtc)
+                .HasColumnName("completed_at_utc");
             entity.HasMany(record => record.Lessons)
                 .WithOne(record => record.Topic)
                 .HasForeignKey(record => record.TopicId)

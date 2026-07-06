@@ -95,6 +95,7 @@ internal static class PersistenceMapper
             RawDescription = string.IsNullOrWhiteSpace(record.RawDescription) ? record.Description : record.RawDescription,
             Title = record.Title,
             Description = record.Description,
+            CompletedAtUtc = record.CompletedAtUtc,
             Lessons = record.Lessons
                 .OrderBy(lesson => lesson.Order)
                 .Where(lesson => lesson.SourceType == LessonSourceType.LocalFile)
@@ -157,6 +158,7 @@ internal static class PersistenceMapper
             RawDescription = string.IsNullOrWhiteSpace(topic.RawDescription) ? topic.Description : topic.RawDescription,
             Title = topic.Title,
             Description = topic.Description,
+            CompletedAtUtc = topic.CompletedAtUtc,
             Lessons = topic.Lessons
                 .OrderBy(lesson => lesson.Order)
                 .Select(lesson => ToRecord(lesson, topic.Id))

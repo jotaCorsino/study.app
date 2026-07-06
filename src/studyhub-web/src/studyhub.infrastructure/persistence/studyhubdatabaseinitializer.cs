@@ -12,7 +12,7 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 9;
+    private const int CurrentSchemaVersion = 10;
 
     private static readonly string[] RequiredTables =
     [
@@ -241,6 +241,7 @@ public class StudyHubDatabaseInitializer(
         await EnsureModulePresentationColumnsAsync(context);
         await EnsureTopicDescriptionColumnAsync(context);
         await EnsureTopicPresentationColumnsAsync(context);
+        await EnsureTopicCompletionColumnAsync(context);
         await EnsureLessonsPlaybackColumnAsync(context);
         await EnsureLessonDescriptionColumnAsync(context);
         await EnsureLessonPresentationColumnsAsync(context);
@@ -333,6 +334,19 @@ public class StudyHubDatabaseInitializer(
                 ALTER TABLE topics ADD COLUMN raw_description TEXT NOT NULL DEFAULT '';
                 """);
         }
+    }
+
+    private static async Task EnsureTopicCompletionColumnAsync(StudyHubDbContext context)
+    {
+        if (await ColumnExistsAsync(context, "topics", "completed_at_utc"))
+        {
+            return;
+        }
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE topics ADD COLUMN completed_at_utc TEXT NULL;
+            """);
     }
 
     private static async Task EnsureLessonsPlaybackColumnAsync(StudyHubDbContext context)
