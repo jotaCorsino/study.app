@@ -91,6 +91,8 @@ public class PersistedProgressService(
             return;
         }
 
+        var lessonBecameCompleted = lesson.Status != LessonStatus.Completed;
+        var topicId = lesson.TopicId;
         var previousCreditableMinutes = ResolveCreditableMinutes(lesson);
         lesson.Status = LessonStatus.Completed;
         lesson.WatchedPercentage = 100;
@@ -107,6 +109,7 @@ public class PersistedProgressService(
             courseId,
             lesson,
             currentCreditableMinutes - previousCreditableMinutes);
+        await ReconcileTopicCompletionAsync(courseId, topicId, lessonBecameCompleted);
     }
 
     public async Task UpdateLessonProgressAsync(Guid courseId, Guid lessonId, double watchedPercentage)
@@ -120,6 +123,8 @@ public class PersistedProgressService(
         }
 
         var normalizedPercentage = Math.Clamp(watchedPercentage, 0, 100);
+        var wasLessonCompleted = lesson.Status == LessonStatus.Completed;
+        var topicId = lesson.TopicId;
         var previousCreditableMinutes = ResolveCreditableMinutes(lesson);
 
         if (normalizedPercentage >= 100)
@@ -146,6 +151,11 @@ public class PersistedProgressService(
                 lesson,
                 currentCreditableMinutes - previousCreditableMinutes);
         }
+
+        if (lesson.Status == LessonStatus.Completed)
+        {
+            await ReconcileTopicCompletionAsync(courseId, topicId, !wasLessonCompleted);
+        }
     }
 
     public async Task UpdateLessonPlaybackAsync(Guid courseId, Guid lessonId, TimeSpan currentPosition, TimeSpan totalDuration, bool markAsCompleted = false)
@@ -159,6 +169,8 @@ public class PersistedProgressService(
         }
 
         var previousCreditableMinutes = ResolveCreditableMinutes(lesson);
+        var wasLessonCompleted = lesson.Status == LessonStatus.Completed;
+        var topicId = lesson.TopicId;
 
         var resolvedDuration = totalDuration > TimeSpan.Zero
             ? totalDuration
@@ -211,6 +223,11 @@ public class PersistedProgressService(
                 courseId,
                 lesson,
                 currentCreditableMinutes - previousCreditableMinutes);
+        }
+
+        if (lesson.Status == LessonStatus.Completed)
+        {
+            await ReconcileTopicCompletionAsync(courseId, topicId, !wasLessonCompleted);
         }
     }
 
@@ -278,6 +295,57 @@ public class PersistedProgressService(
         NotifyDailyProgressChanged(courseId);
     }
 
+    private async Task ReconcileTopicCompletionAsync(
+        Guid courseId,
+        Guid topicId,
+        bool lessonBecameCompleted)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var topic = await context.Topics
+            .Include(item => item.Module!)
+                .ThenInclude(module => module.Course)
+            .Include(item => item.Lessons)
+            .FirstOrDefaultAsync(item =>
+                item.Id == topicId &&
+                item.Module != null &&
+                item.Module.Course != null &&
+                item.Module.CourseId == courseId &&
+                item.Module.Course.SourceType == CourseSourceType.LocalFolder);
+        if (topic?.Module?.Course == null)
+        {
+            return;
+        }
+
+        var localLessons = topic.Lessons
+            .Where(lesson => lesson.SourceType == LessonSourceType.LocalFile)
+            .ToList();
+        if (localLessons.Count == 0 || localLessons.Any(lesson => lesson.Status != LessonStatus.Completed))
+        {
+            return;
+        }
+
+        var completedAtUtc = topic.CompletedAtUtc;
+        if (!completedAtUtc.HasValue)
+        {
+            if (!lessonBecameCompleted)
+            {
+                return;
+            }
+
+            completedAtUtc = DateTime.UtcNow;
+            topic.CompletedAtUtc = completedAtUtc;
+            await context.SaveChangesAsync();
+        }
+
+        var routineDate = ResolveRoutineCreditDate(completedAtUtc.Value);
+        var addedRoutineCredit = await _routineService.CreditStudyUnitProgressAsync(courseId, topic.Id, routineDate);
+        if (addedRoutineCredit)
+        {
+            NotifyDailyProgressChanged(courseId);
+        }
+    }
+
     private static int ResolveCreditableMinutes(LessonRecord lesson)
     {
         var totalLessonMinutes = ResolveLessonDurationMinutes(lesson);
@@ -312,6 +380,21 @@ public class PersistedProgressService(
         }
 
         return 0;
+    }
+
+    private static DateTime ResolveRoutineCreditDate(DateTime completedAtUtc)
+    {
+        return NormalizeCompletedAtUtc(completedAtUtc).ToLocalTime().Date;
+    }
+
+    private static DateTime NormalizeCompletedAtUtc(DateTime completedAtUtc)
+    {
+        return completedAtUtc.Kind switch
+        {
+            DateTimeKind.Utc => completedAtUtc,
+            DateTimeKind.Local => completedAtUtc.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(completedAtUtc, DateTimeKind.Utc)
+        };
     }
 
     private void NotifyDailyProgressChanged(Guid courseId)

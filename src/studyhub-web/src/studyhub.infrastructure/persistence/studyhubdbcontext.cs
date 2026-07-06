@@ -76,7 +76,16 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
                 .HasColumnName("description")
                 .IsRequired();
             entity.Property(record => record.CompletedAtUtc)
-                .HasColumnName("completed_at_utc");
+                .HasColumnName("completed_at_utc")
+                .HasConversion(
+                    value => value.HasValue
+                        ? value.Value.Kind == DateTimeKind.Utc
+                            ? value.Value
+                            : value.Value.ToUniversalTime()
+                        : value,
+                    value => value.HasValue
+                        ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+                        : value);
             entity.HasMany(record => record.Lessons)
                 .WithOne(record => record.Topic)
                 .HasForeignKey(record => record.TopicId)
