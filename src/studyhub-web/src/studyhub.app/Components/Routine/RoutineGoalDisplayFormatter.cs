@@ -29,11 +29,31 @@ public static class RoutineGoalDisplayFormatter
 
     public static string FormatEvaluationProgress(DailyGoalEvaluation evaluation)
     {
+        return FormatCalendarDayProgress(evaluation);
+    }
+
+    public static string FormatCalendarDayProgress(DailyGoalEvaluation evaluation)
+    {
         ArgumentNullException.ThrowIfNull(evaluation);
+
+        if (!evaluation.IsPlannedDay || evaluation.GoalValueAtTheTime <= 0)
+        {
+            return "Não planejado";
+        }
 
         return evaluation.GoalMode == DailyGoalMode.StudyUnits
             ? FormatStudyUnitProgress(evaluation.CompletedGoalValue, evaluation.GoalValueAtTheTime)
-            : $"{evaluation.MinutesStudied} min (Meta: {evaluation.DailyGoalMinutesAtTheTime} min)";
+            : $"{FormatMinutes(evaluation.CompletedGoalValue)} / {FormatMinutes(evaluation.GoalValueAtTheTime)}";
+    }
+
+    public static string FormatNavMenuIndicator(DailyGoalEvaluation? evaluation)
+    {
+        if (evaluation is null || !evaluation.IsPlannedDay || evaluation.GoalValueAtTheTime <= 0)
+        {
+            return "Hoje: sem meta";
+        }
+
+        return $"Hoje: {FormatCalendarDayProgress(evaluation)}";
     }
 
     public static string FormatStudyUnitProgress(int completedStudyUnits, int dailyGoalStudyUnits)
@@ -49,9 +69,15 @@ public static class RoutineGoalDisplayFormatter
         return $"{normalizedStudyUnits} {FormatStudyUnitLabel(normalizedStudyUnits)}";
     }
 
+    public static string FormatStudyUnitCount(int studyUnits)
+    {
+        var normalizedStudyUnits = Math.Max(0, studyUnits);
+        return $"{normalizedStudyUnits} {FormatStudyUnitLabel(normalizedStudyUnits)}";
+    }
+
     public static string FormatStudyUnitLabel(int studyUnits)
     {
-        return Math.Max(1, studyUnits) == 1
+        return studyUnits == 1
             ? "Aula/Módulo"
             : "Aulas/Módulos";
     }

@@ -1,6 +1,7 @@
 @implements IDisposable
 @using Microsoft.AspNetCore.Components.Routing
 @using studyhub.application.Interfaces
+@using studyhub.app.Components.Routine
 @using studyhub.app.state
 @using studyhub.domain.Entities
 @inject ICourseService CourseService
@@ -51,18 +52,23 @@
                 @foreach (var course in group.Courses)
                 {
                     var isActive = IsCourseActive(course.Id);
+                    var dailyIndicator = GetDailyIndicator(course.Id);
 
                     <div class="nav-course-row">
                         <button type="button"
                                 class="nav-item nav-course-link @(isActive ? "active" : string.Empty)"
+                                title="@dailyIndicator.Text"
                                 @onclick="() => NavigateToCourse(course.Id)">
-                            <span class="nav-course-daily-indicator @GetDailyIndicatorClass(course.Id)" aria-hidden="true"></span>
+                            <span class="nav-course-daily-indicator @dailyIndicator.CssClass" aria-hidden="true"></span>
                             <span class="nav-icon text-tertiary">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                                 </svg>
                             </span>
-                            <span class="truncate text-sm">@course.Title</span>
+                            <span class="nav-course-text">
+                                <span class="truncate text-sm">@course.Title</span>
+                                <span class="nav-course-daily-summary">@dailyIndicator.Text</span>
+                            </span>
                         </button>
 
                         <button type="button"
@@ -104,7 +110,7 @@
 @code {
     private List<Course> courses = [];
     private Guid? openCourseMenuId;
-    private readonly Dictionary<Guid, string> dailyIndicatorClassByCourseId = [];
+    private readonly Dictionary<Guid, DailyRoutineIndicator> dailyIndicatorByCourseId = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -130,23 +136,18 @@
 
     private async Task LoadDailyIndicatorsAsync(IReadOnlyCollection<Guid> courseIds)
     {
-        dailyIndicatorClassByCourseId.Clear();
+        dailyIndicatorByCourseId.Clear();
 
         if (courseIds.Count == 0)
         {
             return;
         }
 
-        var recordsByCourse = await RoutineService.GetDailyRecordsAsync(courseIds, DateTime.Now.Date);
+        var today = DateTime.Now.Date;
         foreach (var courseId in courseIds)
         {
-            if (!recordsByCourse.TryGetValue(courseId, out var record))
-            {
-                dailyIndicatorClassByCourseId[courseId] = "daily-indicator-neutral";
-                continue;
-            }
-
-            dailyIndicatorClassByCourseId[courseId] = ResolveDailyIndicatorClass(record);
+            var evaluation = await GetTodayEvaluationAsync(courseId, today);
+            dailyIndicatorByCourseId[courseId] = ResolveDailyIndicator(evaluation);
         }
     }
 
@@ -171,42 +172,48 @@
         }
     }
 
-    private string GetDailyIndicatorClass(Guid courseId)
+    private DailyRoutineIndicator GetDailyIndicator(Guid courseId)
     {
-        return dailyIndicatorClassByCourseId.TryGetValue(courseId, out var cssClass)
-            ? cssClass
-            : "daily-indicator-neutral";
+        return dailyIndicatorByCourseId.TryGetValue(courseId, out var indicator)
+            ? indicator
+            : DailyRoutineIndicator.Empty;
     }
 
-    private static string ResolveDailyIndicatorClass(DailyStudyRecord record)
+    private static DailyRoutineIndicator ResolveDailyIndicator(DailyGoalEvaluation? evaluation)
     {
-        if (record.Status == DailyStudyStatus.Unplanned)
+        var text = RoutineGoalDisplayFormatter.FormatNavMenuIndicator(evaluation);
+        if (evaluation is null || !evaluation.IsPlannedDay || evaluation.RawStatus == DailyStudyStatus.Unplanned)
         {
-            return "daily-indicator-neutral";
+            return new DailyRoutineIndicator("daily-indicator-neutral", text);
         }
 
-        if (record.MinutesStudied <= 0)
+        if (evaluation.CompletedGoalValue <= 0)
         {
-            return "daily-indicator-level-0";
+            return new DailyRoutineIndicator("daily-indicator-level-0", text);
         }
 
-        var percentage = record.CompliancePercentage;
+        if (evaluation.CountsAsEffectiveGoalMet)
+        {
+            return new DailyRoutineIndicator("daily-indicator-level-4", text);
+        }
+
+        var percentage = evaluation.RawCompliancePercentage;
         if (percentage < 25)
         {
-            return "daily-indicator-level-1";
+            return new DailyRoutineIndicator("daily-indicator-level-1", text);
         }
 
         if (percentage < 50)
         {
-            return "daily-indicator-level-2";
+            return new DailyRoutineIndicator("daily-indicator-level-2", text);
         }
 
         if (percentage < 75)
         {
-            return "daily-indicator-level-3";
+            return new DailyRoutineIndicator("daily-indicator-level-3", text);
         }
 
-        return "daily-indicator-level-4";
+        return new DailyRoutineIndicator("daily-indicator-level-4", text);
     }
 
     private void AddCourse()
@@ -301,10 +308,27 @@
             return;
         }
 
-        var record = await RoutineService.GetDailyRecordAsync(courseId, DateTime.Now.Date);
-        dailyIndicatorClassByCourseId[courseId] = ResolveDailyIndicatorClass(record);
+        var today = DateTime.Now.Date;
+        var evaluation = await GetTodayEvaluationAsync(courseId, today);
+        dailyIndicatorByCourseId[courseId] = ResolveDailyIndicator(evaluation);
         StateHasChanged();
     }
 
+    private async Task<DailyGoalEvaluation?> GetTodayEvaluationAsync(Guid courseId, DateTime today)
+    {
+        if (courseId == Guid.Empty)
+        {
+            return null;
+        }
+
+        var evaluations = await RoutineService.GetMonthlyGoalEvaluationsAsync(courseId, today.Year, today.Month);
+        return evaluations.FirstOrDefault(evaluation => evaluation.Date.Date == today.Date);
+    }
+
     private sealed record CourseNavGroup(string Title, IReadOnlyList<Course> Courses);
+
+    private sealed record DailyRoutineIndicator(string CssClass, string Text)
+    {
+        public static DailyRoutineIndicator Empty { get; } = new("daily-indicator-neutral", "Hoje: sem meta");
+    }
 }

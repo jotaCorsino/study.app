@@ -23,10 +23,13 @@
                 <div class="grid grid-cols-4 gap-md">
                     @for (int month = 1; month <= 12; month++)
                     {
-                        if (monthAverages.TryGetValue(month, out var avg))
+                        if (monthSummaries.TryGetValue(month, out var summary))
                         {
-                            <div class="month-block @GetColorClassForAverage(avg, month) flex flex-col items-center justify-center rounded-lg p-md">
+                            <div class="month-block @GetColorClassForAverage(summary.AveragePercentage, month) flex flex-col items-center justify-center rounded-lg p-md"
+                                 title="@summary.Title">
                                 <span class="font-bold text-lg pointer-events-none">@GetMonthAbbreviation(month)</span>
+                                <span class="month-block-primary pointer-events-none">@summary.PrimaryMetric</span>
+                                <span class="month-block-secondary pointer-events-none">@summary.SecondaryMetric</span>
                             </div>
                         }
                     }
@@ -42,7 +45,7 @@
     [Parameter] public EventCallback OnClose { get; set; }
 
     private bool isLoading = true;
-    private Dictionary<int, double> monthAverages = new();
+    private Dictionary<int, MonthlyRoutineSummary> monthSummaries = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -65,11 +68,11 @@
 
             if (plannedEvaluations.Count == 0 || month > DateTime.Now.Month)
             {
-                monthAverages[month] = double.NaN;
+                monthSummaries[month] = MonthlyRoutineSummary.Empty(month);
                 continue;
             }
 
-            monthAverages[month] = plannedEvaluations.Average(evaluation => evaluation.EffectiveCompliancePercentage);
+            monthSummaries[month] = MonthlyRoutineSummary.Create(month, plannedEvaluations);
         }
 
         isLoading = false;
@@ -109,5 +112,134 @@
     private async Task HandleOverlayClick()
     {
         await OnClose.InvokeAsync();
+    }
+
+    private sealed record MonthlyRoutineSummary(
+        int Month,
+        double AveragePercentage,
+        int PlannedDays,
+        int GoalMetDays,
+        int TotalMinutes,
+        int TotalStudyUnits,
+        bool HasTimeGoals,
+        bool HasStudyUnitGoals)
+    {
+        public string PrimaryMetric
+        {
+            get
+            {
+                if (PlannedDays == 0)
+                {
+                    return "Sem rotina";
+                }
+
+                if (HasStudyUnitGoals && !HasTimeGoals)
+                {
+                    return RoutineGoalDisplayFormatter.FormatStudyUnitCount(TotalStudyUnits);
+                }
+
+                if (HasTimeGoals && !HasStudyUnitGoals)
+                {
+                    return RoutineGoalDisplayFormatter.FormatMinutes(TotalMinutes);
+                }
+
+                return $"{GoalMetDays}/{PlannedDays} dias";
+            }
+        }
+
+        public string SecondaryMetric
+        {
+            get
+            {
+                if (PlannedDays == 0)
+                {
+                    return "Não planejado";
+                }
+
+                if (HasStudyUnitGoals && !HasTimeGoals)
+                {
+                    var average = PlannedDays > 0 ? (double)TotalStudyUnits / PlannedDays : 0;
+                    return $"{GoalMetDays}/{PlannedDays} dias | {average:0.#}/dia";
+                }
+
+                if (HasTimeGoals && !HasStudyUnitGoals)
+                {
+                    return $"{GoalMetDays}/{PlannedDays} dias meta";
+                }
+
+                return "Histórico misto";
+            }
+        }
+
+        public string Title
+        {
+            get
+            {
+                if (PlannedDays == 0)
+                {
+                    return $"{GetMonthName(Month)}: sem dias planejados";
+                }
+
+                if (HasStudyUnitGoals && !HasTimeGoals)
+                {
+                    return $"{GetMonthName(Month)}: {RoutineGoalDisplayFormatter.FormatStudyUnitCount(TotalStudyUnits)} concluídos; {GoalMetDays}/{PlannedDays} dias com meta atingida";
+                }
+
+                if (HasTimeGoals && !HasStudyUnitGoals)
+                {
+                    return $"{GetMonthName(Month)}: {RoutineGoalDisplayFormatter.FormatMinutes(TotalMinutes)} estudados; {GoalMetDays}/{PlannedDays} dias com meta atingida";
+                }
+
+                return $"{GetMonthName(Month)}: histórico misto; {RoutineGoalDisplayFormatter.FormatMinutes(TotalMinutes)} estudados; {RoutineGoalDisplayFormatter.FormatStudyUnitCount(TotalStudyUnits)} concluídos; {GoalMetDays}/{PlannedDays} dias com meta atingida";
+            }
+        }
+
+        public static MonthlyRoutineSummary Empty(int month)
+        {
+            return new MonthlyRoutineSummary(month, double.NaN, 0, 0, 0, 0, false, false);
+        }
+
+        public static MonthlyRoutineSummary Create(int month, IReadOnlyCollection<DailyGoalEvaluation> evaluations)
+        {
+            var plannedEvaluations = evaluations
+                .Where(evaluation => evaluation.IsPlannedDay)
+                .ToList();
+            var timeEvaluations = plannedEvaluations
+                .Where(evaluation => evaluation.GoalMode == DailyGoalMode.TimeMinutes)
+                .ToList();
+            var studyUnitEvaluations = plannedEvaluations
+                .Where(evaluation => evaluation.GoalMode == DailyGoalMode.StudyUnits)
+                .ToList();
+
+            return new MonthlyRoutineSummary(
+                month,
+                plannedEvaluations.Average(evaluation => evaluation.EffectiveCompliancePercentage),
+                plannedEvaluations.Count,
+                plannedEvaluations.Count(evaluation => evaluation.CountsAsEffectiveGoalMet),
+                timeEvaluations.Sum(evaluation => evaluation.MinutesStudied),
+                studyUnitEvaluations.Sum(evaluation => evaluation.CompletedGoalValue),
+                timeEvaluations.Count > 0,
+                studyUnitEvaluations.Count > 0);
+        }
+
+        private static string GetMonthName(int month)
+        {
+            return month switch
+            {
+                1 => "Janeiro",
+                2 => "Fevereiro",
+                3 => "Março",
+                4 => "Abril",
+                5 => "Maio",
+                6 => "Junho",
+                7 => "Julho",
+                8 => "Agosto",
+                9 => "Setembro",
+                10 => "Outubro",
+                11 => "Novembro",
+                12 => "Dezembro",
+                _ => "Mês"
+            };
+        }
     }
 }

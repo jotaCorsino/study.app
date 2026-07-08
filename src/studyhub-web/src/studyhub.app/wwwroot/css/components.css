@@ -165,6 +165,24 @@
     padding-right: 42px;
 }
 
+.nav-course-text {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.nav-course-daily-summary {
+    max-width: 100%;
+    color: var(--text-tertiary);
+    font-size: var(--font-xs);
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .nav-course-daily-indicator {
     width: 8px;
     height: 8px;

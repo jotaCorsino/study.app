@@ -101,4 +101,132 @@ public sealed class RoutineGoalDisplayFormatterTests
 
         Assert.Equal(expectedText, text);
     }
+
+    [Fact]
+    public void FormatCalendarDayProgress_UsesTimeMinutes()
+    {
+        var evaluation = CreateEvaluation(
+            DailyGoalMode.TimeMinutes,
+            completedGoalValue: 45,
+            goalValueAtTheTime: 90,
+            minutesStudied: 45);
+
+        var text = RoutineGoalDisplayFormatter.FormatCalendarDayProgress(evaluation);
+
+        Assert.Equal("45m / 1h 30m", text);
+    }
+
+    [Theory]
+    [InlineData(0, 1, "0/1 Aula/Módulo")]
+    [InlineData(2, 2, "2/2 Aulas/Módulos")]
+    public void FormatCalendarDayProgress_UsesStudyUnits(
+        int completedStudyUnits,
+        int goalStudyUnits,
+        string expectedText)
+    {
+        var evaluation = CreateEvaluation(
+            DailyGoalMode.StudyUnits,
+            completedStudyUnits,
+            goalStudyUnits);
+
+        var text = RoutineGoalDisplayFormatter.FormatCalendarDayProgress(evaluation);
+
+        Assert.Equal(expectedText, text);
+    }
+
+    [Fact]
+    public void FormatNavMenuIndicator_UsesTimeMinutes()
+    {
+        var evaluation = CreateEvaluation(
+            DailyGoalMode.TimeMinutes,
+            completedGoalValue: 45,
+            goalValueAtTheTime: 90,
+            minutesStudied: 45);
+
+        var text = RoutineGoalDisplayFormatter.FormatNavMenuIndicator(evaluation);
+
+        Assert.Equal("Hoje: 45m / 1h 30m", text);
+    }
+
+    [Fact]
+    public void FormatNavMenuIndicator_UsesStudyUnits()
+    {
+        var evaluation = CreateEvaluation(
+            DailyGoalMode.StudyUnits,
+            completedGoalValue: 2,
+            goalValueAtTheTime: 2);
+
+        var text = RoutineGoalDisplayFormatter.FormatNavMenuIndicator(evaluation);
+
+        Assert.Equal("Hoje: 2/2 Aulas/Módulos", text);
+    }
+
+    [Fact]
+    public void FormatCalendarDayProgress_AllowsMixedModeEvaluations()
+    {
+        var evaluations = new[]
+        {
+            CreateEvaluation(DailyGoalMode.TimeMinutes, completedGoalValue: 30, goalValueAtTheTime: 60, minutesStudied: 30),
+            CreateEvaluation(DailyGoalMode.StudyUnits, completedGoalValue: 1, goalValueAtTheTime: 1)
+        };
+
+        var texts = evaluations
+            .Select(RoutineGoalDisplayFormatter.FormatCalendarDayProgress)
+            .ToArray();
+
+        Assert.Equal(["30m / 1h", "1/1 Aula/Módulo"], texts);
+    }
+
+    [Fact]
+    public void FormatterOutput_DoesNotExposeInternalStudyUnitsTerm()
+    {
+        var studyUnitsEvaluation = CreateEvaluation(
+            DailyGoalMode.StudyUnits,
+            completedGoalValue: 1,
+            goalValueAtTheTime: 2);
+        var settings = new RoutineSettings
+        {
+            GoalMode = DailyGoalMode.StudyUnits,
+            DailyGoalStudyUnits = 2
+        };
+        var record = new DailyStudyRecord
+        {
+            CompletedStudyUnitIds = [Guid.NewGuid()]
+        };
+        var texts = new[]
+        {
+            RoutineGoalDisplayFormatter.FormatGoal(settings),
+            RoutineGoalDisplayFormatter.FormatTodayProgress(record, settings),
+            RoutineGoalDisplayFormatter.FormatCalendarDayProgress(studyUnitsEvaluation),
+            RoutineGoalDisplayFormatter.FormatNavMenuIndicator(studyUnitsEvaluation),
+            RoutineGoalDisplayFormatter.FormatStudyUnitCount(0)
+        };
+
+        Assert.All(texts, text => Assert.DoesNotContain("StudyUnits", text, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static DailyGoalEvaluation CreateEvaluation(
+        DailyGoalMode goalMode,
+        int completedGoalValue,
+        int goalValueAtTheTime,
+        int minutesStudied = 0)
+    {
+        var percentage = goalValueAtTheTime > 0
+            ? Math.Min(100d, completedGoalValue * 100d / goalValueAtTheTime)
+            : 0d;
+
+        return new DailyGoalEvaluation
+        {
+            GoalMode = goalMode,
+            GoalValueAtTheTime = goalValueAtTheTime,
+            CompletedGoalValue = completedGoalValue,
+            GoalUnit = goalMode == DailyGoalMode.StudyUnits ? "study-units" : "minutes",
+            MinutesStudied = minutesStudied,
+            DailyGoalMinutesAtTheTime = goalMode == DailyGoalMode.TimeMinutes ? goalValueAtTheTime : 0,
+            RawCompliancePercentage = percentage,
+            EffectiveCompliancePercentage = percentage,
+            CountsAsEffectiveGoalMet = completedGoalValue >= goalValueAtTheTime,
+            IsPlannedDay = true
+        };
+    }
 }
