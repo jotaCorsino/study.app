@@ -15,7 +15,7 @@ Hoje o app oferece:
 - retomada do ponto onde você parou;
 - rotina de estudos;
 - metas diárias por tempo ou por Aulas/Módulos concluídos;
-- histórico local;
+- calendário/histórico local;
 - backup e restauração local;
 - status de curso: Ativo, Pausado e Concluído;
 - edição manual de nome e descrição do curso.
@@ -129,6 +129,8 @@ Você escolhe quantas Aulas/Módulos quer concluir por dia.
 
 Uma Aula/Módulo só conta quando todos os vídeos dela forem concluídos.
 
+Internamente, essa unidade corresponde a `Topic`, mas na interface e na documentação de uso ela aparece como Aula/Módulo.
+
 Exemplo:
 
 Se a meta for `1 Aula/Módulo por dia`, assistir apenas parte dos vídeos mantém o dia em `0/1`. Ao concluir todos os vídeos daquela Aula/Módulo, o dia fica `1/1`.
@@ -157,7 +159,7 @@ Boas práticas:
 
 - use numeração como `01`, `02`, `03`;
 - evite nomes genéricos repetidos como `aula1.mp4` em várias pastas;
-- evite mover ou renomear arquivos de cursos já importados.
+- evite mover ou renomear arquivos de cursos já importados, principalmente com o app aberto.
 
 ## Player local de aulas
 
@@ -177,4 +179,4 @@ Boas práticas:
 - a rotina por Aulas/Módulos começa a registrar conclusões a partir da versão que possui esse recurso;
 - não há reconstrução retroativa perfeita do histórico antigo por Aulas/Módulos;
 - ainda não há fluxo completo de desconclusão/reversão de crédito de Aula/Módulo;
-- evitar mover ou renomear arquivos de cursos já importados.
+- evitar mover ou renomear arquivos de cursos já importados, principalmente com o app aberto.

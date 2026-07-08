@@ -1,151 +1,142 @@
 # StudyHub Windows Runbook
 
-## Local data paths
+## Escopo atual
 
-- Database: `FileSystem.AppDataDirectory\studyhub.db`
-- Database sidecars: `studyhub.db-wal`, `studyhub.db-shm`, `studyhub.db-journal`
+StudyHub v1.1.0 é um app Windows para cursos locais em pastas.
+
+Fluxos ativos:
+
+- importação de curso local por pasta;
+- player local de vídeos;
+- progresso por vídeo, Aula/Módulo e curso;
+- rotina por tempo ou por Aulas/Módulos;
+- calendário/histórico local;
+- status Ativo, Pausado e Concluído;
+- edição manual de nome e descrição;
+- backup, restore e reset dos dados locais do app.
+
+Fluxos antigos de IA, roadmaps, cursos online e vídeos externos não fazem parte do fluxo ativo da release atual.
+
+## Dados locais
+
+- Banco: `FileSystem.AppDataDirectory\studyhub.db`
+- Sidecars SQLite: `studyhub.db-wal`, `studyhub.db-shm`, `studyhub.db-journal`
 - Backups: `FileSystem.AppDataDirectory\backups\studyhub-backup-<timestamp>\`
-- Routine JSON files: `%LOCALAPPDATA%\StudyHub\Routine\`
+- Rotina: `%LOCALAPPDATA%\StudyHub\Routine\`
 
-## Operational concepts
+O pacote publicado não deve conter banco SQLite, JSONs de rotina, backups ou cursos do usuário.
 
-- Current scope:
-  StudyHub runs as a local-course study app. Active flows are local folder import, local video playback, progress, routine, course lifecycle status, backups, restore, reset, and manual course title/description editing.
-- Removed flows:
-  AI integrations, API keys, roadmaps, supplementary materials, free external videos, online course creation/curation, external video playback, and YouTube/Gemini workflows are not active release features.
-- Recovery:
-  Startup-first attempt to recover the SQLite runtime without destroying data when the database still passes integrity checks.
-- Reset:
-  Clears only StudyHub app state, recreates a clean local database, and preserves user course files on disk.
-- Restore:
-  Replaces current StudyHub app state with a previously created backup.
+## Build Windows
 
-## Backup contents
-
-Each backup folder contains:
-
-- `database\studyhub.db`
-- database sidecars when present
-- `routine\...` with all per-course routine JSON files
-- `backup-manifest.json`
-
-Backups are timestamped and never overwrite older backups.
-
-## Current user-facing operations
-
-Available local operations:
-
-- import or resync a course from a local folder
-- open local videos with the native player
-- save lesson progress and resume playback
-- set routine goals with historical validity periods
-- pause, reactivate, and complete courses
-- group courses in the sidebar by Active, Paused, and Completed status
-- edit course title and description without changing `RawTitle`, `RawDescription`, folder path, modules, topics, lessons, progress, routine, or lifecycle status
-- backup, restore, and reset StudyHub app data
-
-These operations do not delete physical course files.
-
-## Backup and restore flow
-
-Recommended order:
-
-1. Create a backup.
-2. Perform maintenance or recovery work.
-3. If needed, restore a known-good backup.
-4. Restart the app after restore/reset so in-memory state is refreshed.
-
-## Windows build
-
-Infrastructure build:
-
-```powershell
-dotnet build .\src\studyhub-web\src\studyhub.infrastructure\studyhub.infrastructure.csproj --no-restore -v minimal
-```
-
-Windows app build:
+Build do app:
 
 ```powershell
 dotnet build .\src\studyhub-web\src\studyhub.app\studyhub.app.csproj -f net10.0-windows10.0.19041.0 --no-restore -v minimal
 ```
 
-Windows-targeted restore before publish:
-
-```powershell
-dotnet restore .\src\studyhub-web\src\studyhub.app\studyhub.app.csproj -p:TargetFramework=net10.0-windows10.0.19041.0
-```
-
-Validated Windows publish:
+Publish validado:
 
 ```powershell
 dotnet publish .\src\studyhub-web\src\studyhub.app\studyhub.app.csproj -f net10.0-windows10.0.19041.0 -c Release --self-contained false -v minimal
 ```
 
-Validated publish output:
+Script de distribuição limpa:
 
-- `src\studyhub-web\src\studyhub.app\bin\Release\net10.0-windows10.0.19041.0\win-x64\publish\`
-- Clean distribution wrapper: `dist\windows\studyhub-windows-x64\`
-- Distribution script: `powershell -ExecutionPolicy Bypass -File .\scripts\publish-windows-clean.ps1`
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\publish-windows-clean.ps1
+```
 
-## Clean distribution package
+Saída limpa:
 
-Recommended packaging flow:
+```text
+dist\windows\studyhub-windows-x64\
+```
 
-1. Run `powershell -ExecutionPolicy Bypass -File .\scripts\publish-windows-clean.ps1`.
-2. Open `dist\windows\studyhub-windows-x64\`.
-3. Zip that folder.
-4. Share the zipped distribution folder.
+Essa pasta contém:
 
-The receiving user should:
+- `runtime\`
+- `abrir-studyhub.cmd`
+- `como-abrir.txt`
 
-1. Extract the folder anywhere on disk.
-2. Run `abrir-studyhub.cmd`.
-3. Import their own local course folders.
+## Empacotamento
 
-Do not include in the zip:
+Zipar a pasta wrapper limpa:
 
-- any local course folders from your machine;
-- `studyhub.db` or SQLite sidecars from your app-data directory;
-- `%LOCALAPPDATA%\StudyHub\Routine\` JSON files;
-- `FileSystem.AppDataDirectory\backups\` contents;
-- any manually exported personal backup folder;
-- extension files from `src\studyhub-extension\`;
-- the repository root instead of the publish output.
+```text
+dist\windows\studyhub-windows-x64\
+```
 
-The publish folder is intended to remain stateless relative to your personal data. StudyHub creates its own app-data structure on first run for each user.
-The clean wrapper folder exists only to make navigation and sharing easier; the app still creates its real local state in the user's own app-data folders.
+Nome público do asset:
 
-Packaging audit:
+```text
+StudyHub-v<versao>-windows-x64.zip
+```
 
-- `scripts\publish-windows-clean.ps1` publishes only `src\studyhub-web\src\studyhub.app\studyhub.app.csproj`.
-- The script writes a clean wrapper under `dist\windows\studyhub-windows-x64\` with `runtime\`, `abrir-studyhub.cmd`, and `como-abrir.txt`.
-- The script does not copy `%LOCALAPPDATA%\StudyHub`, SQLite user databases, routine JSON, backup folders, local course folders, or extension files.
-- Zip only the clean wrapper folder, never the repository root.
+Asset atual:
 
-## Recommended public distribution
+```text
+StudyHub-v1.1.0-windows-x64.zip
+```
 
-Do not commit the Windows zip into the repository source tree.
+SHA256 publicado:
 
-Recommended flow:
+```text
+5DDFFA3244D7D4A08A76B72B65D1FA70113263CEB2D3426930A9FBEF87BBCD8F
+```
 
-1. Generate the clean distribution zip locally.
-2. Keep that zip as a release artifact.
-3. Push the repository source changes.
-4. Create a GitHub Release.
-5. Upload `studyhub-windows-x64.zip` as a Release asset.
+## GitHub Release
 
-For local release-candidate validation, stop at step 2 and do not upload the zip.
+Página de releases:
 
-Recommended local staging path for the release zip:
+- https://github.com/jotaCorsino/study.app/releases
 
-- `production_artifacts\releases\studyhub-windows-x64.zip`
+Release atual:
 
-Recommended download page:
+- https://github.com/jotaCorsino/study.app/releases/tag/v1.1.0
 
-- `https://github.com/jotaCorsino/study.app/releases`
+Fluxo recomendado:
 
-## Recovery notes
+1. Validar testes e build.
+2. Gerar distribuição limpa.
+3. Gerar ZIP Windows x64.
+4. Validar SHA256.
+5. Fazer smoke test do executável.
+6. Publicar o ZIP como asset de GitHub Release.
 
-- If startup recovery fails, the database initializer backs up the incompatible database and recreates a clean one.
-- Reset and restore operate only on StudyHub app data.
-- Local course folders are never deleted by backup, restore, reset, or course maintenance services.
+## Smoke test
+
+Executar:
+
+```text
+dist\windows\studyhub-windows-x64\runtime\studyhub.app.exe
+```
+
+Validar:
+
+- o executável abre;
+- há janela principal;
+- o processo responde;
+- não há erro fatal no startup;
+- a versão do executável corresponde à release esperada.
+
+## Instalação local
+
+Para atualizar uma instalação local:
+
+1. Encerrar `studyhub.app.exe`, se estiver aberto.
+2. Validar o hash do ZIP publicado.
+3. Fazer backup apenas da pasta do app.
+4. Extrair o ZIP em pasta temporária.
+5. Substituir a pasta do app pela pasta extraída.
+6. Não apagar `%LOCALAPPDATA%\StudyHub`.
+
+## Backup e restore
+
+Backups do app devem conter:
+
+- `database\studyhub.db`
+- sidecars SQLite quando existirem;
+- `routine\...` com JSONs por curso;
+- `backup-manifest.json`.
+
+Reset e restore operam apenas no estado local do StudyHub. Os arquivos físicos dos cursos do usuário não devem ser apagados.

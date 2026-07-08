@@ -1,114 +1,88 @@
-# Base atual para importacao de cursos externos
+# Importação e estrutura de cursos
 
-## Objetivo desta etapa
+## Estado atual
 
-Registrar o que ja foi preparado no StudyHub para receber cursos externos em JSON versionado sem quebrar o fluxo atual dos cursos locais.
+Na v1.1.0, o fluxo ativo do StudyHub é curso local por pasta.
 
-## Ja preparado para a nova arquitetura
+Cursos externos, cursos online, IA, roadmaps e materiais complementares não fazem parte do fluxo ativo atual. Existe base técnica preparada para importações externas, mas ela deve ser tratada como histórico/futuro até existir uma tela completa no app.
 
-### Dominio
+## Hierarquia para o usuário
 
-- `CourseSourceType.ExternalImport` agora existe como terceiro tipo de origem.
-- `CourseSourceMetadata` agora aceita metadados de importacao externa:
-  - sistema externo
-  - `externalCourseId`
-  - `externalCourseSlug`
-  - ids de disciplinas externas
-  - fingerprint do payload
-  - versao do schema
-  - tipo de origem do import
+```text
+Curso
+  > Disciplina/Módulo
+    > Aula/Módulo
+      > Vídeo
+```
 
-### Parser e importador
+Exemplo de pasta local:
 
-- existe um parser dedicado para payload externo versionado:
-  - aceita apenas `schemaVersion` `1.x.x`
-  - valida campos minimos obrigatorios
-  - ignora campos extras sem quebrar o parse
-  - gera fingerprint deterministico do payload
-- existe um importador dedicado para JSON externo:
-  - constroi um `Course` do dominio com `SourceType = ExternalImport`
-  - preserva o fluxo atual de persistencia do app
-  - reaproveita `CoursePersistenceHelper.UpsertCourseAsync`
-  - mantem o progresso salvo quando os ids internos permanecem estaveis
+```text
+Curso/
+  Disciplina ou Módulo/
+    Aula 01/
+      01 - Introdução.mp4
+      02 - Continuação.mp4
+    Aula 02/
+      01 - Tema.mp4
+```
 
-### Estabilidade de ids
+Regras práticas:
 
-- ids internos do curso, das disciplinas internalizadas, das aulas e das avaliacoes agora podem ser derivados de chaves externas estaveis.
-- isso reduz risco de perda de progresso em reimportacoes e futuras migracoes.
+- a pasta raiz vira o curso;
+- pastas internas agrupam o conteúdo;
+- vídeos devem ter nomes numerados para manter a ordem correta;
+- evitar mover ou renomear arquivos de cursos já importados, principalmente com o app aberto.
 
-### Persistencia nova
+## Hierarquia técnica interna
 
-- `external_course_imports`
-  guarda o payload bruto, provider, sistema, schema e fingerprint por `CourseId`
-- `external_assessments`
-  guarda avaliacoes externas em tabela dedicada, sem depender da UI atual
+```text
+Course
+  > Module
+    > Topic
+      > Lesson
+```
 
-### Compatibilidade com o progresso atual
+Relação entre termos:
 
-- a preservacao de progresso continua baseada em `LessonId`.
-- ao reimportar o mesmo curso externo, o importador usa ids deterministas e o helper de persistencia mantem:
-  - `lessons.Status`
-  - `lessons.WatchedPercentage`
-  - `lessons.LastPlaybackPositionSeconds`
-  - `courses.CurrentLessonId` quando a aula ainda existir
+- `Course` = Curso
+- `Module` = Disciplina/Módulo
+- `Topic` = Aula/Módulo
+- `Lesson` = Vídeo
 
-### Preparacao para agenda de estudos
+Na documentação voltada para usuário, use Aula/Módulo. Use `Topic` apenas quando for necessário explicar manutenção técnica.
 
-- o bloco `assessments` do JSON agora tem persistencia dedicada.
-- isso deixa a base pronta para futuras telas/servicos de agenda, calendario e alertas sem reabrir o contrato de importacao.
+## Relação com metas por Aulas/Módulos
 
-### Servicos adjacentes
+A meta por Aulas/Módulos usa `Topic` como unidade interna.
 
-- roadmap e materiais complementares agora diferenciam `ExternalImport` de `LocalFolder`.
-- manutencao de apresentacao/refinamento nao tenta mais tratar `ExternalImport` como curso local.
+Uma Aula/Módulo só conta para a rotina quando todos os vídeos dela foram concluídos. O app guarda a primeira conclusão em `topics.completed_at_utc` e registra o crédito diário em `CompletedStudyUnitIds`.
 
-## O que continua legado por enquanto
+## Base técnica para importação externa
 
-### Entrada do fluxo
+Já existe uma base para receber cursos externos em JSON versionado:
 
-- a UI atual continua oferecendo apenas:
-  - importacao local por pasta
-  - curadoria online interna
-- ainda nao existe tela, acao ou wizard para subir um JSON externo pelo app.
+- `CourseSourceType.ExternalImport`
+- parser de JSON externo versionado;
+- importador de JSON externo;
+- tabelas `external_course_imports` e `external_assessments`.
 
-### Runtime de aulas
+Essa base preserva o objetivo de não quebrar cursos locais, mas ainda não é o fluxo principal da UI.
 
-- o player atual continua suportando apenas:
-  - `LessonSourceType.LocalFile`
-  - `LessonSourceType.ExternalVideo`
-- itens externos sem fonte reproduzivel continuam preservados apenas no payload bruto e ficam fora da estrutura reproduzivel atual.
+## O que continua fora do fluxo ativo
 
-### Enriquecimento e manutencao
+- tela para subir JSON externo;
+- curadoria online como experiência principal;
+- geração de cursos por IA;
+- roadmaps e materiais complementares;
+- agenda de avaliações externas;
+- cruzamento de avaliações externas com rotina diária.
 
-- o pipeline de enriquecimento local continua legado e focado em `LocalFolder`.
-- `ExternalImport` ainda nao tem:
-  - refinamento textual dedicado
-  - regeneracao de apresentacao dedicada
-  - rotina operacional especifica como a existente para `OnlineCurated`
-
-### UI e leitura de avaliacoes
-
-- as avaliacoes externas ja sao persistidas, mas ainda nao possuem:
-  - pagina/listagem no app
-  - timeline de agenda
-  - lembretes
-  - cruzamento com rotina diaria
-
-## Decisao de seguranca desta etapa
-
-Para nao quebrar o runtime atual:
-
-- o importador so internaliza como aulas ativas itens que o app ja sabe reproduzir hoje
-- o payload bruto completo continua salvo em storage dedicado
-- avaliacoes externas ja ficam preservadas para a proxima fase da arquitetura
-
-## Arquivos centrais desta base
+## Referências centrais
 
 - `src/studyhub-web/src/studyhub.domain/Entities/coursesource.cs`
 - `src/studyhub-web/src/studyhub.application/Contracts/ExternalImport/`
-- `src/studyhub-web/src/studyhub.application/Interfaces/iexternalcoursejsonparser.cs`
-- `src/studyhub-web/src/studyhub.application/Interfaces/iexternalcourseimportservice.cs`
 - `src/studyhub-web/src/studyhub.infrastructure/services/externalcoursejsonparser.cs`
 - `src/studyhub-web/src/studyhub.infrastructure/services/externalcourseimportservice.cs`
+- `src/studyhub-web/src/studyhub.infrastructure/services/localcourseimportservice.cs`
 - `src/studyhub-web/src/studyhub.infrastructure/persistence/studyhubdbcontext.cs`
-- `src/studyhub-web/src/studyhub.infrastructure/persistence/studyhubdatabaseinitializer.cs`
