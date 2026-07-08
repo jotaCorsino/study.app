@@ -3,6 +3,10 @@
 @implements IDisposable
 @inject IRoutineService RoutineService
 
+@{
+    var todayMetric = RoutineGoalDisplayFormatter.FormatTodayDashboardMetric(todayRecord, settings);
+}
+
 <div class="goals-dashboard">
     <div class="goals-dashboard-header flex justify-between items-start mb-lg">
         <div>
@@ -32,8 +36,12 @@
     <div class="goals-dashboard-body flex gap-lg items-center mt-md flex-wrap">
         <div class="goals-dashboard-today flex-shrink-0 text-center">
             <div class="text-sm text-secondary mb-xs">Hoje</div>
-            <div class="text-3xl font-bold flex items-baseline gap-xs justify-center">
-                <span class="@GetTodayMetricTextClass()">@RoutineGoalDisplayFormatter.FormatTodayProgress(todayRecord, settings)</span>
+            <div class="@GetTodayMetricContainerClass()">
+                <span class="today-metric-primary @GetTodayMetricTextClass()">@todayMetric.Primary</span>
+                @if (!string.IsNullOrEmpty(todayMetric.Secondary))
+                {
+                    <span class="today-metric-secondary">@todayMetric.Secondary</span>
+                }
             </div>
         </div>
 
@@ -280,6 +288,13 @@
         }
 
         return GetColorTextForPercentage(todayRecord.CompliancePercentage);
+    }
+
+    private string GetTodayMetricContainerClass()
+    {
+        return settings.GoalMode == DailyGoalMode.StudyUnits
+            ? "today-metric today-metric-study-units"
+            : "today-metric today-metric-time";
     }
 
     private int GetAvailableMonthlyCreditMinutes()

@@ -62,6 +62,30 @@ public sealed class RoutineGoalDisplayFormatterTests
     }
 
     [Theory]
+    [InlineData(8, "8m")]
+    [InlineData(45, "45m")]
+    [InlineData(90, "1h 30m")]
+    public void FormatTodayDashboardMetric_UsesMinutesForTimeMode(int studiedMinutes, string expectedPrimary)
+    {
+        var settings = new RoutineSettings
+        {
+            GoalMode = DailyGoalMode.TimeMinutes,
+            DailyGoalMinutes = 90,
+            DailyGoalStudyUnits = 1
+        };
+        var record = new DailyStudyRecord
+        {
+            MinutesStudied = studiedMinutes,
+            CompletedStudyUnitIds = [Guid.NewGuid()]
+        };
+
+        var metric = RoutineGoalDisplayFormatter.FormatTodayDashboardMetric(record, settings);
+
+        Assert.Equal(expectedPrimary, metric.Primary);
+        Assert.Equal(string.Empty, metric.Secondary);
+    }
+
+    [Theory]
     [InlineData(0, 1, "0/1 Aula/Módulo")]
     [InlineData(1, 1, "1/1 Aula/Módulo")]
     [InlineData(1, 2, "1/2 Aulas/Módulos")]
@@ -90,6 +114,39 @@ public sealed class RoutineGoalDisplayFormatterTests
         var text = RoutineGoalDisplayFormatter.FormatTodayProgress(record, settings);
 
         Assert.Equal(expectedText, text);
+    }
+
+    [Theory]
+    [InlineData(0, 1, "0/1", "Aula/Módulo")]
+    [InlineData(1, 1, "1/1", "Aula/Módulo")]
+    [InlineData(2, 2, "2/2", "Aulas/Módulos")]
+    [InlineData(10, 10, "10/10", "Aulas/Módulos")]
+    public void FormatTodayDashboardMetric_SplitsStudyUnitsForDashboard(
+        int completedStudyUnits,
+        int dailyGoalStudyUnits,
+        string expectedPrimary,
+        string expectedSecondary)
+    {
+        var completedIds = Enumerable
+            .Range(0, completedStudyUnits)
+            .Select(_ => Guid.NewGuid())
+            .ToList();
+        var settings = new RoutineSettings
+        {
+            GoalMode = DailyGoalMode.StudyUnits,
+            DailyGoalMinutes = 90,
+            DailyGoalStudyUnits = dailyGoalStudyUnits
+        };
+        var record = new DailyStudyRecord
+        {
+            MinutesStudied = 120,
+            CompletedStudyUnitIds = completedIds
+        };
+
+        var metric = RoutineGoalDisplayFormatter.FormatTodayDashboardMetric(record, settings);
+
+        Assert.Equal(expectedPrimary, metric.Primary);
+        Assert.Equal(expectedSecondary, metric.Secondary);
     }
 
     [Theory]
@@ -193,13 +250,16 @@ public sealed class RoutineGoalDisplayFormatterTests
         {
             CompletedStudyUnitIds = [Guid.NewGuid()]
         };
+        var dashboardMetric = RoutineGoalDisplayFormatter.FormatTodayDashboardMetric(record, settings);
         var texts = new[]
         {
             RoutineGoalDisplayFormatter.FormatGoal(settings),
             RoutineGoalDisplayFormatter.FormatTodayProgress(record, settings),
             RoutineGoalDisplayFormatter.FormatCalendarDayProgress(studyUnitsEvaluation),
             RoutineGoalDisplayFormatter.FormatNavMenuIndicator(studyUnitsEvaluation),
-            RoutineGoalDisplayFormatter.FormatStudyUnitCount(0)
+            RoutineGoalDisplayFormatter.FormatStudyUnitCount(0),
+            dashboardMetric.Primary,
+            dashboardMetric.Secondary
         };
 
         Assert.All(texts, text => Assert.DoesNotContain("StudyUnits", text, StringComparison.OrdinalIgnoreCase));

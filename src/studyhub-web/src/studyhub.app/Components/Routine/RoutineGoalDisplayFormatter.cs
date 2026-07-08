@@ -2,6 +2,8 @@ using studyhub.domain.Entities;
 
 namespace studyhub.app.Components.Routine;
 
+public readonly record struct RoutineGoalDashboardMetric(string Primary, string Secondary);
+
 public static class RoutineGoalDisplayFormatter
 {
     public static string FormatGoal(RoutineSettings settings)
@@ -25,6 +27,22 @@ public static class RoutineGoalDisplayFormatter
         }
 
         return FormatMinutes(record?.MinutesStudied ?? 0);
+    }
+
+    public static RoutineGoalDashboardMetric FormatTodayDashboardMetric(DailyStudyRecord? record, RoutineSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        if (settings.GoalMode == DailyGoalMode.StudyUnits)
+        {
+            var completedStudyUnits = Math.Max(0, record?.CompletedStudyUnitCount ?? 0);
+            var dailyGoalStudyUnits = Math.Max(1, settings.DailyGoalStudyUnits);
+            return new RoutineGoalDashboardMetric(
+                $"{completedStudyUnits}/{dailyGoalStudyUnits}",
+                FormatStudyUnitLabel(dailyGoalStudyUnits));
+        }
+
+        return new RoutineGoalDashboardMetric(FormatMinutes(record?.MinutesStudied ?? 0), string.Empty);
     }
 
     public static string FormatEvaluationProgress(DailyGoalEvaluation evaluation)
