@@ -10,11 +10,11 @@
             <p class="text-sm text-secondary">
                 @if (IsConfigured)
                 {
-                    <text>Meta diaria: @FormatMinutes(settings.DailyGoalMinutes) &nbsp;|&nbsp; Dias: @FormatDays(settings.SelectedDaysOfWeek)</text>
+                    <text>Meta diária: @RoutineGoalDisplayFormatter.FormatGoal(settings) &nbsp;|&nbsp; Dias: @FormatDays(settings.SelectedDaysOfWeek)</text>
                 }
                 else
                 {
-                    <text>Meta nao configurada. Defina sua rotina para acompanhar o desempenho.</text>
+                    <text>Meta não configurada. Defina sua rotina para acompanhar o desempenho.</text>
                 }
             </p>
         </div>
@@ -33,17 +33,20 @@
         <div class="goals-dashboard-today flex-shrink-0 text-center">
             <div class="text-sm text-secondary mb-xs">Hoje</div>
             <div class="text-3xl font-bold flex items-baseline gap-xs justify-center">
-                <span class="@GetTodayMinutesTextClass()">@FormatMinutes(todayRecord?.MinutesStudied ?? 0)</span>
+                <span class="@GetTodayMetricTextClass()">@RoutineGoalDisplayFormatter.FormatTodayProgress(todayRecord, settings)</span>
             </div>
         </div>
 
         <div class="goals-dashboard-month flex-1 flex flex-col items-center">
             <div class="month-summary-header">
                 <div class="month-summary-title text-xs text-tertiary uppercase tracking-wider">Desempenho neste mes (@DateTime.Now.ToString("MMMM/yyyy"))</div>
-                <span class="month-credit-badge"
-                      title="Saldo disponivel de creditos mensais apos abonos.">
-                    @FormatMonthlyCreditMinutes(GetAvailableMonthlyCreditMinutes())
-                </span>
+                @if (settings.GoalMode == DailyGoalMode.TimeMinutes)
+                {
+                    <span class="month-credit-badge"
+                          title="Saldo disponivel de creditos mensais apos abonos.">
+                        @FormatMonthlyCreditMinutes(GetAvailableMonthlyCreditMinutes())
+                    </span>
+                }
             </div>
             <div class="month-grid">
                 @foreach (var evaluation in monthlyEvaluations)
@@ -93,7 +96,7 @@
     private bool hasLoaded;
     private bool isDisposed;
 
-    private bool IsConfigured => settings.DailyGoalMinutes > 0;
+    private bool IsConfigured => HasConfiguredGoal(settings);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -236,14 +239,6 @@
         await LoadDataAsync(requestedCourseId);
     }
 
-    private string FormatMinutes(int minutes)
-    {
-        if (minutes < 60) return $"{minutes}m";
-        var h = minutes / 60;
-        var m = minutes % 60;
-        return m > 0 ? $"{h}h {m}m" : $"{h}h";
-    }
-
     private string FormatDays(List<DayOfWeek> days)
     {
         if (days == null || days.Count == 0) return "Nenhum";
@@ -267,11 +262,21 @@
         return "text-error";
     }
 
-    private string GetTodayMinutesTextClass()
+    private string GetTodayMetricTextClass()
     {
         if (!IsConfigured || todayRecord is null || todayRecord.Status == DailyStudyStatus.Unplanned)
         {
             return "text-tertiary";
+        }
+
+        if (settings.GoalMode == DailyGoalMode.StudyUnits)
+        {
+            return todayRecord.Status switch
+            {
+                DailyStudyStatus.Completed => "text-success",
+                DailyStudyStatus.Partial or DailyStudyStatus.AlmostCompleted => "text-warning",
+                _ => "text-error"
+            };
         }
 
         return GetColorTextForPercentage(todayRecord.CompliancePercentage);
@@ -292,11 +297,11 @@
     private string GetColorClassForDay(DailyGoalEvaluation evaluation, RoutineSettings currentSettings)
     {
         if (evaluation.IsFutureDay) return "bg-neutral opacity-50";
-        if (currentSettings.DailyGoalMinutes == 0) return "bg-neutral";
+        if (!HasConfiguredGoal(currentSettings)) return "bg-neutral";
         if (!evaluation.IsPlannedDay || evaluation.RawStatus == DailyStudyStatus.Unplanned) return "bg-neutral";
 
         var percentage = evaluation.RawCompliancePercentage;
-        if (evaluation.MinutesStudied == 0) return "bg-level-0";
+        if (evaluation.CompletedGoalValue == 0) return "bg-level-0";
         if (percentage < 25) return "bg-level-1";
         if (percentage < 50) return "bg-level-2";
         if (percentage < 75) return "bg-level-3";
@@ -305,9 +310,16 @@
 
     private string GetDayTitle(DailyGoalEvaluation evaluation)
     {
-        var title = $"{evaluation.Date:dd/MM/yyyy}: {evaluation.MinutesStudied} min (Meta: {evaluation.DailyGoalMinutesAtTheTime} min)";
+        var title = $"{evaluation.Date:dd/MM/yyyy}: {RoutineGoalDisplayFormatter.FormatEvaluationProgress(evaluation)}";
         return evaluation.IsMonthlyCreditApplied
             ? $"{title} | Abonado por credito mensal"
             : title;
+    }
+
+    private static bool HasConfiguredGoal(RoutineSettings currentSettings)
+    {
+        return currentSettings.GoalMode == DailyGoalMode.StudyUnits
+            ? currentSettings.DailyGoalStudyUnits > 0
+            : currentSettings.DailyGoalMinutes > 0;
     }
 }

@@ -15,13 +15,54 @@
 
         <div class="modal-body mb-xl">
             <div class="form-group mb-lg">
-                <label class="block text-sm font-semibold mb-sm">Meta diária (em minutos)</label>
-                <div class="flex items-center gap-md">
-                    <input type="number" min="10" max="1440" step="10" @bind="draftSettings.DailyGoalMinutes" class="input-field flex-1" />
-                    <span class="text-sm text-secondary w-24">@FormatDraftMinutes()</span>
+                <label class="block text-sm font-semibold mb-sm">Como você quer medir sua meta diária?</label>
+                <div class="goal-mode-options">
+                    <label class="@GetGoalModeOptionClass(DailyGoalMode.TimeMinutes)">
+                        <input type="radio"
+                               name="goal-mode"
+                               checked="@(draftSettings.GoalMode == DailyGoalMode.TimeMinutes)"
+                               @onchange="@(() => SetGoalMode(DailyGoalMode.TimeMinutes))" />
+                        <span class="goal-mode-option-text">
+                            <span class="text-sm font-semibold">Tempo de estudo</span>
+                            <span class="text-xs text-tertiary">Conta a soma da duração dos vídeos concluídos no dia.</span>
+                        </span>
+                    </label>
+
+                    <label class="@GetGoalModeOptionClass(DailyGoalMode.StudyUnits)">
+                        <input type="radio"
+                               name="goal-mode"
+                               checked="@(draftSettings.GoalMode == DailyGoalMode.StudyUnits)"
+                               @onchange="@(() => SetGoalMode(DailyGoalMode.StudyUnits))" />
+                        <span class="goal-mode-option-text">
+                            <span class="text-sm font-semibold">Aulas/Módulos concluídos</span>
+                            <span class="text-xs text-tertiary">Conta uma aula/módulo quando todos os vídeos dela forem concluídos.</span>
+                        </span>
+                    </label>
                 </div>
-                <p class="text-xs text-tertiary mt-xs">Escolha o quanto você gostaria de focar a cada dia de estudo planejado.</p>
             </div>
+
+            @if (draftSettings.GoalMode == DailyGoalMode.TimeMinutes)
+            {
+                <div class="form-group mb-lg">
+                    <label class="block text-sm font-semibold mb-sm">Meta diária (em minutos)</label>
+                    <div class="flex items-center gap-md">
+                        <input type="number" min="10" max="1440" step="10" @bind="draftSettings.DailyGoalMinutes" class="input-field flex-1" />
+                        <span class="text-sm text-secondary w-24">@FormatDraftMinutes()</span>
+                    </div>
+                    <p class="text-xs text-tertiary mt-xs">Escolha o quanto você gostaria de focar a cada dia de estudo planejado.</p>
+                </div>
+            }
+            else
+            {
+                <div class="form-group mb-lg">
+                    <label class="block text-sm font-semibold mb-sm">Aulas/Módulos por dia</label>
+                    <div class="flex items-center gap-md">
+                        <input type="number" min="1" step="1" @bind="draftSettings.DailyGoalStudyUnits" class="input-field flex-1" />
+                        <span class="text-sm text-secondary w-24">@FormatDraftStudyUnits()</span>
+                    </div>
+                    <p class="text-xs text-tertiary mt-xs">Defina quantas Aulas/Módulos concluídos contam como meta do dia.</p>
+                </div>
+            }
 
             <div class="form-group">
                 <label class="block text-sm font-semibold mb-sm">Dias da semana</label>
@@ -64,15 +105,24 @@
         { "Domingo", DayOfWeek.Sunday }
     };
 
-    protected override void OnInitialized()
+    protected override void OnParametersSet()
     {
-        // Copy state so we don't mutate parent's instance until saved
+        // Copy state so we don't mutate parent's instance until saved.
         draftSettings = new RoutineSettings
         {
+            GoalMode = Settings.GoalMode,
             DailyGoalMinutes = Settings.DailyGoalMinutes,
-            SelectedDaysOfWeek = new List<DayOfWeek>(Settings.SelectedDaysOfWeek),
-            LastUpdatedAt = Settings.LastUpdatedAt
+            DailyGoalStudyUnits = Settings.DailyGoalStudyUnits,
+            SelectedDaysOfWeek = new List<DayOfWeek>(Settings.SelectedDaysOfWeek ?? []),
+            LastUpdatedAt = Settings.LastUpdatedAt,
+            PlanPeriods = Settings.PlanPeriods?.ToList() ?? [],
+            SuspensionPeriods = Settings.SuspensionPeriods?.ToList() ?? []
         };
+    }
+
+    private void SetGoalMode(DailyGoalMode goalMode)
+    {
+        draftSettings.GoalMode = goalMode;
     }
 
     private void ToggleDay(DayOfWeek day, bool isChecked)
@@ -87,15 +137,27 @@
         }
     }
 
+    private string GetGoalModeOptionClass(DailyGoalMode goalMode)
+    {
+        return draftSettings.GoalMode == goalMode
+            ? "goal-mode-option is-selected"
+            : "goal-mode-option";
+    }
+
     private string FormatDraftMinutes()
     {
-        var h = draftSettings.DailyGoalMinutes / 60;
-        var m = draftSettings.DailyGoalMinutes % 60;
-        return (h > 0 ? $"{h}h " : "") + (m > 0 || h == 0 ? $"{m}m" : "");
+        return RoutineGoalDisplayFormatter.FormatMinutes(draftSettings.DailyGoalMinutes);
+    }
+
+    private string FormatDraftStudyUnits()
+    {
+        return RoutineGoalDisplayFormatter.FormatStudyUnitGoal(draftSettings.DailyGoalStudyUnits);
     }
 
     private async Task SaveChanges()
     {
+        draftSettings.DailyGoalMinutes = Math.Max(0, draftSettings.DailyGoalMinutes);
+        draftSettings.DailyGoalStudyUnits = Math.Max(1, draftSettings.DailyGoalStudyUnits);
         await OnSave.InvokeAsync(draftSettings);
     }
 

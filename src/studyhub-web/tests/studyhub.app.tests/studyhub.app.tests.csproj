@@ -25,6 +25,10 @@
     <Compile Include="..\..\src\studyhub.app\services\lessoninitialstartoffsetcalculator.cs" Link="services\lessoninitialstartoffsetcalculator.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('..\..\src\studyhub.app\Components\Routine\RoutineGoalDisplayFormatter.cs')">
+    <Compile Include="..\..\src\studyhub.app\Components\Routine\RoutineGoalDisplayFormatter.cs" Link="Components\Routine\RoutineGoalDisplayFormatter.cs" />
+  </ItemGroup>
+
   <ItemGroup Condition="!Exists('..\..\src\studyhub.app\services\localvideosourceresolver.cs')">
     <Compile Remove="LocalVideoSourceResolverTests.cs" />
   </ItemGroup>
