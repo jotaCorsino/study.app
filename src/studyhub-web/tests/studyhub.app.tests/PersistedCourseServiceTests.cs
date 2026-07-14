@@ -1083,6 +1083,372 @@ public sealed class PersistedCourseServiceTests
     }
 
     [Fact]
+    public async Task GetCourseByIdAsync_StaleSubsetManifestDoesNotDeletePersistedLessons()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var courseId = Guid.NewGuid();
+        var moduleId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var lesson1Id = Guid.NewGuid();
+        var lesson2Id = Guid.NewGuid();
+        var rootPath = @"C:\courses\stale-subset-manifest";
+        var lesson1Path = Path.Combine(rootPath, "module-1", "topic-1", "lesson-1.mp4");
+        var lesson2Path = Path.Combine(rootPath, "module-1", "topic-1", "lesson-2.mp4");
+        var course = CreateCourseRecord(
+            courseId,
+            rootPath,
+            JsonSerializer.Serialize(new CourseSourceMetadata { RootPath = rootPath }, WebJsonOptions));
+        course.TotalDurationMinutes = 30;
+        course.CurrentLessonId = lesson2Id;
+        course.Modules.Add(new ModuleRecord
+        {
+            Id = moduleId,
+            CourseId = courseId,
+            Order = 1,
+            RawTitle = "module-1",
+            Title = "Module 1",
+            SourceRelativePath = "module-1",
+            Topics =
+            [
+                new TopicRecord
+                {
+                    Id = topicId,
+                    ModuleId = moduleId,
+                    Order = 1,
+                    RawTitle = "topic-1",
+                    Title = "Topic 1",
+                    SourceRelativePath = "module-1/topic-1",
+                    Lessons =
+                    [
+                        new LessonRecord
+                        {
+                            Id = lesson1Id,
+                            TopicId = topicId,
+                            Order = 1,
+                            RawTitle = "lesson-1.mp4",
+                            Title = "Lesson 1",
+                            FilePath = lesson1Path,
+                            SourceType = LessonSourceType.LocalFile,
+                            LocalFilePath = lesson1Path,
+                            RelativeFilePath = "module-1/topic-1/lesson-1.mp4",
+                            Provider = "LocalFileSystem",
+                            DurationMinutes = 10
+                        },
+                        new LessonRecord
+                        {
+                            Id = lesson2Id,
+                            TopicId = topicId,
+                            Order = 2,
+                            RawTitle = "lesson-2.mp4",
+                            Title = "Lesson 2",
+                            FilePath = lesson2Path,
+                            SourceType = LessonSourceType.LocalFile,
+                            LocalFilePath = lesson2Path,
+                            RelativeFilePath = "module-1/topic-1/lesson-2.mp4",
+                            Provider = "LocalFileSystem",
+                            DurationMinutes = 20,
+                            Status = LessonStatus.InProgress,
+                            WatchedPercentage = 62.5,
+                            LastPlaybackPositionSeconds = 345,
+                            IsAvailable = false
+                        }
+                    ]
+                }
+            ]
+        });
+
+        var manifest = LocalCourseManifestBuilder.Build(
+            course,
+            rootPath,
+            new DateTime(2026, 7, 14, 19, 0, 0, DateTimeKind.Utc));
+        manifest.Modules.Single().Topics.Single().Lessons.RemoveAll(
+            lesson => lesson.LessonId == lesson2Id);
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(course);
+            setupContext.CourseImportSnapshots.Add(new CourseImportSnapshotRecord
+            {
+                CourseId = courseId,
+                SourceKind = "local-folder",
+                RootFolderPath = rootPath,
+                StructureJson = JsonSerializer.Serialize(manifest, WebJsonOptions),
+                ImportedAt = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc)
+            });
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var firstLoad = await service.GetCourseByIdAsync(courseId);
+        var secondLoad = await service.GetCourseByIdAsync(courseId);
+
+        Assert.NotNull(firstLoad);
+        Assert.NotNull(secondLoad);
+        foreach (var loadedCourse in new[] { firstLoad!, secondLoad! })
+        {
+            var lessons = loadedCourse.Modules
+                .SelectMany(module => module.Topics)
+                .SelectMany(topic => topic.Lessons)
+                .OrderBy(lesson => lesson.Order)
+                .ToList();
+            Assert.Equal([lesson1Id, lesson2Id], lessons.Select(lesson => lesson.Id));
+            var preservedLesson = lessons.Single(lesson => lesson.Id == lesson2Id);
+            Assert.Equal(LessonStatus.InProgress, preservedLesson.Status);
+            Assert.Equal(62.5, preservedLesson.WatchedPercentage);
+            Assert.Equal(TimeSpan.FromSeconds(345), preservedLesson.LastPlaybackPosition);
+            Assert.False(preservedLesson.IsAvailable);
+        }
+
+        await using var subsetAssertContext = new StudyHubDbContext(options);
+        Assert.Equal(
+            lesson2Id,
+            (await subsetAssertContext.Courses.SingleAsync(item => item.Id == courseId)).CurrentLessonId);
+    }
+
+    [Fact]
+    public async Task GetCourseByIdAsync_StaleSnapshotRootDoesNotRestorePreviousLocation()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var courseId = Guid.NewGuid();
+        var moduleId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var lessonId = Guid.NewGuid();
+        var currentRootPath = @"C:\courses\current-location";
+        var staleRootPath = @"C:\courses\previous-location";
+        const string relativePath = "module-1/topic-1/lesson-1.mp4";
+        var currentLessonPath = Path.Combine(
+            currentRootPath,
+            relativePath.Replace('/', Path.DirectorySeparatorChar));
+        var course = CreateCourseRecord(
+            courseId,
+            currentRootPath,
+            JsonSerializer.Serialize(
+                new CourseSourceMetadata { RootPath = currentRootPath },
+                WebJsonOptions));
+        course.CurrentLessonId = lessonId;
+        course.Modules.Add(new ModuleRecord
+        {
+            Id = moduleId,
+            CourseId = courseId,
+            Order = 1,
+            RawTitle = "module-1",
+            Title = "Module 1",
+            SourceRelativePath = "module-1",
+            Topics =
+            [
+                new TopicRecord
+                {
+                    Id = topicId,
+                    ModuleId = moduleId,
+                    Order = 1,
+                    RawTitle = "topic-1",
+                    Title = "Topic 1",
+                    SourceRelativePath = "module-1/topic-1",
+                    Lessons =
+                    [
+                        new LessonRecord
+                        {
+                            Id = lessonId,
+                            TopicId = topicId,
+                            Order = 1,
+                            RawTitle = "lesson-1.mp4",
+                            Title = "Lesson 1",
+                            FilePath = currentLessonPath,
+                            SourceType = LessonSourceType.LocalFile,
+                            LocalFilePath = currentLessonPath,
+                            RelativeFilePath = relativePath,
+                            Provider = "LocalFileSystem",
+                            DurationMinutes = 10,
+                            Status = LessonStatus.InProgress,
+                            WatchedPercentage = 35,
+                            LastPlaybackPositionSeconds = 90
+                        }
+                    ]
+                }
+            ]
+        });
+        var staleManifest = LocalCourseManifestBuilder.Build(
+            course,
+            staleRootPath,
+            new DateTime(2026, 7, 14, 19, 15, 0, DateTimeKind.Utc));
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(course);
+            setupContext.CourseImportSnapshots.Add(new CourseImportSnapshotRecord
+            {
+                CourseId = courseId,
+                SourceKind = "local-folder",
+                RootFolderPath = staleRootPath,
+                StructureJson = JsonSerializer.Serialize(staleManifest, WebJsonOptions),
+                ImportedAt = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc)
+            });
+            await setupContext.SaveChangesAsync();
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+        var firstLoad = await service.GetCourseByIdAsync(courseId);
+        var secondLoad = await service.GetCourseByIdAsync(courseId);
+
+        foreach (var loadedCourse in new[] { Assert.IsType<Course>(firstLoad), Assert.IsType<Course>(secondLoad) })
+        {
+            Assert.Equal(currentRootPath, loadedCourse.FolderPath);
+            Assert.Equal(currentRootPath, loadedCourse.SourceMetadata.RootPath);
+            var lesson = Assert.Single(
+                loadedCourse.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons));
+            Assert.Equal(lessonId, lesson.Id);
+            Assert.Equal(currentLessonPath, lesson.LocalFilePath);
+            Assert.Equal(relativePath, lesson.RelativeFilePath);
+            Assert.Equal(LessonStatus.InProgress, lesson.Status);
+        }
+
+
+        await using var rootAssertContext = new StudyHubDbContext(options);
+        Assert.Equal(
+            lessonId,
+            (await rootAssertContext.Courses.SingleAsync(item => item.Id == courseId)).CurrentLessonId);
+    }
+
+    [Fact]
+    public async Task GetCourseByIdAsync_RehydrationFailureRollsBackExistingTree()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = new DbContextOptionsBuilder<StudyHubDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var courseId = Guid.NewGuid();
+        var moduleId = Guid.NewGuid();
+        var topicId = Guid.NewGuid();
+        var existingLessonId = Guid.NewGuid();
+        var newLessonId = Guid.NewGuid();
+        var rootPath = @"C:\courses\rehydration-rollback";
+        const string existingRelativePath = "module-1/topic-1/lesson-1.mp4";
+        const string failingRelativePath = "module-1/topic-1/forced-failure.mp4";
+        var existingLessonPath = Path.Combine(
+            rootPath,
+            existingRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        var course = CreateCourseRecord(
+            courseId,
+            rootPath,
+            JsonSerializer.Serialize(new CourseSourceMetadata { RootPath = rootPath }, WebJsonOptions));
+        course.CurrentLessonId = existingLessonId;
+        course.Modules.Add(new ModuleRecord
+        {
+            Id = moduleId,
+            CourseId = courseId,
+            Order = 1,
+            RawTitle = "module-1",
+            Title = "Module 1",
+            SourceRelativePath = "module-1",
+            Topics =
+            [
+                new TopicRecord
+                {
+                    Id = topicId,
+                    ModuleId = moduleId,
+                    Order = 1,
+                    RawTitle = "topic-1",
+                    Title = "Topic 1",
+                    SourceRelativePath = "module-1/topic-1",
+                    Lessons =
+                    [
+                        new LessonRecord
+                        {
+                            Id = existingLessonId,
+                            TopicId = topicId,
+                            Order = 1,
+                            RawTitle = "lesson-1.mp4",
+                            Title = "Lesson 1",
+                            FilePath = existingLessonPath,
+                            SourceType = LessonSourceType.LocalFile,
+                            LocalFilePath = existingLessonPath,
+                            RelativeFilePath = existingRelativePath,
+                            Provider = "LocalFileSystem",
+                            DurationMinutes = 10,
+                            Status = LessonStatus.Completed,
+                            WatchedPercentage = 100,
+                            LastPlaybackPositionSeconds = 600
+                        }
+                    ]
+                }
+            ]
+        });
+        var manifest = LocalCourseManifestBuilder.Build(
+            course,
+            rootPath,
+            new DateTime(2026, 7, 14, 19, 30, 0, DateTimeKind.Utc));
+        manifest.Modules.Single().Topics.Single().Lessons.Add(new DetectedLessonFile
+        {
+            LessonId = newLessonId,
+            Order = 2,
+            RawName = "forced-failure.mp4",
+            FileName = "forced-failure.mp4",
+            RelativePath = failingRelativePath,
+            AbsolutePath = Path.Combine(
+                rootPath,
+                failingRelativePath.Replace('/', Path.DirectorySeparatorChar)),
+            Extension = ".mp4",
+            Duration = TimeSpan.FromMinutes(5)
+        });
+
+        await using (var setupContext = new StudyHubDbContext(options))
+        {
+            await setupContext.Database.EnsureCreatedAsync();
+            setupContext.Courses.Add(course);
+            setupContext.CourseImportSnapshots.Add(new CourseImportSnapshotRecord
+            {
+                CourseId = courseId,
+                SourceKind = "local-folder",
+                RootFolderPath = rootPath,
+                StructureJson = JsonSerializer.Serialize(manifest, WebJsonOptions),
+                ImportedAt = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc)
+            });
+            await setupContext.SaveChangesAsync();
+            await setupContext.Database.ExecuteSqlRawAsync(
+                """
+                CREATE TRIGGER fail_rehydration_lesson_insert
+                BEFORE INSERT ON lessons
+                WHEN NEW.raw_title = 'forced-failure.mp4'
+                BEGIN
+                    SELECT RAISE(ABORT, 'forced rehydration failure');
+                END;
+                """);
+        }
+
+        var service = new PersistedCourseService(new TestDbContextFactory(options));
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => service.GetCourseByIdAsync(courseId));
+
+        await using var assertContext = new StudyHubDbContext(options);
+        var persistedCourse = await assertContext.Courses
+            .AsNoTracking()
+            .Include(item => item.Modules)
+                .ThenInclude(module => module.Topics)
+                    .ThenInclude(topic => topic.Lessons)
+            .SingleAsync(item => item.Id == courseId);
+        var persistedLesson = Assert.Single(
+            persistedCourse.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons));
+        Assert.Equal(existingLessonId, persistedLesson.Id);
+        Assert.Equal(LessonStatus.Completed, persistedLesson.Status);
+        Assert.Equal(100, persistedLesson.WatchedPercentage);
+        Assert.Equal(existingLessonId, persistedCourse.CurrentLessonId);
+    }
+
+    [Fact]
     public async Task GetCourseByIdAsync_RehydratesEmptyKnownTopicAndKeepsItOnSecondLoad()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");

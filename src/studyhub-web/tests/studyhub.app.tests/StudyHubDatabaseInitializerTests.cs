@@ -419,6 +419,7 @@ public sealed class StudyHubDatabaseInitializerTests
         var storageRoot = CreateStorageRoot();
         var courseRoot = Path.Combine(Path.GetTempPath(), "studyhub-relative-path-tests", Guid.NewGuid().ToString("N"), "Curso A");
         var lessonPath = Path.Combine(courseRoot, "Modulo 01", "Topico 01", "Aula 01.mp4");
+        const string expectedRelativePath = "Modulo 01/Topico 01/Aula 01.mp4";
         const double watchedPercentage = 47.5;
         const int lastPlaybackPositionSeconds = 321;
 
@@ -446,26 +447,43 @@ public sealed class StudyHubDatabaseInitializerTests
             lesson.Status = LessonStatus.InProgress;
             lesson.WatchedPercentage = watchedPercentage;
             lesson.LastPlaybackPositionSeconds = lastPlaybackPositionSeconds;
+            var snapshot = CreateSnapshot(
+                course,
+                "Modulo 01",
+                "Topico 01",
+                expectedRelativePath);
 
             await using (var setupContext = new StudyHubDbContext(options))
             {
                 await setupContext.Database.EnsureCreatedAsync();
                 setupContext.Courses.Add(course);
+                setupContext.CourseImportSnapshots.Add(snapshot);
                 await setupContext.SaveChangesAsync();
                 await setupContext.Database.ExecuteSqlRawAsync("PRAGMA user_version = 10;");
                 await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE lessons DROP COLUMN relative_file_path;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE lessons DROP COLUMN is_available;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE topics DROP COLUMN source_relative_path;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE topics DROP COLUMN is_available;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE modules DROP COLUMN source_relative_path;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE modules DROP COLUMN is_available;");
             }
 
             Assert.False(await ColumnExistsAsync(options, "lessons", "relative_file_path"));
+            Assert.False(await ColumnExistsAsync(options, "modules", "source_relative_path"));
+            Assert.False(await ColumnExistsAsync(options, "topics", "source_relative_path"));
+            Assert.False(await ColumnExistsAsync(options, "modules", "is_available"));
+            Assert.False(await ColumnExistsAsync(options, "topics", "is_available"));
+            Assert.False(await ColumnExistsAsync(options, "lessons", "is_available"));
             Assert.False(File.Exists(lessonPath));
 
             var initializer = CreateInitializer(options, storageRoot);
             await initializer.InitializeAsync();
 
-            var expectedRelativePath = "Modulo 01/Topico 01/Aula 01.mp4";
             await using (var firstAssertContext = new StudyHubDbContext(options))
             {
                 var persistedCourse = await firstAssertContext.Courses.SingleAsync(item => item.Id == courseId);
+                var persistedModule = await firstAssertContext.Modules.SingleAsync(item => item.Id == moduleId);
+                var persistedTopic = await firstAssertContext.Topics.SingleAsync(item => item.Id == topicId);
                 var persistedLesson = await firstAssertContext.Lessons.SingleAsync(item => item.Id == lessonId);
 
                 Assert.Equal(lessonId, persistedCourse.CurrentLessonId);
@@ -473,6 +491,11 @@ public sealed class StudyHubDatabaseInitializerTests
                 Assert.Equal(lessonPath, persistedLesson.FilePath);
                 Assert.Equal(lessonPath, persistedLesson.LocalFilePath);
                 Assert.Equal(expectedRelativePath, persistedLesson.RelativeFilePath);
+                Assert.Equal("Modulo 01", persistedModule.SourceRelativePath);
+                Assert.Equal("Modulo 01/Topico 01", persistedTopic.SourceRelativePath);
+                Assert.True(persistedModule.IsAvailable);
+                Assert.True(persistedTopic.IsAvailable);
+                Assert.True(persistedLesson.IsAvailable);
                 Assert.Equal(LessonStatus.InProgress, persistedLesson.Status);
                 Assert.Equal(watchedPercentage, persistedLesson.WatchedPercentage);
                 Assert.Equal(lastPlaybackPositionSeconds, persistedLesson.LastPlaybackPositionSeconds);
@@ -480,6 +503,11 @@ public sealed class StudyHubDatabaseInitializerTests
             }
 
             Assert.True(await ColumnExistsAsync(options, "lessons", "relative_file_path"));
+            Assert.True(await ColumnExistsAsync(options, "modules", "source_relative_path"));
+            Assert.True(await ColumnExistsAsync(options, "topics", "source_relative_path"));
+            await AssertAvailabilityColumnAsync(options, "modules");
+            await AssertAvailabilityColumnAsync(options, "topics");
+            await AssertAvailabilityColumnAsync(options, "lessons");
             Assert.Equal(13, await GetSchemaVersionAsync(options));
 
             const string preexistingRelativePath = "Already/Preserved.mp4";
@@ -687,11 +715,19 @@ public sealed class StudyHubDatabaseInitializerTests
                 setupContext.CourseImportSnapshots.Add(snapshot);
                 await setupContext.SaveChangesAsync();
                 await setupContext.Database.ExecuteSqlRawAsync("PRAGMA user_version = 11;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE lessons DROP COLUMN is_available;");
                 await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE topics DROP COLUMN source_relative_path;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE topics DROP COLUMN is_available;");
                 await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE modules DROP COLUMN source_relative_path;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE modules DROP COLUMN is_available;");
             }
 
             var initializer = CreateInitializer(options, storageRoot);
+            Assert.False(await ColumnExistsAsync(options, "modules", "source_relative_path"));
+            Assert.False(await ColumnExistsAsync(options, "topics", "source_relative_path"));
+            Assert.False(await ColumnExistsAsync(options, "modules", "is_available"));
+            Assert.False(await ColumnExistsAsync(options, "topics", "is_available"));
+            Assert.False(await ColumnExistsAsync(options, "lessons", "is_available"));
             Assert.False(File.Exists(lessonPath));
             await initializer.InitializeAsync();
 
@@ -713,11 +749,14 @@ public sealed class StudyHubDatabaseInitializerTests
                 Assert.Single(persistedCourse.Modules.Single().Topics.Single().Lessons);
                 Assert.Equal(moduleId, persistedModule.Id);
                 Assert.Equal("Modulo 01", persistedModule.SourceRelativePath);
+                Assert.True(persistedModule.IsAvailable);
                 Assert.Equal(topicId, persistedTopic.Id);
                 Assert.Equal("Modulo 01/Topico 01", persistedTopic.SourceRelativePath);
                 Assert.Equal(completedAtUtc, persistedTopic.CompletedAtUtc);
+                Assert.True(persistedTopic.IsAvailable);
                 Assert.Equal(lessonId, persistedLesson.Id);
                 Assert.Equal(lessonRelativePath, persistedLesson.RelativeFilePath);
+                Assert.True(persistedLesson.IsAvailable);
                 Assert.Equal(LessonStatus.InProgress, persistedLesson.Status);
                 Assert.Equal(42.5, persistedLesson.WatchedPercentage);
                 Assert.Equal(87, persistedLesson.LastPlaybackPositionSeconds);

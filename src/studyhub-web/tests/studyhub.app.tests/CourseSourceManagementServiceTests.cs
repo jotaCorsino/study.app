@@ -312,6 +312,52 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ChangeLocationAsync_LegacyAbsolutePathRecoversPortablePathAndRebasesPlayback()
+    {
+        const string knownLesson = "Module 01/Topic 01/Lesson 01.mp4";
+        var originalRoot = CourseRoot("legacy-original", "CourseA");
+        var candidateRoot = CourseRoot("legacy-moved", "CourseA");
+        var seed = await SeedCourseAsync(originalRoot, knownLesson);
+        await CreateCourseFilesAsync(candidateRoot, knownLesson);
+
+        await using (var context = new StudyHubDbContext(_options))
+        {
+            var lesson = await context.Lessons.SingleAsync(record => record.Id == seed.LessonIds[0]);
+            lesson.RelativeFilePath = string.Empty;
+            await context.SaveChangesAsync();
+        }
+
+        var validation = await _service.ValidateLocationAsync(seed.CourseId, candidateRoot);
+        var result = await _service.ChangeLocationAsync(new ChangeCourseSourceLocationRequest
+        {
+            CourseId = seed.CourseId,
+            FolderPath = candidateRoot
+        });
+
+        Assert.Equal(CourseSourceLocationCompatibility.ExactMatch, validation.Compatibility);
+        Assert.Equal(CourseSourceLocationChangeStatus.Changed, result.Status);
+
+        var persisted = await LoadCourseAsync(seed.CourseId);
+        var persistedLesson = Assert.Single(
+            persisted.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons));
+        var expectedAbsolutePath = Path.GetFullPath(
+            Path.Combine(candidateRoot, knownLesson.Replace('/', Path.DirectorySeparatorChar)));
+        Assert.Equal(knownLesson, persistedLesson.RelativeFilePath);
+        Assert.Equal(expectedAbsolutePath, persistedLesson.LocalFilePath);
+        Assert.Equal(expectedAbsolutePath, persistedLesson.FilePath);
+
+        var loadedCourse = await new PersistedCourseService(_contextFactory).GetCourseByIdAsync(seed.CourseId);
+        Assert.NotNull(loadedCourse);
+        var loadedLesson = Assert.Single(
+            loadedCourse!.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons));
+        var resolvedPath = new LocalLessonFilePathResolver().Resolve(
+            loadedCourse.SourceMetadata.RootPath,
+            loadedLesson);
+        Assert.Equal(expectedAbsolutePath, resolvedPath);
+        Assert.True(File.Exists(resolvedPath));
+    }
+
+    [Fact]
     public async Task ChangeLocationAsync_FolderWithAdditionalContent_DetectsButDoesNotPersistNewLessons()
     {
         const string knownLesson = "Module 01/Topic 01/Lesson 01.mp4";

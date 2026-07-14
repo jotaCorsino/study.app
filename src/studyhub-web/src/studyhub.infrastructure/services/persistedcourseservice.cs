@@ -289,34 +289,44 @@ public class PersistedCourseService(
             return null;
         }
 
-        var previousCurrentLessonId = trackedCourse.CurrentLessonId;
-        await CoursePersistenceHelper.UpsertCourseAsync(context, rebuiltCourse);
-
-        if (previousCurrentLessonId.HasValue)
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        try
         {
-            var hasCurrentLesson = await context.Lessons
-                .AsNoTracking()
-                .AnyAsync(lesson =>
-                    lesson.Id == previousCurrentLessonId.Value &&
-                    lesson.Topic != null &&
-                    lesson.Topic.Module != null &&
-                    lesson.Topic.Module.CourseId == courseId);
+            var previousCurrentLessonId = trackedCourse.CurrentLessonId;
+            await CoursePersistenceHelper.UpsertCourseAsync(context, rebuiltCourse);
 
-            if (hasCurrentLesson)
+            if (previousCurrentLessonId.HasValue)
             {
-                var persistedCourse = await context.Courses.FirstOrDefaultAsync(course => course.Id == courseId);
-                if (persistedCourse != null && persistedCourse.CurrentLessonId != previousCurrentLessonId)
+                var hasCurrentLesson = await context.Lessons
+                    .AsNoTracking()
+                    .AnyAsync(lesson =>
+                        lesson.Id == previousCurrentLessonId.Value &&
+                        lesson.Topic != null &&
+                        lesson.Topic.Module != null &&
+                        lesson.Topic.Module.CourseId == courseId);
+
+                if (hasCurrentLesson)
                 {
-                    persistedCourse.CurrentLessonId = previousCurrentLessonId;
-                    await context.SaveChangesAsync();
+                    var persistedCourse = await context.Courses.FirstOrDefaultAsync(course => course.Id == courseId);
+                    if (persistedCourse != null && persistedCourse.CurrentLessonId != previousCurrentLessonId)
+                    {
+                        persistedCourse.CurrentLessonId = previousCurrentLessonId;
+                        await context.SaveChangesAsync();
+                    }
                 }
             }
+
+            var persistedRecord = await BuildCourseQuery(context)
+                .FirstOrDefaultAsync(course => course.Id == courseId);
+
+            await transaction.CommitAsync();
+            return persistedRecord?.ToDomain();
         }
-
-        var persistedRecord = await BuildCourseQuery(context)
-            .FirstOrDefaultAsync(course => course.Id == courseId);
-
-        return persistedRecord?.ToDomain();
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     private static Course BuildCourseFromManifest(
@@ -539,7 +549,28 @@ public class PersistedCourseService(
 
     private static bool NeedsLocalRehydration(persistence.models.CourseRecord record, DetectedCourseStructure manifest)
     {
-        if (!LocalCourseManifestValidator.HasMatchingPersistedIdentities(manifest, record))
+        if (!LocalCourseSourceRootResolver.TryResolve(
+                record.SourceMetadataJson,
+                record.FolderPath,
+                out var currentRootPath) ||
+            !LocalCourseSourceRootResolver.TryNormalize(
+                manifest.RootFolderPath,
+                out var manifestRootPath) ||
+            !string.Equals(currentRootPath, manifestRootPath, PathComparison))
+        {
+            return false;
+        }
+
+        if (!LocalCourseManifestValidator.TryCorrelatePersistedIdentities(
+                manifest,
+                record,
+                out var identityCorrelation) ||
+            !identityCorrelation.ManifestContainsPersistedTree)
+        {
+            return false;
+        }
+
+        if (!identityCorrelation.IsExactMatch)
         {
             return true;
         }
@@ -681,6 +712,10 @@ public class PersistedCourseService(
             ? string.Empty
             : path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim();
     }
+
+    private static StringComparison PathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
 
     private static string ResolvePortableRelativeFilePath(
         DetectedLessonFile lesson,

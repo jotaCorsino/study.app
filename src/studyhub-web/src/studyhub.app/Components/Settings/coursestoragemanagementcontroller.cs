@@ -276,9 +276,9 @@ public sealed class CourseStorageManagementController : IDisposable
             await Task.WhenAll(localCourses.Select(course =>
                 LoadSourceStatusAsync(course.Id, token)));
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // Component disposal and caller cancellation are intentionally quiet.
+            throw;
         }
         catch (Exception ex)
         {
@@ -409,9 +409,9 @@ public sealed class CourseStorageManagementController : IDisposable
             NotifyCatalogChanged();
             PublishChanged();
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // Component disposal and caller cancellation are intentionally quiet.
+            throw;
         }
         catch (Exception ex)
         {
@@ -459,9 +459,9 @@ public sealed class CourseStorageManagementController : IDisposable
             SetFeedbackFromPreview(card, preview);
             PublishChanged();
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // Component disposal and caller cancellation are intentionally quiet.
+            throw;
         }
         catch (Exception ex)
         {
@@ -543,9 +543,9 @@ public sealed class CourseStorageManagementController : IDisposable
             NotifyCatalogChanged();
             PublishChanged();
         }
-        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            // Component disposal and caller cancellation are intentionally quiet.
+            throw;
         }
         catch (Exception ex)
         {
@@ -596,9 +596,9 @@ public sealed class CourseStorageManagementController : IDisposable
                 courseId,
                 cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            return;
+            throw;
         }
         catch (Exception ex)
         {

@@ -210,7 +210,7 @@ public sealed class LocalLessonFilePathResolverTests
     }
 
     [Fact]
-    public void Resolve_UnavailableLesson_StillResolvesCurrentCourseRootAndRelativePath()
+    public void Resolve_UnavailableLesson_StillResolvesExistingFileFromCurrentCourseRoot()
     {
         var courseRoot = CreateCourseRoot("persisted-unavailable");
         var lesson = new Lesson
@@ -223,11 +223,24 @@ public sealed class LocalLessonFilePathResolverTests
             "Modulo 05",
             "Topico 02",
             "Aula 07.mp4"));
+        Directory.CreateDirectory(Path.GetDirectoryName(expectedPath)!);
+        File.WriteAllBytes(expectedPath, [0x00]);
 
-        var result = _resolver.Resolve(courseRoot, lesson);
+        try
+        {
+            var result = _resolver.Resolve(courseRoot, lesson);
 
-        Assert.Equal(expectedPath, result);
-        Assert.False(lesson.IsAvailable);
+            Assert.Equal(expectedPath, result);
+            Assert.True(File.Exists(result));
+            Assert.False(lesson.IsAvailable);
+        }
+        finally
+        {
+            if (Directory.Exists(courseRoot))
+            {
+                Directory.Delete(courseRoot, recursive: true);
+            }
+        }
     }
 
     [Fact]

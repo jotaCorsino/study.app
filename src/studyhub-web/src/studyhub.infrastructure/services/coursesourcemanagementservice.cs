@@ -271,14 +271,32 @@ public sealed class CourseSourceManagementService(
             var rebasedLessonPaths = course.Modules
                 .SelectMany(module => module.Topics)
                 .SelectMany(topic => topic.Lessons)
-                .Select(lesson => new
+                .Select(lesson =>
                 {
-                    Lesson = lesson,
-                    CanRebase = LocalLessonPathHelper.TryResolvePhysicalPath(
+                    var relativeFilePath = lesson.RelativeFilePath;
+                    var recoveredLegacyRelativePath =
+                        string.IsNullOrWhiteSpace(relativeFilePath) &&
+                        (LocalLessonPathHelper.TryCalculatePortableRelativePath(
+                             currentRootPath,
+                             lesson.LocalFilePath,
+                             out relativeFilePath) ||
+                         LocalLessonPathHelper.TryCalculatePortableRelativePath(
+                             currentRootPath,
+                             lesson.FilePath,
+                             out relativeFilePath));
+                    var canRebase = LocalLessonPathHelper.TryResolvePhysicalPath(
                         validationOutcome.NormalizedCandidateRootPath,
-                        lesson.RelativeFilePath,
-                        out var absolutePath),
-                    AbsolutePath = absolutePath
+                        relativeFilePath,
+                        out var absolutePath);
+
+                    return new
+                    {
+                        Lesson = lesson,
+                        RelativeFilePath = relativeFilePath,
+                        RecoveredLegacyRelativePath = recoveredLegacyRelativePath,
+                        CanRebase = canRebase,
+                        AbsolutePath = absolutePath
+                    };
                 })
                 .Where(item => item.CanRebase)
                 .ToList();
@@ -288,6 +306,11 @@ public sealed class CourseSourceManagementService(
 
             foreach (var item in rebasedLessonPaths)
             {
+                if (item.RecoveredLegacyRelativePath)
+                {
+                    item.Lesson.RelativeFilePath = item.RelativeFilePath;
+                }
+
                 item.Lesson.LocalFilePath = item.AbsolutePath;
                 item.Lesson.FilePath = item.AbsolutePath;
             }

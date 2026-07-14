@@ -157,6 +157,12 @@ internal sealed class LocalCourseManifestIdentityCorrelation(
         HaveSameParents(manifestTopicParents, persistedTopicParents) &&
         HaveSameParents(manifestLessonParents, persistedLessonParents);
 
+    public bool ManifestContainsPersistedTree =>
+        isValid &&
+        persistedModuleIds.IsSubsetOf(manifestModuleIds) &&
+        IsParentMapSubsetOf(persistedTopicParents, manifestTopicParents) &&
+        IsParentMapSubsetOf(persistedLessonParents, manifestLessonParents);
+
     public bool MatchesModule(Guid moduleId)
         => manifestModuleIds.Contains(moduleId) && persistedModuleIds.Contains(moduleId);
 
@@ -178,4 +184,11 @@ internal sealed class LocalCourseManifestIdentityCorrelation(
         IReadOnlyDictionary<Guid, Guid> second)
         => first.Count == second.Count &&
            first.All(item => second.TryGetValue(item.Key, out var parentId) && parentId == item.Value);
+
+    private static bool IsParentMapSubsetOf(
+        IReadOnlyDictionary<Guid, Guid> subset,
+        IReadOnlyDictionary<Guid, Guid> superset)
+        => subset.All(item =>
+            superset.TryGetValue(item.Key, out var parentId) &&
+            parentId == item.Value);
 }

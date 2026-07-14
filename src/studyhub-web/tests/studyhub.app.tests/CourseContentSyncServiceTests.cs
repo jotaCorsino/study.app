@@ -77,6 +77,37 @@ public sealed class CourseContentSyncServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewAsync_NewAndMissingContent_IsReadOnly()
+    {
+        var rootPath = CourseRoot("ready-read-only");
+        Directory.CreateDirectory(rootPath);
+        var seed = await SeedCourseAsync(rootPath);
+        var detected = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 14, 45, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec(
+                "Module 01",
+                "Module 01/Topic 01",
+                "Module 01/Topic 01/New Lesson.mp4",
+                TimeSpan.FromMinutes(6)));
+        var service = CreateService(new DelegateScanner((_, _) => Task.FromResult(detected)));
+        var databaseBefore = await CaptureDatabaseStateAsync();
+
+        var preview = await service.PreviewAsync(seed.CourseId);
+        var databaseAfter = await CaptureDatabaseStateAsync();
+
+        Assert.Equal(CourseContentSyncPreviewStatus.Ready, preview.Status);
+        Assert.True(preview.Success);
+        Assert.True(preview.HasChanges);
+        Assert.True(preview.CanApply);
+        Assert.Equal(1, preview.UnchangedModuleCount);
+        Assert.Equal(1, preview.UnchangedTopicCount);
+        Assert.Equal(1, preview.NewLessonCount);
+        Assert.Equal(1, preview.MissingLessonCount);
+        Assert.Equal(databaseBefore, databaseAfter);
+    }
+
+    [Fact]
     public async Task PreviewAsync_InvalidMetadataRoot_FallsBackToFolderPath()
     {
         var rootPath = CourseRoot("folder-fallback");
@@ -229,6 +260,22 @@ public sealed class CourseContentSyncServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_ScannerCancellationPropagatesWithoutChangingDatabase()
+    {
+        var rootPath = CourseRoot("apply-scanner-cancelled");
+        Directory.CreateDirectory(rootPath);
+        var seed = await SeedCourseAsync(rootPath);
+        var service = CreateService(new DelegateScanner((_, cancellationToken) =>
+            throw new OperationCanceledException(cancellationToken)));
+        var databaseBefore = await CaptureDatabaseStateAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.ApplyAsync(seed.CourseId));
+
+        Assert.Equal(databaseBefore, await CaptureDatabaseStateAsync());
+    }
+
+    [Fact]
     public async Task ApplyAsync_NoChanges_PreservesStateAndRefreshesMetadataAndSnapshot()
     {
         var rootPath = CourseRoot("apply-no-changes");
@@ -361,6 +408,73 @@ public sealed class CourseContentSyncServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ApplyAsync_CourseExpandsFromTwoToFourModulesWithoutReplacingExistingIds()
+    {
+        var rootPath = CourseRoot("apply-two-to-four-modules");
+        Directory.CreateDirectory(rootPath);
+        var seed = await SeedCourseAsync(rootPath);
+        var currentScan = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 15, 15, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", LessonRelativePath, TimeSpan.FromMinutes(5)),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", "Module 01/Topic 01/Lesson 02.mp4", TimeSpan.FromMinutes(6), LessonOrder: 2),
+            new DetectedLessonSpec("Module 02", "Module 02/Topic 02", "Module 02/Topic 02/Lesson 03.mp4", TimeSpan.FromMinutes(7), ModuleOrder: 2),
+            new DetectedLessonSpec("Module 02", "Module 02/Topic 02", "Module 02/Topic 02/Lesson 04.mp4", TimeSpan.FromMinutes(8), ModuleOrder: 2, LessonOrder: 2));
+        var service = CreateService(new DelegateScanner((_, _) => Task.FromResult(currentScan)));
+
+        var baselineApply = await service.ApplyAsync(seed.CourseId);
+        var baselineCourse = await LoadCourseGraphAsync(seed.CourseId);
+        var baselineIds = GetPersistedIds(baselineCourse);
+
+        Assert.Equal(CourseContentSyncApplyStatus.Applied, baselineApply.Status);
+        Assert.Equal(2, baselineCourse.Modules.Count);
+        Assert.Equal(2, baselineCourse.Modules.Sum(module => module.Topics.Count));
+        Assert.Equal(4, baselineCourse.Modules.SelectMany(module => module.Topics).Sum(topic => topic.Lessons.Count));
+
+        currentScan = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 15, 16, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", LessonRelativePath, TimeSpan.FromMinutes(5)),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", "Module 01/Topic 01/Lesson 02.mp4", TimeSpan.FromMinutes(6), LessonOrder: 2),
+            new DetectedLessonSpec("Module 02", "Module 02/Topic 02", "Module 02/Topic 02/Lesson 03.mp4", TimeSpan.FromMinutes(7), ModuleOrder: 2),
+            new DetectedLessonSpec("Module 02", "Module 02/Topic 02", "Module 02/Topic 02/Lesson 04.mp4", TimeSpan.FromMinutes(8), ModuleOrder: 2, LessonOrder: 2),
+            new DetectedLessonSpec("Module 03", "Module 03/Topic 03", "Module 03/Topic 03/Lesson 05.mp4", TimeSpan.FromMinutes(9), ModuleOrder: 3),
+            new DetectedLessonSpec("Module 04", "Module 04/Topic 04", "Module 04/Topic 04/Lesson 06.mp4", TimeSpan.FromMinutes(10), ModuleOrder: 4));
+        var scannerIds = GetDetectedIds(currentScan);
+        var databaseBeforePreview = await CaptureDatabaseStateAsync();
+
+        var preview = await service.PreviewAsync(seed.CourseId);
+
+        Assert.Equal(CourseContentSyncPreviewStatus.Ready, preview.Status);
+        Assert.Equal(2, preview.UnchangedModuleCount);
+        Assert.Equal(2, preview.NewModuleCount);
+        Assert.Equal(2, preview.NewTopicCount);
+        Assert.Equal(2, preview.NewLessonCount);
+        Assert.Equal(databaseBeforePreview, await CaptureDatabaseStateAsync());
+
+        var apply = await service.ApplyAsync(seed.CourseId);
+        var expandedCourse = await LoadCourseGraphAsync(seed.CourseId);
+        var expandedIds = GetPersistedIds(expandedCourse);
+
+        Assert.Equal(CourseContentSyncApplyStatus.Applied, apply.Status);
+        Assert.Equal(2, apply.CreatedModuleCount);
+        Assert.Equal(2, apply.CreatedTopicCount);
+        Assert.Equal(2, apply.CreatedLessonCount);
+        Assert.Equal(4, expandedCourse.Modules.Count);
+        Assert.True(baselineIds.All(expandedIds.Contains));
+        Assert.Empty(scannerIds.Intersect(expandedIds));
+
+        var secondPreview = await service.PreviewAsync(seed.CourseId);
+        var secondApply = await service.ApplyAsync(seed.CourseId);
+        var finalCourse = await LoadCourseGraphAsync(seed.CourseId);
+
+        Assert.Equal(CourseContentSyncPreviewStatus.NoChanges, secondPreview.Status);
+        Assert.Equal(CourseContentSyncApplyStatus.NoChanges, secondApply.Status);
+        Assert.Equal(expandedIds, GetPersistedIds(finalCourse));
+        Assert.Equal(4, finalCourse.Modules.Count);
+    }
+
+    [Fact]
     public async Task ApplyAsync_MissingLessonThenReappearing_PreservesIdentityProgressAndCurrentLesson()
     {
         var rootPath = CourseRoot("apply-reappearing-lesson");
@@ -457,7 +571,7 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         var rootPath = CourseRoot("apply-missing-module");
         Directory.CreateDirectory(rootPath);
         var seed = await SeedCourseAsync(rootPath);
-        var detected = CreateDetectedStructure(
+        var currentScan = CreateDetectedStructure(
             rootPath,
             new DateTime(2026, 7, 14, 15, 40, 0, DateTimeKind.Utc),
             new DetectedLessonSpec(
@@ -466,7 +580,7 @@ public sealed class CourseContentSyncServiceTests : IDisposable
                 "Module 02/Topic 01/Lesson 01.mp4",
                 TimeSpan.FromMinutes(4),
                 ModuleOrder: 2));
-        var service = CreateService(new DelegateScanner((_, _) => Task.FromResult(detected)));
+        var service = CreateService(new DelegateScanner((_, _) => Task.FromResult(currentScan)));
 
         var result = await service.ApplyAsync(seed.CourseId);
         var course = await LoadCourseGraphAsync(seed.CourseId);
@@ -486,6 +600,42 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         Assert.Contains(manifest.Modules, module => module.ModuleId == seed.ModuleId);
         Assert.Contains(manifest.Modules.SelectMany(module => module.Topics), topic => topic.TopicId == seed.TopicId);
         Assert.Contains(manifest.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons), lesson => lesson.LessonId == seed.LessonId);
+
+        var idsAfterMissing = GetPersistedIds(course);
+        currentScan = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 15, 41, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec(
+                "Module 01",
+                "Module 01/Topic 01",
+                LessonRelativePath,
+                TimeSpan.FromMinutes(5)),
+            new DetectedLessonSpec(
+                "Module 02",
+                "Module 02/Topic 01",
+                "Module 02/Topic 01/Lesson 01.mp4",
+                TimeSpan.FromMinutes(4),
+                ModuleOrder: 2));
+
+        var restoredResult = await service.ApplyAsync(seed.CourseId);
+        var restoredCourse = await LoadCourseGraphAsync(seed.CourseId);
+        var restoredModule = restoredCourse.Modules.Single(module => module.Id == seed.ModuleId);
+        var restoredTopic = Assert.Single(restoredModule.Topics);
+        var restoredLesson = Assert.Single(restoredTopic.Lessons);
+
+        Assert.Equal(CourseContentSyncApplyStatus.Applied, restoredResult.Status);
+        Assert.Equal(3, restoredResult.RestoredAvailableItemCount);
+        Assert.Equal(0, restoredResult.CreatedModuleCount);
+        Assert.Equal(0, restoredResult.CreatedTopicCount);
+        Assert.Equal(0, restoredResult.CreatedLessonCount);
+        Assert.True(restoredModule.IsAvailable);
+        Assert.True(restoredTopic.IsAvailable);
+        Assert.True(restoredLesson.IsAvailable);
+        Assert.Equal(LessonStatus.InProgress, restoredLesson.Status);
+        Assert.Equal(42.5, restoredLesson.WatchedPercentage);
+        Assert.Equal(123, restoredLesson.LastPlaybackPositionSeconds);
+        Assert.Equal(seed.LessonId, restoredCourse.CurrentLessonId);
+        Assert.Equal(idsAfterMissing, GetPersistedIds(restoredCourse));
     }
 
     [Fact]
@@ -690,12 +840,12 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         var progressService = new PersistedProgressService(_contextFactory, routineService);
         var progressBefore = await progressService.GetProgressByCourseAsync(seed.CourseId);
         const string newLessonPath = "Module 01/Topic 01/New Pending Lesson.mp4";
-        var detected = CreateDetectedStructure(
+        var currentScan = CreateDetectedStructure(
             rootPath,
             new DateTime(2026, 7, 14, 16, 40, 0, DateTimeKind.Utc),
             new DetectedLessonSpec("Module 01", "Module 01/Topic 01", LessonRelativePath, TimeSpan.FromMinutes(17)),
             new DetectedLessonSpec("Module 01", "Module 01/Topic 01", newLessonPath, TimeSpan.FromMinutes(8), LessonOrder: 2));
-        var syncService = CreateService(new DelegateScanner((_, _) => Task.FromResult(detected)));
+        var syncService = CreateService(new DelegateScanner((_, _) => Task.FromResult(currentScan)));
 
         var result = await syncService.ApplyAsync(seed.CourseId);
         var progressAfter = await progressService.GetProgressByCourseAsync(seed.CourseId);
@@ -725,6 +875,44 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         Assert.Equal([seed.TopicId], historyAfter.CompletedStudyUnitIds);
         Assert.Equal(historyBefore.MinutesStudied, historyAfter.MinutesStudied);
         Assert.Equal(historyBefore.Status, historyAfter.Status);
+
+        currentScan = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 16, 41, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", newLessonPath, TimeSpan.FromMinutes(8)));
+        var missingResult = await syncService.ApplyAsync(seed.CourseId);
+        var missingCourse = await LoadCourseGraphAsync(seed.CourseId);
+        var missingOldLesson = missingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(item => item.Lessons)
+            .Single(lesson => lesson.Id == seed.LessonId);
+
+        Assert.Equal(CourseContentSyncApplyStatus.Applied, missingResult.Status);
+        Assert.False(missingOldLesson.IsAvailable);
+        Assert.Equal(LessonStatus.Completed, missingOldLesson.Status);
+        Assert.Equal(historyBytesBefore, await File.ReadAllBytesAsync(historyFilePath));
+
+        currentScan = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 16, 42, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", LessonRelativePath, TimeSpan.FromMinutes(17)),
+            new DetectedLessonSpec("Module 01", "Module 01/Topic 01", newLessonPath, TimeSpan.FromMinutes(8), LessonOrder: 2));
+        var restoredResult = await syncService.ApplyAsync(seed.CourseId);
+        var restoredCourse = await LoadCourseGraphAsync(seed.CourseId);
+        var restoredOldLesson = restoredCourse.Modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(item => item.Lessons)
+            .Single(lesson => lesson.Id == seed.LessonId);
+        var finalHistory = await routineService.GetDailyRecordAsync(seed.CourseId, historyDate);
+
+        Assert.Equal(CourseContentSyncApplyStatus.Applied, restoredResult.Status);
+        Assert.True(restoredOldLesson.IsAvailable);
+        Assert.Equal(LessonStatus.Completed, restoredOldLesson.Status);
+        Assert.Equal(100, restoredOldLesson.WatchedPercentage);
+        Assert.Equal(historyBytesBefore, await File.ReadAllBytesAsync(historyFilePath));
+        Assert.Equal(historyBefore.CompletedStudyUnitIds, finalHistory.CompletedStudyUnitIds);
+        Assert.Equal(historyBefore.MinutesStudied, finalHistory.MinutesStudied);
+        Assert.Equal(historyBefore.Status, finalHistory.Status);
     }
 
     [Fact]

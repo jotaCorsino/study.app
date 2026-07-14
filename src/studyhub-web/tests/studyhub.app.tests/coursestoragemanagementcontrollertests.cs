@@ -13,6 +13,8 @@ public sealed class CourseStorageManagementControllerTests
     [Theory]
     [InlineData(CourseSourceStatus.Available, CourseStorageVisualStatus.Available, "Disponível")]
     [InlineData(CourseSourceStatus.NotFound, CourseStorageVisualStatus.NotFound, "Pasta não encontrada")]
+    [InlineData(CourseSourceStatus.AccessDenied, CourseStorageVisualStatus.AccessDenied, "Erro de acesso")]
+    [InlineData(CourseSourceStatus.Invalid, CourseStorageVisualStatus.Invalid, "Pasta não configurada")]
     public async Task LoadAsync_MapsBasicSourceStatusWithoutStartingPreview(
         CourseSourceStatus sourceStatus,
         CourseStorageVisualStatus expectedVisualStatus,
@@ -567,6 +569,107 @@ public sealed class CourseStorageManagementControllerTests
         Assert.False(card.IsBusy);
     }
 
+    [Fact]
+    public async Task LoadAsync_ServiceCancellationPropagatesAndClearsLoadingState()
+    {
+        var course = CreateCourse();
+        var source = new FakeSourceManagementService
+        {
+            StatusHandler = (_, _) => Task.FromException<CourseSourceStatusResult>(
+                new OperationCanceledException("Source status canceled."))
+        };
+        using var controller = CreateController(
+            new FakeCourseService(course),
+            new FakeFolderPickerService(),
+            source,
+            new FakeContentSyncService());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => controller.LoadAsync());
+
+        Assert.False(controller.IsLoading);
+        Assert.False(Assert.Single(controller.Cards).IsBusy);
+    }
+
+    [Fact]
+    public async Task SelectLocationAsync_PickerCancellationPropagatesAndClearsOperation()
+    {
+        var course = CreateCourse();
+        var source = new FakeSourceManagementService();
+        var picker = new FakeFolderPickerService
+        {
+            Handler = _ => Task.FromException<string?>(
+                new OperationCanceledException("Folder selection canceled."))
+        };
+        using var controller = CreateController(
+            new FakeCourseService(course),
+            picker,
+            source,
+            new FakeContentSyncService());
+        await controller.LoadAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            controller.SelectLocationAsync(course.Id, Confirm, Confirm));
+
+        var card = Assert.Single(controller.Cards);
+        Assert.False(card.IsBusy);
+        Assert.Equal(0, source.ValidationCallCount);
+        Assert.Equal(0, source.ChangeCallCount);
+        Assert.NotEqual(CourseStorageFeedbackKind.Success, card.FeedbackKind);
+    }
+
+    [Fact]
+    public async Task PreviewSyncAsync_ServiceCancellationPropagatesWithoutPublishingResult()
+    {
+        var course = CreateCourse();
+        var sync = new FakeContentSyncService
+        {
+            PreviewHandler = (_, _) => Task.FromException<CourseContentSyncPreviewResult>(
+                new OperationCanceledException("Preview canceled."))
+        };
+        using var controller = CreateLoadedController(course, sync);
+        await controller.LoadAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            controller.PreviewSyncAsync(course.Id));
+
+        var card = Assert.Single(controller.Cards);
+        Assert.False(card.IsBusy);
+        Assert.Null(card.SyncPreview);
+        Assert.NotEqual(CourseStorageFeedbackKind.Success, card.FeedbackKind);
+    }
+
+    [Fact]
+    public async Task ApplySyncAsync_ServiceCancellationPropagatesWithoutReloadOrNotification()
+    {
+        var course = CreateCourse();
+        var notifications = 0;
+        var courseService = new FakeCourseService(course);
+        var sync = new FakeContentSyncService
+        {
+            PreviewResult = ReadyPreviewWithNewLesson(course.Id),
+            ApplyHandler = (_, _) => Task.FromException<CourseContentSyncApplyResult>(
+                new OperationCanceledException("Apply canceled."))
+        };
+        using var controller = CreateController(
+            courseService,
+            new FakeFolderPickerService(),
+            new FakeSourceManagementService(),
+            sync,
+            () => notifications++);
+        await controller.LoadAsync();
+        await controller.PreviewSyncAsync(course.Id);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            controller.ApplySyncAsync(course.Id));
+
+        var card = Assert.Single(controller.Cards);
+        Assert.False(card.IsBusy);
+        Assert.Null(card.SyncApplyResult);
+        Assert.NotEqual(CourseStorageFeedbackKind.Success, card.FeedbackKind);
+        Assert.Equal(0, courseService.GetByIdCallCount);
+        Assert.Equal(0, notifications);
+    }
+
     private static CourseStorageManagementController CreateLoadedController(
         Course course,
         FakeContentSyncService sync)
@@ -784,6 +887,8 @@ public sealed class CourseStorageManagementControllerTests
     {
         public CourseContentSyncPreviewResult? PreviewResult { get; init; }
         public CourseContentSyncApplyResult? ApplyResult { get; init; }
+        public Func<Guid, CancellationToken, Task<CourseContentSyncPreviewResult>>? PreviewHandler { get; init; }
+        public Func<Guid, CancellationToken, Task<CourseContentSyncApplyResult>>? ApplyHandler { get; init; }
         public int PreviewCallCount { get; private set; }
         public int ApplyCallCount { get; private set; }
 
@@ -792,7 +897,8 @@ public sealed class CourseStorageManagementControllerTests
             CancellationToken cancellationToken = default)
         {
             PreviewCallCount++;
-            return Task.FromResult(PreviewResult ?? new CourseContentSyncPreviewResult
+            return PreviewHandler?.Invoke(courseId, cancellationToken) ??
+                   Task.FromResult(PreviewResult ?? new CourseContentSyncPreviewResult
             {
                 CourseId = courseId,
                 Status = CourseContentSyncPreviewStatus.NoChanges
@@ -804,7 +910,8 @@ public sealed class CourseStorageManagementControllerTests
             CancellationToken cancellationToken = default)
         {
             ApplyCallCount++;
-            return Task.FromResult(ApplyResult ?? new CourseContentSyncApplyResult
+            return ApplyHandler?.Invoke(courseId, cancellationToken) ??
+                   Task.FromResult(ApplyResult ?? new CourseContentSyncApplyResult
             {
                 CourseId = courseId,
                 Status = CourseContentSyncApplyStatus.NoChanges
