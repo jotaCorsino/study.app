@@ -56,6 +56,7 @@ body {
 .mode-note,
 .summary,
 .metrics,
+.download-job,
 .preview-block,
 .options,
 .instructions {
@@ -362,6 +363,85 @@ body {
   color: #30404f;
 }
 
+.btn-danger {
+  background: #b23a32;
+  color: #fff;
+}
+
+.download-job {
+  padding: 10px 12px;
+  border: 1px solid #d9dee5;
+  background: #fdfdfd;
+}
+
+.download-job-title,
+.download-errors-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.35px;
+  text-transform: uppercase;
+  color: #6e7781;
+}
+
+.download-job-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+
+.download-job-row,
+.download-job-last {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.download-job-row span,
+.download-job-last span {
+  color: #5b6570;
+}
+
+.download-job-row strong,
+.download-job-last strong {
+  color: #1a3a5c;
+  font-size: 12px;
+  text-align: right;
+}
+
+.download-job-last {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f2;
+  align-items: flex-start;
+}
+
+.download-job-last strong {
+  max-width: 210px;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.download-errors {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0f2;
+}
+
+.download-errors ul {
+  margin-top: 6px;
+  padding-left: 16px;
+}
+
+.download-errors li {
+  margin-bottom: 5px;
+  color: #8a2f28;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 .is-hidden {
   display: none !important;
 }

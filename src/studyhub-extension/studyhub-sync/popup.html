@@ -52,8 +52,42 @@
         <strong id="summary-videos">0</strong>
       </div>
       <div class="summary-row">
-        <span>Downloads iniciados</span>
+        <span>Downloads</span>
         <strong id="summary-downloads">0/0</strong>
+      </div>
+    </section>
+
+    <section id="download-job-area" class="download-job is-hidden" aria-live="polite">
+      <div class="download-job-title">Fila de downloads</div>
+      <div class="download-job-grid">
+        <div class="download-job-row">
+          <span>Planejados</span>
+          <strong id="job-planned">0</strong>
+        </div>
+        <div class="download-job-row">
+          <span>Iniciados</span>
+          <strong id="job-started">0</strong>
+        </div>
+        <div class="download-job-row">
+          <span>Em andamento</span>
+          <strong id="job-active">0</strong>
+        </div>
+        <div class="download-job-row">
+          <span>Concluidos</span>
+          <strong id="job-completed">0</strong>
+        </div>
+        <div class="download-job-row">
+          <span>Interrompidos/falhos</span>
+          <strong id="job-failed">0</strong>
+        </div>
+      </div>
+      <div class="download-job-last">
+        <span>Ultimo arquivo</span>
+        <strong id="job-last-file">--</strong>
+      </div>
+      <div id="job-errors-area" class="download-errors is-hidden">
+        <div class="download-errors-title">Erros</div>
+        <ul id="job-errors-list"></ul>
       </div>
     </section>
 
@@ -108,6 +142,7 @@
     <div class="actions">
       <button type="button" class="btn btn-secondary" id="btn-scan">Escanear Central</button>
       <button type="button" class="btn btn-primary" id="btn-download" disabled>Baixar curso por pasta</button>
+      <button type="button" class="btn btn-danger is-hidden" id="btn-cancel">Cancelar job</button>
     </div>
   </main>
 </body>

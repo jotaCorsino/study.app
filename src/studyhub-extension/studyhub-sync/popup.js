@@ -8,6 +8,7 @@ const POPUP_STATES = Object.freeze({
   DOWNLOADING: "downloading",
   DOWNLOAD_SUCCESS: "download-success",
   DOWNLOAD_ERROR: "download-error",
+  DOWNLOAD_CANCELLED: "download-cancelled",
   INVALID_PAGE: "invalid-page",
   COMMUNICATION_ERROR: "communication-error",
 });
@@ -16,8 +17,10 @@ const TIMEOUTS = Object.freeze({
   TAB_QUERY_MS: 3000,
   MESSAGE_MS: 4500,
   SCRIPT_INJECTION_MS: 4500,
-  DOWNLOAD_MS: 7000,
 });
+
+const DOWNLOAD_MESSAGE_TARGET = "studyhub-downloads";
+const DOWNLOAD_JOB_POLL_MS = 1500;
 
 const DEFAULT_BUTTON_TEXT = Object.freeze({
   scan: "Escanear Central",
@@ -25,7 +28,9 @@ const DEFAULT_BUTTON_TEXT = Object.freeze({
   connecting: "Conectando...",
   extracting: "Extraindo...",
   download: "Baixar curso por pasta",
-  downloading: "Baixando...",
+  downloading: "Fila em andamento",
+  cancelling: "Cancelando...",
+  cancel: "Cancelar job",
 });
 
 const DEFAULT_SUMMARY = Object.freeze({
@@ -48,7 +53,7 @@ const DEFAULT_METRICS = Object.freeze({
 
 const DOWNLOAD_HINTS = Object.freeze([
   "Os arquivos vao para a pasta padrao de Downloads usando caminhos relativos.",
-  "Depois voce pode mover a pasta manualmente e seleciona-la no StudyHub.",
+  "A fila continua no service worker mesmo se voce fechar o popup.",
   "O navegador pode renomear arquivos se o mesmo nome ja existir.",
 ]);
 
@@ -57,7 +62,8 @@ const runtimeState = {
   plan: null,
   isScanning: false,
   isDownloading: false,
-  downloadsStarted: 0,
+  activeJob: null,
+  jobPollTimer: null,
   lastActiveTab: null,
 };
 
@@ -74,6 +80,15 @@ const elements = {
   summaryLessons: document.getElementById("summary-lessons"),
   summaryVideos: document.getElementById("summary-videos"),
   summaryDownloads: document.getElementById("summary-downloads"),
+  downloadJobArea: document.getElementById("download-job-area"),
+  jobPlanned: document.getElementById("job-planned"),
+  jobStarted: document.getElementById("job-started"),
+  jobActive: document.getElementById("job-active"),
+  jobCompleted: document.getElementById("job-completed"),
+  jobFailed: document.getElementById("job-failed"),
+  jobLastFile: document.getElementById("job-last-file"),
+  jobErrorsArea: document.getElementById("job-errors-area"),
+  jobErrorsList: document.getElementById("job-errors-list"),
   metricsArea: document.getElementById("metrics-area"),
   metricsBlocks: document.getElementById("metrics-blocks"),
   metricsVideoSections: document.getElementById("metrics-video-sections"),
@@ -87,17 +102,25 @@ const elements = {
   includeMetadata: document.getElementById("include-metadata"),
   scanButton: document.getElementById("btn-scan"),
   downloadButton: document.getElementById("btn-download"),
+  cancelButton: document.getElementById("btn-cancel"),
 };
 
-document.addEventListener("DOMContentLoaded", initializePopup);
+document.addEventListener("DOMContentLoaded", () => {
+  initializePopup().catch((error) => {
+    console.error("[StudyHub Sync] popup initialization failed", error);
+    handlePopupError(error);
+  });
+});
 
-function initializePopup() {
+async function initializePopup() {
   elements.scanButton.addEventListener("click", () => scan({ auto: false }));
   elements.downloadButton.addEventListener("click", downloadCourseFolder);
+  elements.cancelButton.addEventListener("click", cancelActiveDownloadJob);
 
   renderSummary(DEFAULT_SUMMARY);
   renderMetrics(null);
   renderPreview(null);
+  renderDownloadJob(null);
   applyState(POPUP_STATES.IDLE, {
     title: "Pronto para ler a Central de Midia",
     detail: "Abra a pagina Central de Midia da disciplina para gerar um curso por pasta.",
@@ -109,17 +132,24 @@ function initializePopup() {
     ],
   });
 
-  scan({ auto: true });
+  const recoveredJob = await syncDownloadJob({ initial: true });
+  if (!recoveredJob) {
+    scan({ auto: true });
+  }
 }
 
 async function scan({ auto = false } = {}) {
-  if (runtimeState.isScanning || runtimeState.isDownloading) {
+  if (runtimeState.isScanning || runtimeState.isDownloading || isActiveDownloadJob(runtimeState.activeJob)) {
     return;
+  }
+
+  if (!isActiveDownloadJob(runtimeState.activeJob)) {
+    setDownloadJob(null);
+    renderDownloadJob(null);
   }
 
   runtimeState.isScanning = true;
   runtimeState.plan = null;
-  runtimeState.downloadsStarted = 0;
   renderSummary(DEFAULT_SUMMARY);
   renderMetrics(null);
   renderPreview(null);
@@ -171,7 +201,11 @@ async function scan({ auto = false } = {}) {
 }
 
 async function downloadCourseFolder() {
-  if (runtimeState.isScanning || runtimeState.isDownloading) {
+  if (runtimeState.isScanning || runtimeState.isDownloading || isActiveDownloadJob(runtimeState.activeJob)) {
+    if (isActiveDownloadJob(runtimeState.activeJob)) {
+      renderDownloadJob(runtimeState.activeJob);
+      startDownloadJobPolling();
+    }
     return;
   }
 
@@ -192,85 +226,68 @@ async function downloadCourseFolder() {
     return;
   }
 
-  runtimeState.isDownloading = true;
-  runtimeState.downloadsStarted = 0;
-  renderSummary(buildSummaryFromPlan(runtimeState.plan, 0));
-
   const includeMetadata = elements.includeMetadata.checked;
+  const jobPlan = buildDownloadJobPlan(runtimeState.plan, includeMetadata);
+
+  runtimeState.isDownloading = true;
+  renderSummary(buildSummaryFromPlan(runtimeState.plan, `0/${jobPlan.items.length}`));
 
   try {
-    const queue = buildDownloadQueue(runtimeState.plan, includeMetadata);
-
     applyState(POPUP_STATES.DOWNLOADING, {
-      title: "Iniciando downloads",
-      detail: buildDownloadDetail(runtimeState.plan, 0, includeMetadata),
+      title: "Preparando fila de downloads",
+      detail: `${jobPlan.items.length} arquivo(s) planejado(s). A fila usa ate 2 downloads simultaneos.`,
       instructionsTitle: "O que acontece agora",
       instructions: DOWNLOAD_HINTS,
     });
 
-    const failures = [];
+    const job = await startBackgroundDownloadJob(jobPlan);
+    renderDownloadJob(job);
 
-    for (const item of queue) {
-      try {
-        await downloadQueueItem(item);
-
-        if (item.kind === "video") {
-          runtimeState.downloadsStarted += 1;
-          renderSummary(buildSummaryFromPlan(runtimeState.plan, runtimeState.downloadsStarted));
-        }
-
-        applyState(POPUP_STATES.DOWNLOADING, {
-          title: "Iniciando downloads",
-          detail: buildDownloadDetail(
-            runtimeState.plan,
-            runtimeState.downloadsStarted,
-            includeMetadata
-          ),
-          instructionsTitle: "O que acontece agora",
-          instructions: DOWNLOAD_HINTS,
-        });
-      } catch (error) {
-        failures.push(error);
+    if (isActiveDownloadJob(job)) {
+      startDownloadJobPolling();
+    }
+  } catch (error) {
+    if (error?.code === "job-active") {
+      const job = await fetchDownloadJob().catch(() => null);
+      if (job) {
+        renderDownloadJob(job);
+        startDownloadJobPolling();
+        return;
       }
     }
 
-    if (failures.length > 0) {
-      throw createPopupError("download-partial", {
-        state: POPUP_STATES.DOWNLOAD_ERROR,
-        title: "Download iniciado parcialmente",
-        detail:
-          `${runtimeState.downloadsStarted} de ${runtimeState.plan.videoCount} video(s) foram ` +
-          `iniciados. Primeiro erro: ${failures[0]?.message || "falha ao iniciar download"}.`,
-        instructionsTitle: "Como interpretar",
-        instructions: [
-          "Parte dos downloads pode depender da sessao ativa ou da politica do navegador.",
-          "Confira a fila de Downloads e tente novamente se algo importante falhar.",
-          "Se necessario, recarregue a Central de Midia antes de repetir o processo.",
-        ],
-      });
-    }
-
-    applyState(POPUP_STATES.DOWNLOAD_SUCCESS, {
-      title: "Curso por pasta iniciado",
-      detail:
-        `${runtimeState.plan.videoCount} video(s) enviados para Downloads/` +
-        `${runtimeState.plan.courseFolderName}.`,
-      instructionsTitle: "Proximo passo",
-      instructions: [
-        "Aguarde o navegador concluir os downloads dos arquivos grandes.",
-        "Depois voce pode mover a pasta manualmente para outro local.",
-        "No StudyHub, use o fluxo existente de curso por pasta para selecionar a pasta final.",
-      ],
-    });
-  } catch (error) {
-    console.error("[StudyHub Sync] download failed", error);
+    console.error("[StudyHub Sync] download job failed", error);
     handlePopupError(error);
   } finally {
-    runtimeState.isDownloading = false;
+    runtimeState.isDownloading = isActiveDownloadJob(runtimeState.activeJob);
     updateActionButtons();
   }
 }
 
+async function cancelActiveDownloadJob() {
+  if (!isActiveDownloadJob(runtimeState.activeJob)) {
+    return;
+  }
+
+  try {
+    elements.cancelButton.disabled = true;
+    elements.cancelButton.textContent = DEFAULT_BUTTON_TEXT.cancelling;
+    applyState(POPUP_STATES.DOWNLOADING, {
+      title: "Cancelando fila",
+      detail: "Os downloads pendentes serao descartados e os ativos serao cancelados pelo navegador.",
+      instructionsTitle: "Cancelamento",
+      instructions: ["Aguarde o navegador confirmar os downloads ativos antes de iniciar uma nova fila."],
+    });
+
+    const job = await cancelBackgroundDownloadJob(runtimeState.activeJob.id);
+    renderDownloadJob(job);
+  } catch (error) {
+    console.error("[StudyHub Sync] cancel failed", error);
+    handlePopupError(error);
+  } finally {
+    updateActionButtons();
+  }
+}
 async function ensureContentScriptReady(tab) {
   applyState(POPUP_STATES.CONNECTING, {
     title: "Conectando com a pagina",
@@ -836,73 +853,58 @@ function buildDownloadQueue(plan, includeMetadata) {
   return includeMetadata ? [...plan.videoFiles, plan.metadataFile] : [...plan.videoFiles];
 }
 
-async function downloadQueueItem(item) {
-  if (item.kind === "metadata") {
-    return downloadJson(item.payload, item.relativePath);
-  }
+function buildDownloadJobPlan(plan, includeMetadata) {
+  const queue = buildDownloadQueue(plan, includeMetadata);
 
-  return downloadUrl(item.sourceUrl, item.relativePath);
+  return {
+    source: "popup",
+    courseName: plan.courseName,
+    courseFolderName: plan.courseFolderName,
+    sourceUrl: plan.sourceUrl || null,
+    sectionStatusLabel: plan.sectionStatusLabel || "Detectada",
+    includeMetadata,
+    lessonCount: plan.lessonCount,
+    videoCount: plan.videoCount,
+    items: queue.map((item, index) => buildDownloadJobItem(item, index)),
+  };
 }
 
-async function downloadUrl(url, filename) {
-  const downloadId = await withTimeout(
-    chrome.downloads.download({
-      url,
-      filename,
-      saveAs: false,
-      conflictAction: "uniquify",
-    }),
-    TIMEOUTS.DOWNLOAD_MS,
-    createPopupError("timeout", {
-      state: POPUP_STATES.DOWNLOAD_ERROR,
-      title: "Tempo esgotado ao iniciar download",
-      detail: `O navegador demorou demais para aceitar ${filename}.`,
-      instructionsTitle: "Como corrigir",
-      instructions: [
-        "Tente novamente em alguns segundos.",
-        "Se a sessao da plataforma expirou, recarregue a pagina antes de repetir o fluxo.",
-      ],
-    })
-  );
-
-  if (typeof downloadId !== "number") {
-    throw createPopupError("download-invalid-id", {
-      state: POPUP_STATES.DOWNLOAD_ERROR,
-      title: "Falha ao iniciar download",
-      detail: `O navegador nao retornou um identificador valido para ${filename}.`,
-      instructionsTitle: "Como corrigir",
-      instructions: [
-        "Confira se o navegador esta permitindo downloads para a extensao.",
-        "Tente novamente apos atualizar a pagina da Central de Midia.",
-      ],
-    });
-  }
-
-  return downloadId;
+function buildDownloadJobItem(item, index) {
+  return {
+    id: `${item.kind}-${String(index + 1).padStart(3, "0")}`,
+    kind: item.kind,
+    sourceUrl: item.sourceUrl || null,
+    payload: item.payload || null,
+    relativePath: item.relativePath,
+    lessonLabel: item.lessonLabel || null,
+    lessonOrder: item.lessonOrder || null,
+    originalName: item.originalName || getFileNameFromRelativePath(item.relativePath),
+    normalizedName: item.normalizedName || getFileNameFromRelativePath(item.relativePath),
+    sectionKind: item.sectionKind || null,
+  };
 }
 
-function downloadJson(payload, filename) {
-  const dataUrl = `data:application/json;charset=utf-8,${encodeURIComponent(
-    JSON.stringify(payload, null, 2)
-  )}`;
-
-  return downloadUrl(dataUrl, filename);
+function getFileNameFromRelativePath(relativePath) {
+  return String(relativePath || "").split("/").filter(Boolean).pop() || "arquivo";
 }
 
 function renderAnalysis(analysis) {
+  if (!isActiveDownloadJob(runtimeState.activeJob)) {
+    setDownloadJob(null);
+    renderDownloadJob(null);
+  }
+
   renderSummary(analysis.summary || DEFAULT_SUMMARY);
   renderMetrics(analysis.metrics || null);
   renderPreview(analysis.preview || null);
 
   if (analysis.kind === "ready") {
     runtimeState.plan = analysis.plan;
-    runtimeState.downloadsStarted = 0;
     applyState(POPUP_STATES.READY, analysis.presentation);
     return;
   }
 
   runtimeState.plan = null;
-  runtimeState.downloadsStarted = 0;
   applyState(
     analysis.kind === "empty" ? POPUP_STATES.EMPTY : POPUP_STATES.INVALID_PAGE,
     analysis.presentation
@@ -983,6 +985,108 @@ function renderPreview(preview) {
   elements.previewArea.classList.remove("is-hidden");
 }
 
+function renderDownloadJob(job) {
+  setDownloadJob(job);
+
+  if (!job) {
+    elements.downloadJobArea.classList.add("is-hidden");
+    elements.jobErrorsArea.classList.add("is-hidden");
+    elements.jobErrorsList.replaceChildren();
+    return;
+  }
+
+  const counts = getJobCounts(job);
+  elements.jobPlanned.textContent = String(counts.planned);
+  elements.jobStarted.textContent = String(counts.started);
+  elements.jobActive.textContent = String(counts.active);
+  elements.jobCompleted.textContent = String(counts.completed);
+  elements.jobFailed.textContent = String(counts.failed);
+  elements.jobLastFile.textContent =
+    job.lastProcessedFile?.relativePath || job.latestActivity?.file?.relativePath || "--";
+
+  renderDownloadJobErrors(job.errors || []);
+  elements.downloadJobArea.classList.remove("is-hidden");
+  renderSummary(buildSummaryFromJob(job));
+
+  if (isActiveDownloadJob(job)) {
+    applyState(POPUP_STATES.DOWNLOADING, {
+      title: job.status === "cancelling" ? "Cancelando fila" : "Baixando curso por pasta",
+      detail: buildActiveJobDetail(job),
+      instructionsTitle: "Fila em andamento",
+      instructions: DOWNLOAD_HINTS,
+    });
+    startDownloadJobPolling();
+    return;
+  }
+
+  stopDownloadJobPolling();
+
+  if (job.status === "cancelled") {
+    applyState(POPUP_STATES.DOWNLOAD_CANCELLED, {
+      title: "Fila cancelada",
+      detail: buildFinalJobDetail(job),
+      instructionsTitle: "Proximo passo",
+      instructions: ["Escaneie novamente a Central de Midia antes de iniciar uma nova fila."],
+    });
+    return;
+  }
+
+  const hasFailures = counts.failed > 0 || job.status === "completed-with-errors";
+  applyState(hasFailures ? POPUP_STATES.DOWNLOAD_ERROR : POPUP_STATES.DOWNLOAD_SUCCESS, {
+    title: hasFailures ? "Downloads finalizados com falhas" : "Downloads concluidos",
+    detail: hasFailures
+      ? `${buildFinalJobDetail(job)}. Consulte os erros abaixo.`
+      : buildFinalJobDetail(job),
+    instructionsTitle: hasFailures ? "Como interpretar" : "Concluido",
+    instructions: hasFailures
+      ? ["Os arquivos com falha foram registrados com aula, nome e caminho.", "A fila continuou mesmo apos falhas individuais."]
+      : ["Todos os arquivos planejados foram concluidos pelo navegador."],
+  });
+}
+
+function renderDownloadJobErrors(errors) {
+  elements.jobErrorsList.replaceChildren();
+
+  if (!Array.isArray(errors) || errors.length === 0) {
+    elements.jobErrorsArea.classList.add("is-hidden");
+    return;
+  }
+
+  errors.forEach((error) => {
+    const lesson = error.lessonLabel || "Curso";
+    const name = error.name || error.originalName || getFileNameFromRelativePath(error.relativePath);
+    const reason = error.message || error.reason || "Falha sem detalhe informado.";
+    elements.jobErrorsList.appendChild(
+      createTextNode("li", "", `${lesson} - ${name}: ${reason} (${error.relativePath})`)
+    );
+  });
+
+  elements.jobErrorsArea.classList.remove("is-hidden");
+}
+
+function buildActiveJobDetail(job) {
+  const counts = getJobCounts(job);
+  const lastFile = job.lastProcessedFile?.relativePath || job.latestActivity?.file?.relativePath;
+  const base =
+    `${counts.completed} de ${counts.planned} arquivo(s) concluidos, ` +
+    `${counts.active} em andamento, ${counts.pending} pendente(s), ` +
+    `${counts.failed} interrompido(s).`;
+
+  return lastFile ? `${base} Ultimo: ${lastFile}.` : base;
+}
+
+function buildFinalJobDetail(job) {
+  const counts = getJobCounts(job);
+  const videos = counts.videos;
+  const videoText = `${videos.completed} concluido(s), ${videos.interrupted} interrompido(s)`;
+
+  if (counts.planned !== videos.planned) {
+    return `${videoText} entre os videos. Arquivos totais: ${counts.completed} concluidos, ${counts.failed} interrompidos`;
+  }
+
+  return videoText;
+}
+
 function applyState(state, options = {}) {
   runtimeState.state = state;
   elements.status.dataset.state = state;
@@ -1011,9 +1115,13 @@ function renderInstructions(title, instructions) {
 }
 
 function updateActionButtons() {
-  elements.scanButton.disabled = runtimeState.isScanning || runtimeState.isDownloading;
+  const hasActiveJob = isActiveDownloadJob(runtimeState.activeJob);
+  elements.scanButton.disabled = runtimeState.isScanning || runtimeState.isDownloading || hasActiveJob;
   elements.downloadButton.disabled =
-    runtimeState.isScanning || runtimeState.isDownloading || !runtimeState.plan;
+    runtimeState.isScanning || runtimeState.isDownloading || hasActiveJob || !runtimeState.plan;
+
+  elements.cancelButton.classList.toggle("is-hidden", !hasActiveJob);
+  elements.cancelButton.disabled = !hasActiveJob || runtimeState.activeJob?.status === "cancelling";
 
   elements.scanButton.textContent =
     runtimeState.state === POPUP_STATES.CHECKING_PAGE
@@ -1028,16 +1136,22 @@ function updateActionButtons() {
     runtimeState.state === POPUP_STATES.DOWNLOADING
       ? DEFAULT_BUTTON_TEXT.downloading
       : DEFAULT_BUTTON_TEXT.download;
+
+  elements.cancelButton.textContent =
+    runtimeState.activeJob?.status === "cancelling"
+      ? DEFAULT_BUTTON_TEXT.cancelling
+      : DEFAULT_BUTTON_TEXT.cancel;
 }
 
 function handlePopupError(error) {
   const popupError = normalizePopupError(error);
 
-  if (popupError.state === POPUP_STATES.DOWNLOAD_ERROR && runtimeState.plan) {
-    renderSummary(buildSummaryFromPlan(runtimeState.plan, runtimeState.downloadsStarted));
+  if (popupError.state === POPUP_STATES.DOWNLOAD_ERROR && runtimeState.activeJob) {
+    renderSummary(buildSummaryFromJob(runtimeState.activeJob));
+  } else if (popupError.state === POPUP_STATES.DOWNLOAD_ERROR && runtimeState.plan) {
+    renderSummary(buildSummaryFromPlan(runtimeState.plan, "0/0"));
   } else {
     runtimeState.plan = null;
-    runtimeState.downloadsStarted = 0;
     renderSummary(DEFAULT_SUMMARY);
     renderMetrics(null);
     renderPreview(null);
@@ -1174,6 +1288,102 @@ async function sendTabMessage(tabId, message, timeoutMs) {
   }
 }
 
+async function fetchDownloadJob() {
+  const response = await sendBackgroundMessage("GET_JOB");
+  return response.job || null;
+}
+
+async function startBackgroundDownloadJob(plan) {
+  const response = await sendBackgroundMessage("START_JOB", { plan });
+  return response.job || null;
+}
+
+async function cancelBackgroundDownloadJob(jobId) {
+  const response = await sendBackgroundMessage("CANCEL_JOB", { jobId });
+  return response.job || null;
+}
+
+async function sendBackgroundMessage(action, payload = {}) {
+  const response = await withTimeout(
+    chrome.runtime.sendMessage({
+      target: DOWNLOAD_MESSAGE_TARGET,
+      action,
+      ...payload,
+    }),
+    TIMEOUTS.MESSAGE_MS,
+    createPopupError("timeout", {
+      state: POPUP_STATES.DOWNLOAD_ERROR,
+      title: "Tempo esgotado na fila",
+      detail: "O service worker demorou demais para responder.",
+      instructionsTitle: "Como corrigir",
+      instructions: ["Recarregue a extensao em chrome://extensions e tente novamente."],
+    })
+  );
+
+  if (!response?.ok) {
+    const code = response?.error?.code || "background-error";
+    const detail = response?.error?.message || "O service worker recusou a operacao.";
+    throw createPopupError(code, {
+      state: POPUP_STATES.DOWNLOAD_ERROR,
+      title: code === "job-active" ? "Fila ja em andamento" : "Falha na fila de downloads",
+      detail,
+      instructionsTitle: "Como corrigir",
+      instructions:
+        code === "job-active"
+          ? ["Aguarde a fila atual terminar ou cancele explicitamente antes de iniciar outra."]
+          : ["Reabra o popup e confira o estado atual da fila."],
+    });
+  }
+
+  return response;
+}
+
+async function syncDownloadJob({ initial = false } = {}) {
+  try {
+    const job = await fetchDownloadJob();
+
+    if (!job) {
+      setDownloadJob(null);
+      renderDownloadJob(null);
+      stopDownloadJobPolling();
+      return false;
+    }
+
+    renderDownloadJob(job);
+    return true;
+  } catch (error) {
+    console.warn("[StudyHub Sync] failed to sync download job", error);
+    stopDownloadJobPolling();
+
+    if (!initial) {
+      handlePopupError(error);
+    }
+
+    return false;
+  }
+}
+
+function startDownloadJobPolling() {
+  if (runtimeState.jobPollTimer) {
+    return;
+  }
+
+  runtimeState.jobPollTimer = window.setInterval(() => {
+    syncDownloadJob().catch((error) => {
+      console.warn("[StudyHub Sync] polling failed", error);
+    });
+  }, DOWNLOAD_JOB_POLL_MS);
+}
+
+function stopDownloadJobPolling() {
+  if (!runtimeState.jobPollTimer) {
+    return;
+  }
+
+  window.clearInterval(runtimeState.jobPollTimer);
+  runtimeState.jobPollTimer = null;
+}
+
 function withTimeout(promise, timeoutMs, timeoutError) {
   let timeoutId = null;
 
@@ -1196,22 +1406,53 @@ function withTimeout(promise, timeoutMs, timeoutError) {
   });
 }
 
-function buildSummaryFromPlan(plan, downloadsStarted) {
+function buildSummaryFromPlan(plan, downloadsValue = 0) {
+  const downloads =
+    typeof downloadsValue === "string" ? downloadsValue : `${downloadsValue}/${plan.videoCount}`;
+
   return {
     page: "Valida",
     section: plan.sectionStatusLabel || "Detectada",
     discipline: plan.courseName,
     lessons: String(plan.lessonCount),
     videos: String(plan.videoCount),
-    downloads: `${downloadsStarted}/${plan.videoCount}`,
+    downloads,
   };
 }
 
-function buildDownloadDetail(plan, downloadsStarted, includeMetadata) {
-  return (
-    `${downloadsStarted} de ${plan.videoCount} video(s) ja foram enviados para a fila de Downloads` +
-    `${includeMetadata ? " + studyhub-course.json." : "."}`
-  );
+function buildSummaryFromJob(job) {
+  const counts = getJobCounts(job);
+
+  return {
+    page: "Valida",
+    section: job.sectionStatusLabel || "Detectada",
+    discipline: job.courseName || "--",
+    lessons: String(job.lessonCount || 0),
+    videos: String(job.videoCount || counts.videos.planned || 0),
+    downloads: `${counts.completed}/${counts.planned}`,
+  };
+}
+
+function getJobCounts(job) {
+  const counts = job?.counts || {};
+  const videos = counts.videos || {};
+
+  return {
+    planned: Number(counts.planned || job?.items?.length || 0),
+    pending: Number(counts.pending || 0),
+    started: Number(counts.started || 0),
+    active: Number(counts.active || 0),
+    completed: Number(counts.completed || 0),
+    failed: Number(counts.failed || counts.interrupted || 0),
+    interrupted: Number(counts.interrupted || counts.failed || 0),
+    videos: {
+      planned: Number(videos.planned || job?.videoCount || 0),
+      completed: Number(videos.completed || 0),
+      interrupted: Number(videos.interrupted || 0),
+      pending: Number(videos.pending || 0),
+      active: Number(videos.active || 0),
+    },
+  };
 }
 
 function sanitizePathSegment(value, options = {}) {
@@ -1256,6 +1497,14 @@ function padNumber(value) {
   return String(value).padStart(2, "0");
 }
 
+function setDownloadJob(job) {
+  runtimeState.activeJob = job || null;
+  runtimeState.isDownloading = isActiveDownloadJob(job);
+}
+
+function isActiveDownloadJob(job) {
+  return Boolean(job && ["queued", "running", "cancelling"].includes(job.status));
+}
 function isPageStillLoading(tab, meta) {
   return tab?.status === "loading" || meta?.readyState === "loading" || meta?.readyState === "interactive";
 }
@@ -1276,6 +1525,7 @@ function getStatusClass(state) {
       return "status-success";
     case POPUP_STATES.EMPTY:
     case POPUP_STATES.INVALID_PAGE:
+    case POPUP_STATES.DOWNLOAD_CANCELLED:
       return "status-warning";
     case POPUP_STATES.DOWNLOAD_ERROR:
     case POPUP_STATES.COMMUNICATION_ERROR:
@@ -1309,9 +1559,11 @@ function getDefaultTitle(state) {
     case POPUP_STATES.DOWNLOADING:
       return "Iniciando downloads";
     case POPUP_STATES.DOWNLOAD_SUCCESS:
-      return "Downloads iniciados";
+      return "Downloads concluidos";
     case POPUP_STATES.DOWNLOAD_ERROR:
-      return "Falha ao iniciar downloads";
+      return "Falha nos downloads";
+    case POPUP_STATES.DOWNLOAD_CANCELLED:
+      return "Downloads cancelados";
     case POPUP_STATES.INVALID_PAGE:
       return "Pagina invalida";
     case POPUP_STATES.COMMUNICATION_ERROR:
