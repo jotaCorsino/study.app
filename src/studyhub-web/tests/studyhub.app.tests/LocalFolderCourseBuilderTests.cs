@@ -32,9 +32,9 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         var detectedLesson = Assert.Single(result.DetectedStructure.Modules
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons));
-        var lesson = Assert.Single(result.Course.Modules
-            .SelectMany(module => module.Topics)
-            .SelectMany(topic => topic.Lessons));
+        var module = Assert.Single(result.Course.Modules);
+        var topic = Assert.Single(module.Topics);
+        var lesson = Assert.Single(topic.Lessons);
         var expectedAbsolutePath = Path.GetFullPath(videoPath);
 
         Assert.Equal(expectedAbsolutePath, detectedLesson.AbsolutePath);
@@ -44,6 +44,65 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         Assert.Equal(ExpectedRelativePath, lesson.RelativeFilePath);
         Assert.False(Path.IsPathFullyQualified(lesson.RelativeFilePath));
         Assert.DoesNotContain('\\', lesson.RelativeFilePath);
+        Assert.Equal("Modulo 01", module.SourceRelativePath);
+        Assert.Equal("Modulo 01/Topico 01", topic.SourceRelativePath);
+    }
+
+    [Fact]
+    public async Task BuildAsync_UsesModulePathForTopicWithDirectLessons()
+    {
+        var courseRoot = Path.Combine(_rootDirectory, "direct-module-course");
+        var moduleDirectory = Path.Combine(courseRoot, "Modulo 02");
+        Directory.CreateDirectory(moduleDirectory);
+        await File.WriteAllBytesAsync(
+            Path.Combine(moduleDirectory, "Aula 02.mp4"),
+            Array.Empty<byte>());
+
+        var builder = new LocalFolderCourseBuilder(new FakeVideoMetadataReader());
+        var result = await builder.BuildAsync(new LocalFolderCourseBuildRequest
+        {
+            FolderPath = courseRoot
+        });
+
+        var detectedModule = Assert.Single(result.DetectedStructure.Modules);
+        var detectedTopic = Assert.Single(detectedModule.Topics);
+        var module = Assert.Single(result.Course.Modules);
+        var topic = Assert.Single(module.Topics);
+        var lesson = Assert.Single(topic.Lessons);
+
+        Assert.Equal("Modulo 02", detectedModule.RelativePath);
+        Assert.Equal(".", detectedTopic.RelativePath);
+        Assert.Equal("Modulo 02", module.SourceRelativePath);
+        Assert.Equal("Modulo 02", topic.SourceRelativePath);
+        Assert.Equal("Modulo 02/Aula 02.mp4", lesson.RelativeFilePath);
+    }
+
+    [Fact]
+    public async Task BuildAsync_UsesRootMarkerForLessonsDirectlyInCourseRoot()
+    {
+        var courseRoot = Path.Combine(_rootDirectory, "root-lessons-course");
+        Directory.CreateDirectory(courseRoot);
+        await File.WriteAllBytesAsync(
+            Path.Combine(courseRoot, "Aula raiz.mp4"),
+            Array.Empty<byte>());
+
+        var builder = new LocalFolderCourseBuilder(new FakeVideoMetadataReader());
+        var result = await builder.BuildAsync(new LocalFolderCourseBuildRequest
+        {
+            FolderPath = courseRoot
+        });
+
+        var detectedModule = Assert.Single(result.DetectedStructure.Modules);
+        var detectedTopic = Assert.Single(detectedModule.Topics);
+        var module = Assert.Single(result.Course.Modules);
+        var topic = Assert.Single(module.Topics);
+        var lesson = Assert.Single(topic.Lessons);
+
+        Assert.Equal(".", detectedModule.RelativePath);
+        Assert.Equal(".", detectedTopic.RelativePath);
+        Assert.Equal(".", module.SourceRelativePath);
+        Assert.Equal(".", topic.SourceRelativePath);
+        Assert.Equal("Aula raiz.mp4", lesson.RelativeFilePath);
     }
 
     [Fact]
@@ -79,8 +138,12 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
 
         await using (var assertContext = new StudyHubDbContext(options))
         {
+            var persistedModule = await assertContext.Modules.AsNoTracking().SingleAsync();
+            var persistedTopic = await assertContext.Topics.AsNoTracking().SingleAsync();
             var persistedLesson = await assertContext.Lessons.AsNoTracking().SingleAsync();
 
+            Assert.Equal("Modulo 01", persistedModule.SourceRelativePath);
+            Assert.Equal("Modulo 01/Topico 01", persistedTopic.SourceRelativePath);
             Assert.Equal(expectedAbsolutePath, persistedLesson.LocalFilePath);
             Assert.Equal(ExpectedRelativePath, persistedLesson.RelativeFilePath);
         }
@@ -89,10 +152,12 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         var loadedCourse = await persistedCourseService.GetCourseByIdAsync(importResult.CourseId.Value);
 
         Assert.NotNull(loadedCourse);
-        var loadedLesson = Assert.Single(loadedCourse!.Modules
-            .SelectMany(module => module.Topics)
-            .SelectMany(topic => topic.Lessons));
+        var loadedModule = Assert.Single(loadedCourse!.Modules);
+        var loadedTopic = Assert.Single(loadedModule.Topics);
+        var loadedLesson = Assert.Single(loadedTopic.Lessons);
 
+        Assert.Equal("Modulo 01", loadedModule.SourceRelativePath);
+        Assert.Equal("Modulo 01/Topico 01", loadedTopic.SourceRelativePath);
         Assert.Equal(expectedAbsolutePath, loadedLesson.LocalFilePath);
         Assert.Equal(ExpectedRelativePath, loadedLesson.RelativeFilePath);
         Assert.DoesNotContain('\\', loadedLesson.RelativeFilePath);
@@ -111,6 +176,8 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         var courseRoot = Path.Combine(_rootDirectory, courseFolderName);
         var lessonDirectory = Path.Combine(courseRoot, "Modulo 01", "Topico 01");
         Directory.CreateDirectory(lessonDirectory);
+        // A second root child keeps the scanner presentation root at the course root.
+        Directory.CreateDirectory(Path.Combine(courseRoot, "empty-presentation-boundary"));
 
         var videoPath = Path.Combine(lessonDirectory, "Aula 01.mp4");
         await File.WriteAllBytesAsync(videoPath, Array.Empty<byte>());

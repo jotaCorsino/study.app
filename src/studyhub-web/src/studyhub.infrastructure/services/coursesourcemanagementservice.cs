@@ -699,66 +699,35 @@ public sealed class CourseSourceManagementService(
         CourseRecord course,
         string currentRootPath)
     {
-        if (manifest.CourseId != course.Id)
+        if (!LocalCourseManifestValidator.HasMatchingPersistedIdentities(manifest, course))
         {
             return false;
         }
 
-        var persistedModules = course.Modules.Select(module => module.Id).ToHashSet();
-        var persistedTopics = course.Modules
-            .SelectMany(module => module.Topics.Select(topic => new
-            {
-                TopicId = topic.Id,
-                ModuleId = module.Id
-            }))
-            .ToDictionary(item => item.TopicId, item => item.ModuleId);
         var persistedLessons = course.Modules
             .SelectMany(module => module.Topics)
-            .SelectMany(topic => topic.Lessons.Select(lesson => new
-            {
-                Lesson = lesson,
-                TopicId = topic.Id
-            }))
-            .ToDictionary(
-                item => item.Lesson.Id,
-                item => new PersistedLessonIdentity(item.TopicId, item.Lesson));
-        var manifestModules = manifest.Modules.Select(module => module.ModuleId).ToHashSet();
-        var manifestTopics = manifest.Modules
-            .SelectMany(module => module.Topics.Select(topic => new { topic.TopicId, module.ModuleId }))
-            .ToDictionary(item => item.TopicId, item => item.ModuleId);
+            .SelectMany(topic => topic.Lessons)
+            .ToDictionary(lesson => lesson.Id);
         var manifestLessons = manifest.Modules
             .SelectMany(module => module.Topics)
-            .SelectMany(topic => topic.Lessons.Select(lesson => new { Lesson = lesson, topic.TopicId }))
-            .ToDictionary(
-                item => item.Lesson.LessonId,
-                item => new ManifestLessonIdentity(item.TopicId, item.Lesson.RelativePath));
-
-        if (!persistedModules.SetEquals(manifestModules) ||
-            persistedTopics.Count != manifestTopics.Count ||
-            persistedLessons.Count != manifestLessons.Count ||
-            persistedTopics.Any(item =>
-                !manifestTopics.TryGetValue(item.Key, out var moduleId) ||
-                moduleId != item.Value))
-        {
-            return false;
-        }
+            .SelectMany(topic => topic.Lessons)
+            .ToDictionary(lesson => lesson.LessonId, lesson => lesson.RelativePath);
 
         foreach (var (lessonId, persistedLesson) in persistedLessons)
         {
-            if (!manifestLessons.TryGetValue(lessonId, out var manifestLesson) ||
-                manifestLesson.TopicId != persistedLesson.TopicId)
+            if (!manifestLessons.TryGetValue(lessonId, out var manifestRelativePath))
             {
                 return false;
             }
 
             if (TryGetComparableRelativePath(
-                    persistedLesson.Lesson,
+                    persistedLesson,
                     currentRootPath,
                     out var persistedRelativePath) &&
                 (!LocalLessonPathHelper.TryNormalizePortableRelativePath(
-                     manifestLesson.RelativePath,
-                     out var manifestRelativePath) ||
-                 !PathComparer.Equals(persistedRelativePath, manifestRelativePath)))
+                     manifestRelativePath,
+                     out var normalizedManifestRelativePath) ||
+                 !PathComparer.Equals(persistedRelativePath, normalizedManifestRelativePath)))
             {
                 return false;
             }
@@ -850,10 +819,6 @@ public sealed class CourseSourceManagementService(
         Invalid = 2,
         IdentityMismatch = 3
     }
-
-    private sealed record PersistedLessonIdentity(Guid TopicId, LessonRecord Lesson);
-
-    private sealed record ManifestLessonIdentity(Guid TopicId, string RelativePath);
 
     private sealed record ValidationOutcome(
         CourseSourceLocationValidationResult Result,

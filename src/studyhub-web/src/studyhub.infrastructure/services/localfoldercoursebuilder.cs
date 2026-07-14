@@ -30,6 +30,11 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
         {
             var moduleRawTitle = detectedModule.RawName;
             var moduleTitle = LocalCourseScanner.NormalizeDisplayName(detectedModule.RawName);
+            var moduleSourceRelativePath = LocalCourseStructurePathHelper.TryNormalize(
+                detectedModule.RelativePath,
+                out var normalizedModuleSourceRelativePath)
+                ? normalizedModuleSourceRelativePath
+                : string.Empty;
             var topics = new List<Topic>();
 
             foreach (var detectedTopic in detectedModule.Topics.OrderBy(topic => topic.Order))
@@ -38,6 +43,12 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                 var topicTitle = detectedTopic.RelativePath == "."
                     ? moduleTitle
                     : LocalCourseScanner.NormalizeDisplayName(detectedTopic.RawName);
+                var topicSourceRelativePath = LocalCourseStructurePathHelper.TryCombine(
+                    moduleSourceRelativePath,
+                    detectedTopic.RelativePath,
+                    out var normalizedTopicSourceRelativePath)
+                    ? normalizedTopicSourceRelativePath
+                    : string.Empty;
 
                 var lessons = new List<Lesson>();
 
@@ -83,6 +94,7 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                     RawDescription = string.Empty,
                     Title = topicTitle,
                     Description = string.Empty,
+                    SourceRelativePath = topicSourceRelativePath,
                     Lessons = lessons
                 });
             }
@@ -96,6 +108,7 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                 RawDescription = string.Empty,
                 Title = moduleTitle,
                 Description = string.Empty,
+                SourceRelativePath = moduleSourceRelativePath,
                 Topics = topics
             });
         }

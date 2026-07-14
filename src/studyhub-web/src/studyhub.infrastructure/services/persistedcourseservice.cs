@@ -299,6 +299,10 @@ public class PersistedCourseService(
         IReadOnlyDictionary<Guid, PreservedLessonState> preservedLessonState)
     {
         var modules = new List<Module>();
+        var existingModulesById = existingCourse.Modules.ToDictionary(module => module.Id);
+        var existingTopicsById = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .ToDictionary(topic => topic.Id);
         var preservedRelativeFilePaths = existingCourse.Modules
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons)
@@ -308,6 +312,9 @@ public class PersistedCourseService(
         {
             var moduleRawTitle = FirstNonEmpty(detectedModule.RawName, $"Modulo {detectedModule.Order}");
             var moduleTitle = LocalCourseScanner.NormalizeDisplayName(moduleRawTitle);
+            var moduleSourceRelativePath = ResolveModuleSourceRelativePath(
+                detectedModule,
+                existingModulesById);
             var topics = new List<Topic>();
 
             foreach (var detectedTopic in detectedModule.Topics.OrderBy(topic => topic.Order))
@@ -316,6 +323,10 @@ public class PersistedCourseService(
                 var topicTitle = string.Equals(detectedTopic.RelativePath, ".", StringComparison.Ordinal)
                     ? moduleTitle
                     : LocalCourseScanner.NormalizeDisplayName(topicRawTitle);
+                var topicSourceRelativePath = ResolveTopicSourceRelativePath(
+                    detectedTopic,
+                    moduleSourceRelativePath,
+                    existingTopicsById);
                 var lessons = new List<Lesson>();
 
                 foreach (var detectedLesson in detectedTopic.Lessons.OrderBy(lesson => lesson.Order))
@@ -378,6 +389,7 @@ public class PersistedCourseService(
                     RawDescription = string.Empty,
                     Title = topicTitle,
                     Description = string.Empty,
+                    SourceRelativePath = topicSourceRelativePath,
                     Lessons = lessons
                 });
             }
@@ -391,6 +403,7 @@ public class PersistedCourseService(
                 RawDescription = string.Empty,
                 Title = moduleTitle,
                 Description = string.Empty,
+                SourceRelativePath = moduleSourceRelativePath,
                 Topics = topics
             });
         }
@@ -421,6 +434,57 @@ public class PersistedCourseService(
         CoursePresentationMergeHelper.MergeExistingPresentation(rebuiltCourse, existingCourse);
 
         return rebuiltCourse;
+    }
+
+    private static string ResolveModuleSourceRelativePath(
+        DetectedModuleStructure detectedModule,
+        IReadOnlyDictionary<Guid, Module> existingModulesById)
+    {
+        if (existingModulesById.TryGetValue(detectedModule.ModuleId, out var existingModule) &&
+            LocalCourseStructurePathHelper.TryNormalize(
+                existingModule.SourceRelativePath,
+                out var sourceRelativePath))
+        {
+            return sourceRelativePath;
+        }
+
+        if (LocalCourseStructurePathHelper.TryNormalize(
+                detectedModule.RelativePath,
+                out sourceRelativePath))
+        {
+            return sourceRelativePath;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveTopicSourceRelativePath(
+        DetectedTopicStructure detectedTopic,
+        string moduleSourceRelativePath,
+        IReadOnlyDictionary<Guid, Topic> existingTopicsById)
+    {
+        if (existingTopicsById.TryGetValue(detectedTopic.TopicId, out var existingTopic) &&
+            LocalCourseStructurePathHelper.TryNormalize(
+                existingTopic.SourceRelativePath,
+                out var sourceRelativePath) &&
+            (string.IsNullOrEmpty(moduleSourceRelativePath) ||
+             LocalCourseStructurePathHelper.TryMakeRelativeToParent(
+                 moduleSourceRelativePath,
+                 sourceRelativePath,
+                 out _)))
+        {
+            return sourceRelativePath;
+        }
+
+        if (LocalCourseStructurePathHelper.TryCombine(
+                moduleSourceRelativePath,
+                detectedTopic.RelativePath,
+                out sourceRelativePath))
+        {
+            return sourceRelativePath;
+        }
+
+        return string.Empty;
     }
 
     private static CourseSourceMetadata BuildLocalMetadata(DetectedCourseStructure manifest, CourseSourceMetadata existingMetadata)
@@ -542,21 +606,17 @@ public class PersistedCourseService(
 
         var modules = course.Modules
             .OrderBy(module => module.Order)
-            .Select(module => new DetectedModuleStructure
+            .Select(module =>
             {
-                ModuleId = module.Id,
-                Order = module.Order,
-                RawName = FirstNonEmpty(module.RawTitle, module.Title),
-                RelativePath = ".",
-                Topics = module.Topics
+                var moduleRelativePath = ResolveManifestModuleRelativePath(module);
+                var topics = module.Topics
                     .OrderBy(topic => topic.Order)
-                    .Select(topic => new DetectedTopicStructure
+                    .Select(topic =>
                     {
-                        TopicId = topic.Id,
-                        Order = topic.Order,
-                        RawName = FirstNonEmpty(topic.RawTitle, topic.Title),
-                        RelativePath = ".",
-                        Lessons = topic.Lessons
+                        var topicRelativePath = ResolveManifestTopicRelativePath(
+                            moduleRelativePath,
+                            topic);
+                        var lessons = topic.Lessons
                             .OrderBy(lesson => lesson.Order)
                             .Select(lesson =>
                             {
@@ -576,9 +636,27 @@ public class PersistedCourseService(
                                     Duration = lesson.Duration
                                 };
                             })
-                            .ToList()
+                            .ToList();
+
+                        return new DetectedTopicStructure
+                        {
+                            TopicId = topic.Id,
+                            Order = topic.Order,
+                            RawName = FirstNonEmpty(topic.RawTitle, topic.Title),
+                            RelativePath = topicRelativePath,
+                            Lessons = lessons
+                        };
                     })
-                    .ToList()
+                    .ToList();
+
+                return new DetectedModuleStructure
+                {
+                    ModuleId = module.Id,
+                    Order = module.Order,
+                    RawName = FirstNonEmpty(module.RawTitle, module.Title),
+                    RelativePath = moduleRelativePath,
+                    Topics = topics
+                };
             })
             .ToList();
 
@@ -597,6 +675,23 @@ public class PersistedCourseService(
             Modules = modules
         };
     }
+
+    private static string ResolveManifestModuleRelativePath(Module module)
+        => LocalCourseStructurePathHelper.TryNormalize(
+            module.SourceRelativePath,
+            out var sourceRelativePath)
+            ? sourceRelativePath
+            : ".";
+
+    private static string ResolveManifestTopicRelativePath(
+        string moduleRelativePath,
+        Topic topic)
+        => LocalCourseStructurePathHelper.TryMakeRelativeToParent(
+            moduleRelativePath,
+            topic.SourceRelativePath,
+            out var topicRelativePath)
+            ? topicRelativePath
+            : ".";
 
     private static bool HasAnyLessons(persistence.models.CourseRecord record)
     {

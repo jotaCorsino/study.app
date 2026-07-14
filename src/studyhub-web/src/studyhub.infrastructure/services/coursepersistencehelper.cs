@@ -64,6 +64,7 @@ internal static class CoursePersistenceHelper
                     DurationMinutes = lesson.DurationMinutes
                 });
 
+        ApplyPreservedSourceRelativePaths(record, existingCourse);
         ApplyPreservedLessonState(record, existingLessonStateById);
 
         var preservedCurrentLessonId = existingCourse.CurrentLessonId is Guid currentLessonId &&
@@ -149,6 +150,63 @@ internal static class CoursePersistenceHelper
             if (lesson.DurationMinutes <= 0 && preservedState.DurationMinutes > 0)
             {
                 lesson.DurationMinutes = preservedState.DurationMinutes;
+            }
+        }
+    }
+
+    private static void ApplyPreservedSourceRelativePaths(
+        CourseRecord incomingCourse,
+        CourseRecord existingCourse)
+    {
+        var existingModulesById = existingCourse.Modules.ToDictionary(module => module.Id);
+        var existingTopicsById = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .ToDictionary(topic => topic.Id);
+
+        foreach (var incomingModule in incomingCourse.Modules)
+        {
+            if (LocalCourseStructurePathHelper.TryNormalize(
+                    incomingModule.SourceRelativePath,
+                    out var normalizedModulePath))
+            {
+                incomingModule.SourceRelativePath = normalizedModulePath;
+            }
+            else
+            {
+                incomingModule.SourceRelativePath = string.Empty;
+                if (existingModulesById.TryGetValue(incomingModule.Id, out var existingModule) &&
+                    LocalCourseStructurePathHelper.TryNormalize(
+                        existingModule.SourceRelativePath,
+                        out var preservedModulePath))
+                {
+                    incomingModule.SourceRelativePath = preservedModulePath;
+                }
+            }
+
+            foreach (var incomingTopic in incomingModule.Topics)
+            {
+                if (LocalCourseStructurePathHelper.TryNormalize(
+                        incomingTopic.SourceRelativePath,
+                        out var normalizedTopicPath))
+                {
+                    incomingTopic.SourceRelativePath = normalizedTopicPath;
+                }
+                else
+                {
+                    incomingTopic.SourceRelativePath = string.Empty;
+                    if (existingTopicsById.TryGetValue(incomingTopic.Id, out var existingTopic) &&
+                        LocalCourseStructurePathHelper.TryNormalize(
+                            existingTopic.SourceRelativePath,
+                            out var preservedTopicPath) &&
+                        (string.IsNullOrEmpty(incomingModule.SourceRelativePath) ||
+                         LocalCourseStructurePathHelper.TryMakeRelativeToParent(
+                             incomingModule.SourceRelativePath,
+                             preservedTopicPath,
+                             out _)))
+                    {
+                        incomingTopic.SourceRelativePath = preservedTopicPath;
+                    }
+                }
             }
         }
     }

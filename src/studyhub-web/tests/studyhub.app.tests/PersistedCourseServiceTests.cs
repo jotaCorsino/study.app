@@ -394,8 +394,12 @@ public sealed class PersistedCourseServiceTests
         Assert.Equal(lessonPath, lesson.LocalFilePath);
     }
 
-    [Fact]
-    public async Task GetCourseByIdAsync_RehydratesLocalStructureWithoutOverwritingEditedCourseDetails()
+    [Theory]
+    [InlineData("../unsafe-module", "../unsafe-topic")]
+    [InlineData("stale-module", "stale-topic")]
+    public async Task GetCourseByIdAsync_RehydratesLocalStructureWithoutOverwritingEditedCourseDetails(
+        string manifestModulePath,
+        string manifestTopicPath)
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -435,6 +439,7 @@ public sealed class PersistedCourseServiceTests
                         Id = moduleId,
                         CourseId = courseId,
                         Order = 1,
+                        SourceRelativePath = "preserved-module",
                         RawTitle = "modulo-1",
                         RawDescription = string.Empty,
                         Title = "Modulo 1",
@@ -446,6 +451,7 @@ public sealed class PersistedCourseServiceTests
                                 Id = topicId,
                                 ModuleId = moduleId,
                                 Order = 1,
+                                SourceRelativePath = "preserved-module/preserved-topic",
                                 RawTitle = "topico-1",
                                 RawDescription = string.Empty,
                                 Title = "Topico 1",
@@ -504,7 +510,7 @@ public sealed class PersistedCourseServiceTests
                         ModuleId = moduleId,
                         Order = 1,
                         RawName = "modulo-1",
-                        RelativePath = ".",
+                        RelativePath = manifestModulePath,
                         Topics =
                         [
                             new DetectedTopicStructure
@@ -512,7 +518,7 @@ public sealed class PersistedCourseServiceTests
                                 TopicId = topicId,
                                 Order = 1,
                                 RawName = "topico-1",
-                                RelativePath = ".",
+                                RelativePath = manifestTopicPath,
                                 Lessons =
                                 [
                                     new DetectedLessonFile
@@ -558,6 +564,10 @@ public sealed class PersistedCourseServiceTests
         Assert.Equal("Meu curso editado", loadedCourse!.Title);
         Assert.Equal(string.Empty, loadedCourse.Description);
         Assert.Equal(2, loadedCourse.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons).Count());
+        var loadedModule = Assert.Single(loadedCourse.Modules);
+        var loadedTopic = Assert.Single(loadedModule.Topics);
+        Assert.Equal("preserved-module", loadedModule.SourceRelativePath);
+        Assert.Equal("preserved-module/preserved-topic", loadedTopic.SourceRelativePath);
 
         await using var assertContext = new StudyHubDbContext(options);
         var persistedCourse = await assertContext.Courses
@@ -570,6 +580,10 @@ public sealed class PersistedCourseServiceTests
         Assert.Equal("Meu curso editado", persistedCourse.Title);
         Assert.Equal(string.Empty, persistedCourse.Description);
         Assert.Equal(2, persistedCourse.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons).Count());
+        var persistedModule = Assert.Single(persistedCourse.Modules);
+        var persistedTopic = Assert.Single(persistedModule.Topics);
+        Assert.Equal("preserved-module", persistedModule.SourceRelativePath);
+        Assert.Equal("preserved-module/preserved-topic", persistedTopic.SourceRelativePath);
     }
 
     [Fact]
@@ -866,6 +880,7 @@ public sealed class PersistedCourseServiceTests
                         Id = moduleId,
                         CourseId = courseId,
                         Order = 1,
+                        SourceRelativePath = string.Empty,
                         RawTitle = "modulo-1",
                         RawDescription = string.Empty,
                         Title = "Modulo 1",
@@ -877,6 +892,7 @@ public sealed class PersistedCourseServiceTests
                                 Id = topicId,
                                 ModuleId = moduleId,
                                 Order = 1,
+                                SourceRelativePath = string.Empty,
                                 RawTitle = "topico-1",
                                 RawDescription = string.Empty,
                                 Title = "Topico 1",
@@ -927,7 +943,7 @@ public sealed class PersistedCourseServiceTests
                         ModuleId = moduleId,
                         Order = 1,
                         RawName = "modulo-1",
-                        RelativePath = ".",
+                        RelativePath = "module-1",
                         Topics =
                         [
                             new DetectedTopicStructure
@@ -989,6 +1005,11 @@ public sealed class PersistedCourseServiceTests
             .OrderBy(lesson => lesson.Order)
             .ToList();
 
+        var loadedModule = Assert.Single(loadedCourse.Modules);
+        var loadedTopic = Assert.Single(loadedModule.Topics);
+        Assert.Equal("module-1", loadedModule.SourceRelativePath);
+        Assert.Equal("module-1", loadedTopic.SourceRelativePath);
+
         Assert.Equal(2, loadedLessons.Count);
         var restoredLesson = loadedLessons.Single(lesson => lesson.Id == lesson1Id);
         var addedLesson = loadedLessons.Single(lesson => lesson.Id == lesson2Id);
@@ -1008,6 +1029,11 @@ public sealed class PersistedCourseServiceTests
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons)
             .ToList();
+
+        var persistedModule = Assert.Single(persistedCourse.Modules);
+        var persistedTopic = Assert.Single(persistedModule.Topics);
+        Assert.Equal("module-1", persistedModule.SourceRelativePath);
+        Assert.Equal("module-1", persistedTopic.SourceRelativePath);
 
         Assert.Equal(2, persistedLessons.Count);
         Assert.Equal(
@@ -1060,6 +1086,7 @@ public sealed class PersistedCourseServiceTests
                         Id = moduleId,
                         CourseId = courseId,
                         Order = 1,
+                        SourceRelativePath = "module-1",
                         RawTitle = "modulo-1",
                         RawDescription = string.Empty,
                         Title = "Modulo 1",
@@ -1071,6 +1098,7 @@ public sealed class PersistedCourseServiceTests
                                 Id = topicId,
                                 ModuleId = moduleId,
                                 Order = 1,
+                                SourceRelativePath = "module-1/topic-1",
                                 RawTitle = "topico-1",
                                 RawDescription = string.Empty,
                                 Title = "Topico 1",
@@ -1108,6 +1136,10 @@ public sealed class PersistedCourseServiceTests
         Assert.NotNull(loadedCourse);
         Assert.Equal(courseId, loadedCourse!.Id);
         Assert.Single(loadedCourse.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons));
+        var loadedModule = Assert.Single(loadedCourse.Modules);
+        var loadedTopic = Assert.Single(loadedModule.Topics);
+        Assert.Equal("module-1", loadedModule.SourceRelativePath);
+        Assert.Equal("module-1/topic-1", loadedTopic.SourceRelativePath);
 
         await using var assertContext = new StudyHubDbContext(options);
         var snapshot = await assertContext.CourseImportSnapshots.SingleAsync(item => item.CourseId == courseId);
@@ -1119,6 +1151,10 @@ public sealed class PersistedCourseServiceTests
 
         Assert.NotNull(manifest);
         Assert.Equal(courseId, manifest!.CourseId);
+        var manifestModule = Assert.Single(manifest.Modules);
+        var manifestTopic = Assert.Single(manifestModule.Topics);
+        Assert.Equal("module-1", manifestModule.RelativePath);
+        Assert.Equal("topic-1", manifestTopic.RelativePath);
         var manifestLessons = manifest.Modules
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons)

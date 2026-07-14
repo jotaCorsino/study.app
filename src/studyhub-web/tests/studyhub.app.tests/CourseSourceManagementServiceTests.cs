@@ -62,6 +62,20 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
         var originalRoot = CourseRoot("original", "CourseA");
         var candidateRoot = CourseRoot("moved", "CourseA");
         var seed = await SeedCourseAsync(originalRoot, relativePaths);
+        var originalPersisted = await LoadCourseAsync(seed.CourseId);
+        var originalModuleSourcePaths = originalPersisted.Modules
+            .OrderBy(module => module.Order)
+            .Select(module => module.SourceRelativePath)
+            .ToArray();
+        var originalTopicSourcePaths = originalPersisted.Modules
+            .OrderBy(module => module.Order)
+            .SelectMany(module => module.Topics.OrderBy(topic => topic.Order))
+            .Select(topic => topic.SourceRelativePath)
+            .ToArray();
+
+        Assert.All(originalModuleSourcePaths, path => Assert.False(string.IsNullOrWhiteSpace(path)));
+        Assert.All(originalTopicSourcePaths, path => Assert.False(string.IsNullOrWhiteSpace(path)));
+
         await CreateCourseFilesAsync(candidateRoot, relativePaths);
 
         var candidateScan = await _builder.BuildAsync(new LocalFolderCourseBuildRequest
@@ -105,6 +119,8 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
         Assert.Equal(seed.ModuleIds, persistedModules.Select(module => module.Id).ToArray());
         Assert.Equal(seed.TopicIds, persistedTopics.Select(topic => topic.Id).ToArray());
         Assert.Equal(seed.LessonIds, persistedLessons.Select(lesson => lesson.Id).ToArray());
+        Assert.Equal(originalModuleSourcePaths, persistedModules.Select(module => module.SourceRelativePath).ToArray());
+        Assert.Equal(originalTopicSourcePaths, persistedTopics.Select(topic => topic.SourceRelativePath).ToArray());
         Assert.Equal("Edited course title", persisted.Title);
         Assert.Equal("Edited module title", persistedModules[0].Title);
         Assert.Equal("Edited topic title", persistedTopics[0].Title);
@@ -668,6 +684,7 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
                 RawDescription = "Raw module description",
                 Title = "Edited module title",
                 Description = "Edited module description",
+                SourceRelativePath = NormalizeStructuralPath(module.RelativePath),
                 Topics = module.Topics.OrderBy(topic => topic.Order).Select(topic => new TopicRecord
                 {
                     Id = topic.TopicId,
@@ -677,6 +694,7 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
                     RawDescription = "Raw topic description",
                     Title = "Edited topic title",
                     Description = "Edited topic description",
+                    SourceRelativePath = ComposeStructuralPath(module.RelativePath, topic.RelativePath),
                     CompletedAtUtc = topicCompletedAtUtc,
                     Lessons = topic.Lessons.OrderBy(lesson => lesson.Order).Select(lesson =>
                     {
@@ -744,6 +762,25 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
             await File.WriteAllBytesAsync(absolutePath, []);
         }
+    }
+
+    private static string ComposeStructuralPath(string moduleRelativePath, string topicRelativePath)
+    {
+        var modulePath = NormalizeStructuralPath(moduleRelativePath);
+        var topicPath = NormalizeStructuralPath(topicRelativePath);
+
+        if (topicPath == ".")
+        {
+            return modulePath;
+        }
+
+        return modulePath == "." ? topicPath : $"{modulePath}/{topicPath}";
+    }
+
+    private static string NormalizeStructuralPath(string relativePath)
+    {
+        var normalized = relativePath.Replace('\\', '/').Trim('/');
+        return string.IsNullOrEmpty(normalized) || normalized == "." ? "." : normalized;
     }
 
     private async Task<CourseRecord> LoadCourseAsync(Guid courseId)

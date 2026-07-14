@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using studyhub.application.Contracts.LocalImport;
 using studyhub.application.Interfaces;
 using studyhub.domain.Entities;
 using studyhub.infrastructure.persistence.models;
@@ -15,9 +16,13 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 11;
+    private const int CurrentSchemaVersion = 12;
 
     private static readonly JsonSerializerOptions SourceMetadataJsonOptions = new(JsonSerializerDefaults.Web);
+
+    private static readonly StringComparer StructuralPathComparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
 
     private static readonly string[] RequiredTables =
     [
@@ -254,10 +259,13 @@ public class StudyHubDatabaseInitializer(
         await EnsureCourseLifecycleStatusColumnAsync(context);
         await EnsureLessonSourceColumnsAsync(context);
         await EnsureLessonRelativeFilePathColumnAsync(context);
+        await EnsureModuleSourceRelativePathColumnAsync(context);
+        await EnsureTopicSourceRelativePathColumnAsync(context);
         await BackfillLegacyCourseOriginDataAsync(context);
         await BackfillLegacyPresentationDataAsync(context);
         await BackfillLegacyLessonOriginDataAsync(context);
         await BackfillLegacyLessonRelativeFilePathsAsync(context);
+        await BackfillLegacyStructuralSourceRelativePathsAsync(context);
     }
 
     private static async Task EnsureCoursePresentationColumnsAsync(StudyHubDbContext context)
@@ -470,6 +478,32 @@ public class StudyHubDatabaseInitializer(
         await context.Database.ExecuteSqlRawAsync(
             """
             ALTER TABLE lessons ADD COLUMN relative_file_path TEXT NOT NULL DEFAULT '';
+            """);
+    }
+
+    private static async Task EnsureModuleSourceRelativePathColumnAsync(StudyHubDbContext context)
+    {
+        if (await ColumnExistsAsync(context, "modules", "source_relative_path"))
+        {
+            return;
+        }
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE modules ADD COLUMN source_relative_path TEXT NOT NULL DEFAULT '';
+            """);
+    }
+
+    private static async Task EnsureTopicSourceRelativePathColumnAsync(StudyHubDbContext context)
+    {
+        if (await ColumnExistsAsync(context, "topics", "source_relative_path"))
+        {
+            return;
+        }
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE topics ADD COLUMN source_relative_path TEXT NOT NULL DEFAULT '';
             """);
     }
 
@@ -778,6 +812,430 @@ public class StudyHubDatabaseInitializer(
             "StudyHub lesson relative-path backfill completed. Updated: {UpdatedCount}. Skipped unsafe or invalid: {SkippedCount}.",
             updatedCount,
             skippedCount);
+    }
+
+    private async Task BackfillLegacyStructuralSourceRelativePathsAsync(StudyHubDbContext context)
+    {
+        var courses = await context.Courses
+            .Where(course => course.SourceType == CourseSourceType.LocalFolder)
+            .Include(course => course.Modules)
+                .ThenInclude(module => module.Topics)
+                    .ThenInclude(topic => topic.Lessons)
+            .ToListAsync();
+
+        if (courses.Count == 0)
+        {
+            return;
+        }
+
+        var courseIds = courses.Select(course => course.Id).ToHashSet();
+        var snapshots = (await context.CourseImportSnapshots
+                .AsNoTracking()
+                .Where(snapshot => courseIds.Contains(snapshot.CourseId))
+                .ToListAsync())
+            .ToDictionary(snapshot => snapshot.CourseId);
+
+        var updatedModules = 0;
+        var updatedTopics = 0;
+        var snapshotUpdates = 0;
+        var fallbackUpdates = 0;
+        var canonicalizedValues = 0;
+        var clearedInvalidValues = 0;
+
+        foreach (var course in courses)
+        {
+            var snapshotModulePaths = new Dictionary<Guid, string>();
+            var snapshotTopicPaths = new Dictionary<Guid, string>();
+
+            if (snapshots.TryGetValue(course.Id, out var snapshot))
+            {
+                TryBuildSnapshotStructuralPathCandidates(
+                    snapshot.StructureJson,
+                    course,
+                    snapshotModulePaths,
+                    snapshotTopicPaths);
+            }
+
+            var rootPath = ResolveCourseRootPath(course);
+
+            foreach (var module in course.Modules)
+            {
+                foreach (var topic in module.Topics)
+                {
+                    if (LocalCourseStructurePathHelper.TryNormalize(
+                            topic.SourceRelativePath,
+                            out var normalizedExistingTopicPath))
+                    {
+                        if (!string.Equals(
+                                topic.SourceRelativePath,
+                                normalizedExistingTopicPath,
+                                StringComparison.Ordinal))
+                        {
+                            topic.SourceRelativePath = normalizedExistingTopicPath;
+                            updatedTopics++;
+                            canonicalizedValues++;
+                        }
+
+                        continue;
+                    }
+
+                    var usedSnapshot = snapshotTopicPaths.TryGetValue(topic.Id, out var candidatePath);
+                    var hasCandidate = usedSnapshot ||
+                                       TryInferTopicSourceRelativePath(topic, rootPath, out candidatePath);
+                    var replacement = hasCandidate ? candidatePath! : string.Empty;
+
+                    if (string.Equals(topic.SourceRelativePath, replacement, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (!hasCandidate && !string.IsNullOrWhiteSpace(topic.SourceRelativePath))
+                    {
+                        clearedInvalidValues++;
+                    }
+
+                    topic.SourceRelativePath = replacement;
+                    updatedTopics++;
+                    snapshotUpdates += usedSnapshot ? 1 : 0;
+                    fallbackUpdates += hasCandidate && !usedSnapshot ? 1 : 0;
+                }
+
+                if (LocalCourseStructurePathHelper.TryNormalize(
+                        module.SourceRelativePath,
+                        out var normalizedExistingModulePath))
+                {
+                    if (!string.Equals(
+                            module.SourceRelativePath,
+                            normalizedExistingModulePath,
+                            StringComparison.Ordinal))
+                    {
+                        module.SourceRelativePath = normalizedExistingModulePath;
+                        updatedModules++;
+                        canonicalizedValues++;
+                    }
+
+                    continue;
+                }
+
+                var usedModuleSnapshot = snapshotModulePaths.TryGetValue(module.Id, out var moduleCandidatePath);
+                var hasModuleCandidate = usedModuleSnapshot ||
+                                         TryInferModuleSourceRelativePath(module, rootPath, out moduleCandidatePath);
+                var moduleReplacement = hasModuleCandidate ? moduleCandidatePath! : string.Empty;
+
+                if (string.Equals(module.SourceRelativePath, moduleReplacement, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!hasModuleCandidate && !string.IsNullOrWhiteSpace(module.SourceRelativePath))
+                {
+                    clearedInvalidValues++;
+                }
+
+                module.SourceRelativePath = moduleReplacement;
+                updatedModules++;
+                snapshotUpdates += usedModuleSnapshot ? 1 : 0;
+                fallbackUpdates += hasModuleCandidate && !usedModuleSnapshot ? 1 : 0;
+            }
+        }
+
+        if (updatedModules > 0 || updatedTopics > 0)
+        {
+            await context.SaveChangesAsync();
+        }
+
+        _logger.LogInformation(
+            "StudyHub structural source-path backfill completed. Modules updated: {UpdatedModules}. Topics updated: {UpdatedTopics}. Snapshot values: {SnapshotUpdates}. Lesson fallbacks: {FallbackUpdates}. Canonicalized values: {CanonicalizedValues}. Invalid values cleared: {ClearedInvalidValues}.",
+            updatedModules,
+            updatedTopics,
+            snapshotUpdates,
+            fallbackUpdates,
+            canonicalizedValues,
+            clearedInvalidValues);
+    }
+
+    private static bool TryBuildSnapshotStructuralPathCandidates(
+        string? structureJson,
+        CourseRecord course,
+        IDictionary<Guid, string> modulePaths,
+        IDictionary<Guid, string> topicPaths)
+    {
+        if (!TryDeserializeManifest(structureJson, out var manifest) ||
+            !LocalCourseManifestValidator.TryCorrelatePersistedIdentities(
+                manifest,
+                course,
+                out var identityCorrelation) ||
+            !identityCorrelation.IsExactMatch)
+        {
+            return false;
+        }
+
+        var persistedLessons = course.Modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(topic => topic.Lessons)
+            .ToDictionary(lesson => lesson.Id);
+        var rootPath = ResolveCourseRootPath(course);
+
+        foreach (var detectedModule in manifest.Modules)
+        {
+            if (!identityCorrelation.MatchesModule(detectedModule.ModuleId) ||
+                !LocalCourseStructurePathHelper.TryNormalize(
+                    detectedModule.RelativePath,
+                    out var moduleSourceRelativePath))
+            {
+                continue;
+            }
+
+            var hasTrustedTopic = false;
+
+            foreach (var detectedTopic in detectedModule.Topics)
+            {
+                if (!identityCorrelation.MatchesTopic(
+                        detectedModule.ModuleId,
+                        detectedTopic.TopicId) ||
+                    !LocalCourseStructurePathHelper.TryCombine(
+                        detectedModule.RelativePath,
+                        detectedTopic.RelativePath,
+                        out var topicSourceRelativePath) ||
+                    !HasCoherentSnapshotTopicPath(
+                        detectedTopic,
+                        topicSourceRelativePath,
+                        identityCorrelation,
+                        persistedLessons,
+                        rootPath))
+                {
+                    continue;
+                }
+
+                topicPaths[detectedTopic.TopicId] = topicSourceRelativePath;
+                hasTrustedTopic = true;
+            }
+
+            if (hasTrustedTopic)
+            {
+                modulePaths[detectedModule.ModuleId] = moduleSourceRelativePath;
+            }
+        }
+
+        return modulePaths.Count > 0 || topicPaths.Count > 0;
+    }
+
+    private static bool HasCoherentSnapshotTopicPath(
+        DetectedTopicStructure detectedTopic,
+        string topicSourceRelativePath,
+        LocalCourseManifestIdentityCorrelation identityCorrelation,
+        IReadOnlyDictionary<Guid, LessonRecord> persistedLessons,
+        string rootPath)
+    {
+        if (detectedTopic.Lessons.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var detectedLesson in detectedTopic.Lessons)
+        {
+            if (!identityCorrelation.MatchesLesson(detectedTopic.TopicId, detectedLesson.LessonId) ||
+                !persistedLessons.TryGetValue(detectedLesson.LessonId, out var persistedLesson) ||
+                !LocalCourseStructurePathHelper.TryGetParentDirectoryFromLessonPath(
+                    detectedLesson.RelativePath,
+                    out var lessonDirectory) ||
+                !StructuralPathComparer.Equals(lessonDirectory, topicSourceRelativePath))
+            {
+                return false;
+            }
+
+            if (TryGetComparableLessonRelativePath(
+                    persistedLesson,
+                    rootPath,
+                    out var persistedRelativeFilePath) &&
+                (!LocalLessonPathHelper.TryNormalizePortableRelativePath(
+                     detectedLesson.RelativePath,
+                     out var manifestRelativeFilePath) ||
+                 !StructuralPathComparer.Equals(
+                     persistedRelativeFilePath,
+                     manifestRelativeFilePath)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TryDeserializeManifest(
+        string? structureJson,
+        out DetectedCourseStructure manifest)
+    {
+        manifest = null!;
+
+        if (string.IsNullOrWhiteSpace(structureJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            manifest = JsonSerializer.Deserialize<DetectedCourseStructure>(
+                structureJson,
+                SourceMetadataJsonOptions)!;
+            return LocalCourseManifestValidator.HasUsableStructure(manifest);
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryInferTopicSourceRelativePath(
+        TopicRecord topic,
+        string rootPath,
+        out string sourceRelativePath)
+    {
+        sourceRelativePath = string.Empty;
+        var localLessons = topic.Lessons
+            .Where(lesson => lesson.SourceType == LessonSourceType.LocalFile)
+            .ToList();
+
+        if (localLessons.Count == 0)
+        {
+            return false;
+        }
+
+        string? commonDirectory = null;
+
+        foreach (var lesson in localLessons)
+        {
+            if (!TryGetComparableLessonRelativePath(lesson, rootPath, out var relativeFilePath) ||
+                !LocalCourseStructurePathHelper.TryGetParentDirectoryFromLessonPath(
+                    relativeFilePath,
+                    out var lessonDirectory))
+            {
+                return false;
+            }
+
+            if (commonDirectory is null)
+            {
+                commonDirectory = lessonDirectory;
+            }
+            else if (!StructuralPathComparer.Equals(commonDirectory, lessonDirectory))
+            {
+                return false;
+            }
+        }
+
+        return LocalCourseStructurePathHelper.TryNormalize(commonDirectory, out sourceRelativePath);
+    }
+
+    private static bool TryInferModuleSourceRelativePath(
+        ModuleRecord module,
+        string rootPath,
+        out string sourceRelativePath)
+    {
+        sourceRelativePath = string.Empty;
+        var lessonDirectories = new List<string>();
+        var localLessons = module.Topics
+            .SelectMany(topic => topic.Lessons)
+            .Where(lesson => lesson.SourceType == LessonSourceType.LocalFile)
+            .ToList();
+
+        foreach (var lesson in localLessons)
+        {
+            if (!TryGetComparableLessonRelativePath(lesson, rootPath, out var relativeFilePath) ||
+                !LocalCourseStructurePathHelper.TryGetParentDirectoryFromLessonPath(
+                    relativeFilePath,
+                    out var lessonDirectory))
+            {
+                return false;
+            }
+
+            lessonDirectories.Add(lessonDirectory);
+        }
+
+        if (lessonDirectories.Count == 0)
+        {
+            foreach (var topic in module.Topics)
+            {
+                if (!LocalCourseStructurePathHelper.TryNormalize(
+                        topic.SourceRelativePath,
+                        out var topicSourceRelativePath))
+                {
+                    return false;
+                }
+
+                lessonDirectories.Add(topicSourceRelativePath);
+            }
+        }
+
+        return TryInferModulePathFromDirectories(lessonDirectories, out sourceRelativePath);
+    }
+
+    private static bool TryInferModulePathFromDirectories(
+        IReadOnlyCollection<string> directories,
+        out string sourceRelativePath)
+    {
+        sourceRelativePath = string.Empty;
+        if (directories.Count == 0)
+        {
+            return false;
+        }
+
+        var normalizedDirectories = new HashSet<string>(StructuralPathComparer);
+
+        foreach (var directory in directories)
+        {
+            if (!LocalCourseStructurePathHelper.TryNormalize(directory, out var normalizedDirectory))
+            {
+                return false;
+            }
+
+            normalizedDirectories.Add(normalizedDirectory);
+        }
+
+        if (normalizedDirectories.Contains("."))
+        {
+            sourceRelativePath = ".";
+            return true;
+        }
+
+        if (normalizedDirectories.Count == 1)
+        {
+            var onlyDirectory = normalizedDirectories.Single();
+            if (onlyDirectory.Contains('/', StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            sourceRelativePath = onlyDirectory;
+            return true;
+        }
+
+        return LocalCourseStructurePathHelper.TryGetCommonAncestor(
+                   normalizedDirectories,
+                   out var commonAncestor) &&
+               commonAncestor != "." &&
+               LocalCourseStructurePathHelper.TryNormalize(commonAncestor, out sourceRelativePath);
+    }
+
+    private static bool TryGetComparableLessonRelativePath(
+        LessonRecord lesson,
+        string rootPath,
+        out string relativeFilePath)
+    {
+        if (LocalLessonPathHelper.TryNormalizePortableRelativePath(
+                lesson.RelativeFilePath,
+                out relativeFilePath))
+        {
+            return true;
+        }
+
+        var absoluteLessonPath = string.IsNullOrWhiteSpace(lesson.LocalFilePath)
+            ? lesson.FilePath
+            : lesson.LocalFilePath;
+
+        return LocalLessonPathHelper.TryCalculatePortableRelativePath(
+            rootPath,
+            absoluteLessonPath,
+            out relativeFilePath);
     }
 
     private static string ResolveCourseRootPath(CourseRecord course)

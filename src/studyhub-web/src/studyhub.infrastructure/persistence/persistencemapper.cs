@@ -77,6 +77,7 @@ internal static class PersistenceMapper
             RawDescription = string.IsNullOrWhiteSpace(record.RawDescription) ? record.Description : record.RawDescription,
             Title = record.Title,
             Description = record.Description,
+            SourceRelativePath = record.SourceRelativePath,
             Topics = record.Topics
                 .OrderBy(topic => topic.Order)
                 .Select(ToDomain)
@@ -95,6 +96,7 @@ internal static class PersistenceMapper
             RawDescription = string.IsNullOrWhiteSpace(record.RawDescription) ? record.Description : record.RawDescription,
             Title = record.Title,
             Description = record.Description,
+            SourceRelativePath = record.SourceRelativePath,
             CompletedAtUtc = record.CompletedAtUtc,
             Lessons = record.Lessons
                 .OrderBy(lesson => lesson.Order)
@@ -141,6 +143,7 @@ internal static class PersistenceMapper
             RawDescription = string.IsNullOrWhiteSpace(module.RawDescription) ? module.Description : module.RawDescription,
             Title = module.Title,
             Description = module.Description,
+            SourceRelativePath = module.SourceRelativePath,
             Topics = module.Topics
                 .OrderBy(topic => topic.Order)
                 .Select(topic => ToRecord(topic, module.Id))
@@ -159,6 +162,7 @@ internal static class PersistenceMapper
             RawDescription = string.IsNullOrWhiteSpace(topic.RawDescription) ? topic.Description : topic.RawDescription,
             Title = topic.Title,
             Description = topic.Description,
+            SourceRelativePath = topic.SourceRelativePath,
             CompletedAtUtc = topic.CompletedAtUtc,
             Lessons = topic.Lessons
                 .OrderBy(lesson => lesson.Order)

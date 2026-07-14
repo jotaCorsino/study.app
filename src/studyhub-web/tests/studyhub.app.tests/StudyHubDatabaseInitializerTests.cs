@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using studyhub.application.Contracts.LocalImport;
 using studyhub.application.Interfaces;
 using studyhub.domain.Entities;
 using studyhub.infrastructure.persistence;
@@ -32,7 +33,7 @@ public sealed class StudyHubDatabaseInitializerTests
             await initializer.InitializeAsync();
 
             Assert.True(await ColumnExistsAsync(options, "topics", "completed_at_utc"));
-            Assert.Equal(11, await GetSchemaVersionAsync(options));
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
 
             var courseId = Guid.NewGuid();
             var moduleId = Guid.NewGuid();
@@ -138,7 +139,7 @@ public sealed class StudyHubDatabaseInitializerTests
             await initializer.InitializeAsync();
 
             Assert.True(await ColumnExistsAsync(options, "topics", "completed_at_utc"));
-            Assert.Equal(11, await GetSchemaVersionAsync(options));
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
 
             var service = new PersistedCourseService(new TestDbContextFactory(options));
             var loadedCourse = await service.GetCourseByIdAsync(courseId);
@@ -176,7 +177,7 @@ public sealed class StudyHubDatabaseInitializerTests
             await initializer.InitializeAsync();
 
             Assert.True(await ColumnExistsAsync(options, "topics", "completed_at_utc"));
-            Assert.Equal(11, await GetSchemaVersionAsync(options));
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
         }
         finally
         {
@@ -204,7 +205,7 @@ public sealed class StudyHubDatabaseInitializerTests
             Assert.Equal("TEXT", column!.StoreType, ignoreCase: true);
             Assert.True(column.IsNotNull);
             Assert.Equal("''", column.DefaultValue);
-            Assert.Equal(11, await GetSchemaVersionAsync(options));
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
         }
         finally
         {
@@ -283,7 +284,7 @@ public sealed class StudyHubDatabaseInitializerTests
             }
 
             Assert.True(await ColumnExistsAsync(options, "lessons", "relative_file_path"));
-            Assert.Equal(11, await GetSchemaVersionAsync(options));
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
 
             const string preexistingRelativePath = "Already/Preserved.mp4";
             await using (var updateContext = new StudyHubDbContext(options))
@@ -417,6 +418,478 @@ public sealed class StudyHubDatabaseInitializerTests
         }
     }
 
+    [Fact]
+    public async Task InitializeAsync_NewDatabaseCreatesStructuralSourcePathColumnsWithRequiredEmptyDefaults()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+
+        try
+        {
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            var moduleColumn = await GetColumnInfoAsync(options, "modules", "source_relative_path");
+            var topicColumn = await GetColumnInfoAsync(options, "topics", "source_relative_path");
+
+            Assert.NotNull(moduleColumn);
+            Assert.Equal("TEXT", moduleColumn!.StoreType, ignoreCase: true);
+            Assert.True(moduleColumn.IsNotNull);
+            Assert.Equal("''", moduleColumn.DefaultValue);
+            Assert.NotNull(topicColumn);
+            Assert.Equal("TEXT", topicColumn!.StoreType, ignoreCase: true);
+            Assert.True(topicColumn.IsNotNull);
+            Assert.Equal("''", topicColumn.DefaultValue);
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_UpgradesSchema11AndBackfillsStructuralPathsFromMatchingSnapshot()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+        const string lessonRelativePath = "Modulo 01/Topico 01/Aula 01.mp4";
+
+        try
+        {
+            var courseId = Guid.NewGuid();
+            var moduleId = Guid.NewGuid();
+            var topicId = Guid.NewGuid();
+            var lessonId = Guid.NewGuid();
+            var lessonPath = Path.Combine(rootPath, lessonRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            var course = CreateCourseRecord(courseId, moduleId, topicId, lessonId, rootPath: rootPath, lessonPath: lessonPath);
+            var completedAtUtc = new DateTime(2026, 7, 14, 12, 0, 0, DateTimeKind.Utc);
+            course.CurrentLessonId = lessonId;
+            course.Modules.Single().Topics.Single().CompletedAtUtc = completedAtUtc;
+            var lesson = course.Modules.Single().Topics.Single().Lessons.Single();
+            lesson.RelativeFilePath = lessonRelativePath;
+            lesson.Status = LessonStatus.InProgress;
+            lesson.WatchedPercentage = 42.5;
+            lesson.LastPlaybackPositionSeconds = 87;
+
+            var snapshot = CreateSnapshot(
+                course,
+                "Modulo 01",
+                "Topico 01",
+                lessonRelativePath);
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                setupContext.CourseImportSnapshots.Add(snapshot);
+                await setupContext.SaveChangesAsync();
+                await setupContext.Database.ExecuteSqlRawAsync("PRAGMA user_version = 11;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE topics DROP COLUMN source_relative_path;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE modules DROP COLUMN source_relative_path;");
+            }
+
+            var initializer = CreateInitializer(options, storageRoot);
+            Assert.False(File.Exists(lessonPath));
+            await initializer.InitializeAsync();
+
+            await using (var firstAssertContext = new StudyHubDbContext(options))
+            {
+                var persistedCourse = await firstAssertContext.Courses
+                    .Include(item => item.Modules)
+                        .ThenInclude(item => item.Topics)
+                            .ThenInclude(item => item.Lessons)
+                    .SingleAsync(item => item.Id == courseId);
+                var persistedModule = await firstAssertContext.Modules.SingleAsync(item => item.Id == moduleId);
+                var persistedTopic = await firstAssertContext.Topics.SingleAsync(item => item.Id == topicId);
+                var persistedLesson = await firstAssertContext.Lessons.SingleAsync(item => item.Id == lessonId);
+
+                Assert.Equal(courseId, persistedCourse.Id);
+                Assert.Equal(lessonId, persistedCourse.CurrentLessonId);
+                Assert.Single(persistedCourse.Modules);
+                Assert.Single(persistedCourse.Modules.Single().Topics);
+                Assert.Single(persistedCourse.Modules.Single().Topics.Single().Lessons);
+                Assert.Equal(moduleId, persistedModule.Id);
+                Assert.Equal("Modulo 01", persistedModule.SourceRelativePath);
+                Assert.Equal(topicId, persistedTopic.Id);
+                Assert.Equal("Modulo 01/Topico 01", persistedTopic.SourceRelativePath);
+                Assert.Equal(completedAtUtc, persistedTopic.CompletedAtUtc);
+                Assert.Equal(lessonId, persistedLesson.Id);
+                Assert.Equal(lessonRelativePath, persistedLesson.RelativeFilePath);
+                Assert.Equal(LessonStatus.InProgress, persistedLesson.Status);
+                Assert.Equal(42.5, persistedLesson.WatchedPercentage);
+                Assert.Equal(87, persistedLesson.LastPlaybackPositionSeconds);
+            }
+
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
+
+            await using (var updateContext = new StudyHubDbContext(options))
+            {
+                var persistedModule = await updateContext.Modules.SingleAsync(item => item.Id == moduleId);
+                var persistedTopic = await updateContext.Topics.SingleAsync(item => item.Id == topicId);
+                persistedModule.SourceRelativePath = @"Already\Preserved";
+                persistedTopic.SourceRelativePath = @"Already\Preserved\Topic";
+                await updateContext.SaveChangesAsync();
+            }
+
+            await initializer.InitializeAsync();
+
+            await using var secondAssertContext = new StudyHubDbContext(options);
+            var moduleAfterSecondRun = await secondAssertContext.Modules.SingleAsync(item => item.Id == moduleId);
+            var topicAfterSecondRun = await secondAssertContext.Topics.SingleAsync(item => item.Id == topicId);
+            var lessonAfterSecondRun = await secondAssertContext.Lessons.SingleAsync(item => item.Id == lessonId);
+            var courseAfterSecondRun = await secondAssertContext.Courses.SingleAsync(item => item.Id == courseId);
+
+            Assert.Equal("Already/Preserved", moduleAfterSecondRun.SourceRelativePath);
+            Assert.Equal("Already/Preserved/Topic", topicAfterSecondRun.SourceRelativePath);
+            Assert.Equal(completedAtUtc, topicAfterSecondRun.CompletedAtUtc);
+            Assert.Equal(lessonId, courseAfterSecondRun.CurrentLessonId);
+            Assert.Equal(LessonStatus.InProgress, lessonAfterSecondRun.Status);
+            Assert.Equal(42.5, lessonAfterSecondRun.WatchedPercentage);
+            Assert.Equal(87, lessonAfterSecondRun.LastPlaybackPositionSeconds);
+
+            await initializer.InitializeAsync();
+
+            await using var thirdAssertContext = new StudyHubDbContext(options);
+            Assert.Equal(
+                "Already/Preserved",
+                (await thirdAssertContext.Modules.SingleAsync(item => item.Id == moduleId)).SourceRelativePath);
+            Assert.Equal(
+                "Already/Preserved/Topic",
+                (await thirdAssertContext.Topics.SingleAsync(item => item.Id == topicId)).SourceRelativePath);
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_InvalidSnapshotFallsBackToDirectLessonDirectory()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+        const string lessonRelativePath = "Modulo 01/Aula 01.mp4";
+
+        try
+        {
+            var course = CreateCourseRecord(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                rootPath: rootPath,
+                lessonPath: Path.Combine(rootPath, "Modulo 01", "Aula 01.mp4"));
+            course.Modules.Single().Topics.Single().Lessons.Single().RelativeFilePath = lessonRelativePath;
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                setupContext.CourseImportSnapshots.Add(new CourseImportSnapshotRecord
+                {
+                    CourseId = course.Id,
+                    SourceKind = "local-folder",
+                    RootFolderPath = rootPath,
+                    StructureJson = "{invalid-json",
+                    ImportedAt = DateTime.UtcNow
+                });
+                await setupContext.SaveChangesAsync();
+            }
+
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var module = await assertContext.Modules.SingleAsync(item => item.CourseId == course.Id);
+            var topic = await assertContext.Topics.SingleAsync(item => item.ModuleId == module.Id);
+
+            Assert.Equal("Modulo 01", module.SourceRelativePath);
+            Assert.Equal("Modulo 01", topic.SourceRelativePath);
+            Assert.Equal(12, await GetSchemaVersionAsync(options));
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_SnapshotLessonPathMismatchIsRejectedBeforeFallback()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+        const string persistedRelativePath = "Modulo 01/Aula 01.mp4";
+
+        try
+        {
+            var course = CreateCourseRecord(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                rootPath: rootPath,
+                lessonPath: Path.Combine(rootPath, "Modulo 01", "Aula 01.mp4"));
+            course.Modules.Single().Topics.Single().Lessons.Single().RelativeFilePath = persistedRelativePath;
+            var corruptSnapshot = CreateSnapshot(
+                course,
+                "Outro Modulo",
+                ".",
+                "Outro Modulo/Aula 01.mp4");
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                setupContext.CourseImportSnapshots.Add(corruptSnapshot);
+                await setupContext.SaveChangesAsync();
+            }
+
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var module = await assertContext.Modules.SingleAsync(item => item.CourseId == course.Id);
+            var topic = await assertContext.Topics.SingleAsync(item => item.ModuleId == module.Id);
+
+            Assert.Equal("Modulo 01", module.SourceRelativePath);
+            Assert.Equal("Modulo 01", topic.SourceRelativePath);
+            Assert.NotEqual("Outro Modulo", module.SourceRelativePath);
+            Assert.NotEqual("Outro Modulo", topic.SourceRelativePath);
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_FallbackInfersTopicsAndNonRootCommonModuleAncestor()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var course = CreateCourseRecord(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                rootPath: rootPath,
+                lessonPath: Path.Combine(rootPath, "Modulo 01", "Topico A", "Aula A.mp4"));
+            var module = course.Modules.Single();
+            var firstTopic = module.Topics.Single();
+            firstTopic.Lessons.Single().RelativeFilePath = "Modulo 01/Topico A/Aula A.mp4";
+            var secondTopicId = Guid.NewGuid();
+            module.Topics.Add(new TopicRecord
+            {
+                Id = secondTopicId,
+                ModuleId = module.Id,
+                Order = 2,
+                RawTitle = "Topico B",
+                Title = "Topico B",
+                Lessons =
+                [
+                    new LessonRecord
+                    {
+                        Id = Guid.NewGuid(),
+                        TopicId = secondTopicId,
+                        Order = 1,
+                        RawTitle = "Aula B",
+                        Title = "Aula B",
+                        FilePath = Path.Combine(rootPath, "Modulo 01", "Topico B", "Aula B.mp4"),
+                        LocalFilePath = Path.Combine(rootPath, "Modulo 01", "Topico B", "Aula B.mp4"),
+                        RelativeFilePath = "Modulo 01/Topico B/Aula B.mp4",
+                        Provider = "LocalFileSystem"
+                    }
+                ]
+            });
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                await setupContext.SaveChangesAsync();
+            }
+
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var persistedModule = await assertContext.Modules
+                .Include(item => item.Topics)
+                .SingleAsync(item => item.Id == module.Id);
+
+            Assert.Equal("Modulo 01", persistedModule.SourceRelativePath);
+            Assert.Equal(
+                ["Modulo 01/Topico A", "Modulo 01/Topico B"],
+                persistedModule.Topics.OrderBy(item => item.Order).Select(item => item.SourceRelativePath).ToArray());
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_SingleNestedTopicDoesNotInventAmbiguousModuleAncestor()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+        const string lessonRelativePath = "Modulo 01/Topico 01/Aula.mp4";
+
+        try
+        {
+            var course = CreateCourseRecord(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                rootPath: rootPath,
+                lessonPath: Path.Combine(rootPath, "Modulo 01", "Topico 01", "Aula.mp4"));
+            course.Modules.Single().Topics.Single().Lessons.Single().RelativeFilePath = lessonRelativePath;
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                await setupContext.SaveChangesAsync();
+            }
+
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var module = await assertContext.Modules.SingleAsync(item => item.CourseId == course.Id);
+            var topic = await assertContext.Topics.SingleAsync(item => item.ModuleId == module.Id);
+
+            Assert.Equal(string.Empty, module.SourceRelativePath);
+            Assert.Equal("Modulo 01/Topico 01", topic.SourceRelativePath);
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_RootLessonFallbackUsesDotForModuleAndTopic()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var course = CreateCourseRecord(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                rootPath: rootPath,
+                lessonPath: Path.Combine(rootPath, "Aula.mp4"));
+            course.Modules.Single().Topics.Single().Lessons.Single().RelativeFilePath = "Aula.mp4";
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                await setupContext.SaveChangesAsync();
+            }
+
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var module = await assertContext.Modules.SingleAsync(item => item.CourseId == course.Id);
+            var topic = await assertContext.Topics.SingleAsync(item => item.ModuleId == module.Id);
+
+            Assert.Equal(".", module.SourceRelativePath);
+            Assert.Equal(".", topic.SourceRelativePath);
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_AmbiguousLessonDirectoriesLeaveStructuralPathsEmpty()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+        var rootPath = Path.Combine(Path.GetTempPath(), "studyhub-structural-path-tests", Guid.NewGuid().ToString("N"));
+
+        try
+        {
+            var course = CreateCourseRecord(
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                Guid.NewGuid(),
+                rootPath: rootPath,
+                lessonPath: Path.Combine(rootPath, "Area A", "Aula 01.mp4"));
+            var topic = course.Modules.Single().Topics.Single();
+            topic.Lessons.Single().RelativeFilePath = "Area A/Aula 01.mp4";
+            topic.Lessons.Add(new LessonRecord
+            {
+                Id = Guid.NewGuid(),
+                TopicId = topic.Id,
+                Order = 2,
+                RawTitle = "Aula 02",
+                Title = "Aula 02",
+                FilePath = Path.Combine(rootPath, "Area B", "Aula 02.mp4"),
+                LocalFilePath = Path.Combine(rootPath, "Area B", "Aula 02.mp4"),
+                RelativeFilePath = "Area B/Aula 02.mp4",
+                Provider = "LocalFileSystem"
+            });
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                await setupContext.SaveChangesAsync();
+            }
+
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var module = await assertContext.Modules.SingleAsync(item => item.CourseId == course.Id);
+            var persistedTopic = await assertContext.Topics.SingleAsync(item => item.Id == topic.Id);
+
+            Assert.Equal(string.Empty, module.SourceRelativePath);
+            Assert.Equal(string.Empty, persistedTopic.SourceRelativePath);
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
     private static DbContextOptions<StudyHubDbContext> CreateOptions(SqliteConnection connection)
     {
         return new DbContextOptionsBuilder<StudyHubDbContext>()
@@ -432,6 +905,59 @@ public sealed class StudyHubDatabaseInitializerTests
             new TestDbContextFactory(options),
             new TestStoragePathsService(storageRoot),
             NullLogger<StudyHubDatabaseInitializer>.Instance);
+    }
+
+    private static CourseImportSnapshotRecord CreateSnapshot(
+        CourseRecord course,
+        string moduleRelativePath,
+        string topicRelativePath,
+        string lessonRelativePath)
+    {
+        var module = course.Modules.Single();
+        var topic = module.Topics.Single();
+        var lesson = topic.Lessons.Single();
+        var manifest = new DetectedCourseStructure
+        {
+            CourseId = course.Id,
+            RootFolderName = Path.GetFileName(course.FolderPath),
+            RootFolderPath = course.FolderPath,
+            ScannedAt = DateTime.UtcNow,
+            Modules =
+            [
+                new DetectedModuleStructure
+                {
+                    ModuleId = module.Id,
+                    RelativePath = moduleRelativePath,
+                    Topics =
+                    [
+                        new DetectedTopicStructure
+                        {
+                            TopicId = topic.Id,
+                            RelativePath = topicRelativePath,
+                            Lessons =
+                            [
+                                new DetectedLessonFile
+                                {
+                                    LessonId = lesson.Id,
+                                    FileName = Path.GetFileName(lesson.LocalFilePath),
+                                    RelativePath = lessonRelativePath,
+                                    AbsolutePath = lesson.LocalFilePath
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        };
+
+        return new CourseImportSnapshotRecord
+        {
+            CourseId = course.Id,
+            SourceKind = "local-folder",
+            RootFolderPath = course.FolderPath,
+            StructureJson = JsonSerializer.Serialize(manifest, WebJsonOptions),
+            ImportedAt = DateTime.UtcNow
+        };
     }
 
     private static CourseRecord CreateCourseRecord(
