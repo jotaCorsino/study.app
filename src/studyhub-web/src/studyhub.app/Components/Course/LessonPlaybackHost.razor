@@ -2,6 +2,7 @@
 
 <LocalVideoPlayer @key="@($"{Lesson?.Id}:local")"
                   CourseId="CourseId"
+                  CourseRootPath="@CourseRootPath"
                   Lesson="Lesson"
                   InitialStartOffset="InitialStartOffset"
                   RequestedPlaybackSpeed="RequestedPlaybackSpeed"
@@ -9,6 +10,7 @@
 
 @code {
     [Parameter, EditorRequired] public Guid CourseId { get; set; }
+    [Parameter] public string? CourseRootPath { get; set; }
     [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
     [Parameter] public TimeSpan InitialStartOffset { get; set; } = TimeSpan.Zero;
     [Parameter] public double RequestedPlaybackSpeed { get; set; } = 1.0;

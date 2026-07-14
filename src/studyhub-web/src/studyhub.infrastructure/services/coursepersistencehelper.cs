@@ -38,7 +38,6 @@ internal static class CoursePersistenceHelper
             existingCourse.FolderPath = record.FolderPath;
             existingCourse.SourceType = record.SourceType;
             existingCourse.LifecycleStatus = record.LifecycleStatus;
-            existingCourse.SourceMetadataJson = record.SourceMetadataJson;
             existingCourse.TotalDurationMinutes = existingCourse.TotalDurationMinutes > 0
                 ? existingCourse.TotalDurationMinutes
                 : record.TotalDurationMinutes;
@@ -61,20 +60,29 @@ internal static class CoursePersistenceHelper
                     Status = lesson.Status,
                     WatchedPercentage = lesson.WatchedPercentage,
                     LastPlaybackPositionSeconds = lesson.LastPlaybackPositionSeconds,
-                    DurationMinutes = lesson.DurationMinutes
+                    DurationMinutes = lesson.DurationMinutes,
+                    IsAvailable = lesson.IsAvailable
                 });
+        var existingModuleAvailabilityById = existingCourse.Modules
+            .ToDictionary(module => module.Id, module => module.IsAvailable);
+        var existingTopicStateById = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .ToDictionary(
+                topic => topic.Id,
+                topic => new PreservedTopicState
+                {
+                    IsAvailable = topic.IsAvailable,
+                    CompletedAtUtc = topic.CompletedAtUtc
+                });
+        var preservedCurrentLessonId = existingCourse.CurrentLessonId;
+        var preservedSourceMetadataJson = existingCourse.SourceMetadataJson;
 
+        ApplyPreservedSourceRelativePaths(record, existingCourse);
+        ApplyPreservedStructuralState(
+            record,
+            existingModuleAvailabilityById,
+            existingTopicStateById);
         ApplyPreservedLessonState(record, existingLessonStateById);
-
-        var preservedCurrentLessonId = existingCourse.CurrentLessonId is Guid currentLessonId &&
-                                       record.Modules
-                                           .SelectMany(module => module.Topics)
-                                           .SelectMany(topic => topic.Lessons)
-                                           .Any(lesson => lesson.Id == currentLessonId)
-            ? currentLessonId
-            : (Guid?)null;
-
-        var currentLessonIdToPersist = preservedCurrentLessonId ?? record.CurrentLessonId;
 
         await context.Modules
             .Where(module => module.CourseId == record.Id)
@@ -101,13 +109,13 @@ internal static class CoursePersistenceHelper
         persistedCourse.FolderPath = record.FolderPath;
         persistedCourse.SourceType = record.SourceType;
         persistedCourse.LifecycleStatus = record.LifecycleStatus;
-        persistedCourse.SourceMetadataJson = record.SourceMetadataJson;
+        persistedCourse.SourceMetadataJson = preservedSourceMetadataJson;
         persistedCourse.TotalDurationMinutes = record.TotalDurationMinutes;
         persistedCourse.AddedAt = persistedCourse.AddedAt == default
             ? record.AddedAt
             : persistedCourse.AddedAt;
         persistedCourse.LastAccessedAt = record.LastAccessedAt ?? persistedCourse.LastAccessedAt;
-        persistedCourse.CurrentLessonId = currentLessonIdToPersist;
+        persistedCourse.CurrentLessonId = preservedCurrentLessonId;
 
         foreach (var module in record.Modules)
         {
@@ -145,10 +153,93 @@ internal static class CoursePersistenceHelper
             lesson.Status = preservedState.Status;
             lesson.WatchedPercentage = preservedState.WatchedPercentage;
             lesson.LastPlaybackPositionSeconds = preservedState.LastPlaybackPositionSeconds;
+            lesson.IsAvailable = preservedState.IsAvailable;
 
             if (lesson.DurationMinutes <= 0 && preservedState.DurationMinutes > 0)
             {
                 lesson.DurationMinutes = preservedState.DurationMinutes;
+            }
+        }
+    }
+
+    private static void ApplyPreservedStructuralState(
+        CourseRecord record,
+        IReadOnlyDictionary<Guid, bool> existingModuleAvailabilityById,
+        IReadOnlyDictionary<Guid, PreservedTopicState> existingTopicStateById)
+    {
+        foreach (var module in record.Modules)
+        {
+            if (existingModuleAvailabilityById.TryGetValue(module.Id, out var isModuleAvailable))
+            {
+                module.IsAvailable = isModuleAvailable;
+            }
+
+            foreach (var topic in module.Topics)
+            {
+                if (!existingTopicStateById.TryGetValue(topic.Id, out var preservedTopicState))
+                {
+                    continue;
+                }
+
+                topic.IsAvailable = preservedTopicState.IsAvailable;
+                topic.CompletedAtUtc = preservedTopicState.CompletedAtUtc;
+            }
+        }
+    }
+
+    private static void ApplyPreservedSourceRelativePaths(
+        CourseRecord incomingCourse,
+        CourseRecord existingCourse)
+    {
+        var existingModulesById = existingCourse.Modules.ToDictionary(module => module.Id);
+        var existingTopicsById = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .ToDictionary(topic => topic.Id);
+
+        foreach (var incomingModule in incomingCourse.Modules)
+        {
+            if (LocalCourseStructurePathHelper.TryNormalize(
+                    incomingModule.SourceRelativePath,
+                    out var normalizedModulePath))
+            {
+                incomingModule.SourceRelativePath = normalizedModulePath;
+            }
+            else
+            {
+                incomingModule.SourceRelativePath = string.Empty;
+                if (existingModulesById.TryGetValue(incomingModule.Id, out var existingModule) &&
+                    LocalCourseStructurePathHelper.TryNormalize(
+                        existingModule.SourceRelativePath,
+                        out var preservedModulePath))
+                {
+                    incomingModule.SourceRelativePath = preservedModulePath;
+                }
+            }
+
+            foreach (var incomingTopic in incomingModule.Topics)
+            {
+                if (LocalCourseStructurePathHelper.TryNormalize(
+                        incomingTopic.SourceRelativePath,
+                        out var normalizedTopicPath))
+                {
+                    incomingTopic.SourceRelativePath = normalizedTopicPath;
+                }
+                else
+                {
+                    incomingTopic.SourceRelativePath = string.Empty;
+                    if (existingTopicsById.TryGetValue(incomingTopic.Id, out var existingTopic) &&
+                        LocalCourseStructurePathHelper.TryNormalize(
+                            existingTopic.SourceRelativePath,
+                            out var preservedTopicPath) &&
+                        (string.IsNullOrEmpty(incomingModule.SourceRelativePath) ||
+                         LocalCourseStructurePathHelper.TryMakeRelativeToParent(
+                             incomingModule.SourceRelativePath,
+                             preservedTopicPath,
+                             out _)))
+                    {
+                        incomingTopic.SourceRelativePath = preservedTopicPath;
+                    }
+                }
             }
         }
     }
@@ -159,6 +250,13 @@ internal static class CoursePersistenceHelper
         public double WatchedPercentage { get; set; }
         public int LastPlaybackPositionSeconds { get; set; }
         public int DurationMinutes { get; set; }
+        public bool IsAvailable { get; set; }
+    }
+
+    private sealed class PreservedTopicState
+    {
+        public bool IsAvailable { get; set; }
+        public DateTime? CompletedAtUtc { get; set; }
     }
 
     private static int CountLessons(IEnumerable<ModuleRecord> modules)

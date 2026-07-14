@@ -16,6 +16,7 @@ public class CourseSourceMetadata
 
     public string RootPath { get; set; } = string.Empty;
     public DateTime? ImportedAt { get; set; }
+    public DateTime? LastScannedAtUtc { get; set; }
     public string ScanVersion { get; set; } = string.Empty;
     public string Provider { get; set; } = string.Empty;
     public bool IntroSkipEnabled { get; set; }

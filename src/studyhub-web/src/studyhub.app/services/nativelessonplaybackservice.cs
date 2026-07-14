@@ -7,11 +7,13 @@ namespace studyhub.app.services;
 
 public sealed class NativeLessonPlaybackService(
     IProgressService progressService,
+    ILocalLessonFilePathResolver filePathResolver,
     ILogger<NativeLessonPlaybackService> logger)
 {
     private static readonly double[] SupportedPlaybackSpeeds = [0.5, 1.0, 1.5, 2.0, 2.5];
 
     private readonly IProgressService _progressService = progressService;
+    private readonly ILocalLessonFilePathResolver _filePathResolver = filePathResolver;
     private readonly ILogger<NativeLessonPlaybackService> _logger = logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -42,6 +44,7 @@ public sealed class NativeLessonPlaybackService(
 
     public async Task<long> ActivateAsync(
         Guid courseId,
+        string? courseRootPath,
         Lesson? lesson,
         double playbackSpeed,
         TimeSpan initialStartOffset)
@@ -61,6 +64,7 @@ public sealed class NativeLessonPlaybackService(
             updatedSnapshot = BuildActivationSnapshot(
                 sessionToken,
                 courseId,
+                courseRootPath,
                 lesson,
                 playbackSpeed,
                 initialStartOffset);
@@ -495,6 +499,7 @@ public sealed class NativeLessonPlaybackService(
     private NativeLessonPlaybackSnapshot BuildActivationSnapshot(
         long sessionToken,
         Guid courseId,
+        string? courseRootPath,
         Lesson? lesson,
         double playbackSpeed,
         TimeSpan initialStartOffset)
@@ -518,6 +523,8 @@ public sealed class NativeLessonPlaybackService(
             };
         }
 
+        var resolvedFilePath = _filePathResolver.Resolve(courseRootPath, lesson);
+
         if (!OperatingSystem.IsWindows())
         {
             return NativeLessonPlaybackSnapshot.Hidden with
@@ -525,7 +532,7 @@ public sealed class NativeLessonPlaybackService(
                 SessionToken = sessionToken,
                 CourseId = courseId,
                 LessonId = lesson.Id,
-                FilePath = lesson.LocalFilePath,
+                FilePath = resolvedFilePath,
                 InitialStartOffset = TimeSpan.Zero,
                 PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
@@ -553,14 +560,14 @@ public sealed class NativeLessonPlaybackService(
             };
         }
 
-        if (string.IsNullOrWhiteSpace(lesson.LocalFilePath) || !File.Exists(lesson.LocalFilePath))
+        if (string.IsNullOrWhiteSpace(resolvedFilePath) || !File.Exists(resolvedFilePath))
         {
             return NativeLessonPlaybackSnapshot.Hidden with
             {
                 SessionToken = sessionToken,
                 CourseId = courseId,
                 LessonId = lesson.Id,
-                FilePath = lesson.LocalFilePath,
+                FilePath = resolvedFilePath,
                 InitialStartOffset = TimeSpan.Zero,
                 PlaybackSpeed = normalizedSpeed,
                 ResumePosition = lesson.LastPlaybackPosition,
@@ -571,13 +578,13 @@ public sealed class NativeLessonPlaybackService(
             };
         }
 
-        var fileLabel = Path.GetFileName(lesson.LocalFilePath);
+        var fileLabel = Path.GetFileName(resolvedFilePath);
         return NativeLessonPlaybackSnapshot.Hidden with
         {
             SessionToken = sessionToken,
             CourseId = courseId,
             LessonId = lesson.Id,
-            FilePath = lesson.LocalFilePath,
+            FilePath = resolvedFilePath,
             InitialStartOffset = normalizedInitialStartOffset,
             PlaybackSpeed = normalizedSpeed,
             ResumePosition = lesson.LastPlaybackPosition,
@@ -659,6 +666,9 @@ public sealed record NativeLessonPlaybackSnapshot
 
     public bool ShouldShowNativeHost =>
         OperatingSystem.IsWindows() &&
+        Status is (NativeLessonPlaybackStatus.Pending or
+            NativeLessonPlaybackStatus.Ready or
+            NativeLessonPlaybackStatus.Playing) &&
         !string.IsNullOrWhiteSpace(FilePath) &&
         Viewport is { IsVisible: true };
 }

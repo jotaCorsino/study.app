@@ -55,6 +55,17 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
             entity.Property(record => record.Description)
                 .HasColumnName("description")
                 .IsRequired();
+            entity.Property(record => record.SourceRelativePath)
+                .HasColumnName("source_relative_path")
+                .HasColumnType("TEXT")
+                .HasDefaultValue(string.Empty)
+                .IsRequired();
+            entity.Property(record => record.IsAvailable)
+                .HasColumnName("is_available")
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true)
+                .HasSentinel(true)
+                .IsRequired();
             entity.HasMany(record => record.Topics)
                 .WithOne(record => record.Module)
                 .HasForeignKey(record => record.ModuleId)
@@ -74,6 +85,17 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
             entity.Property(record => record.Title).IsRequired();
             entity.Property(record => record.Description)
                 .HasColumnName("description")
+                .IsRequired();
+            entity.Property(record => record.SourceRelativePath)
+                .HasColumnName("source_relative_path")
+                .HasColumnType("TEXT")
+                .HasDefaultValue(string.Empty)
+                .IsRequired();
+            entity.Property(record => record.IsAvailable)
+                .HasColumnName("is_available")
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true)
+                .HasSentinel(true)
                 .IsRequired();
             entity.Property(record => record.CompletedAtUtc)
                 .HasColumnName("completed_at_utc")
@@ -112,6 +134,17 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
                 .HasConversion<int>();
             entity.Property(record => record.LocalFilePath)
                 .HasColumnName("local_file_path");
+            entity.Property(record => record.RelativeFilePath)
+                .HasColumnName("relative_file_path")
+                .HasColumnType("TEXT")
+                .HasDefaultValue(string.Empty)
+                .IsRequired();
+            entity.Property(record => record.IsAvailable)
+                .HasColumnName("is_available")
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true)
+                .HasSentinel(true)
+                .IsRequired();
             entity.Property(record => record.Provider)
                 .HasColumnName("provider");
             entity.Property(record => record.LastPlaybackPositionSeconds)

@@ -32,6 +32,7 @@ internal static class CoursePresentationMergeHelper
 
                 targetTopic.Title = ResolveDisplayValue(existingTopic.RawTitle, existingTopic.Title, targetTopic.RawTitle, targetTopic.Title);
                 targetTopic.Description = ResolveDisplayValue(existingTopic.RawDescription, existingTopic.Description, targetTopic.RawDescription, targetTopic.Description);
+                targetTopic.CompletedAtUtc = existingTopic.CompletedAtUtc;
 
                 var existingLessons = existingTopic.Lessons.ToDictionary(lesson => lesson.Id);
                 foreach (var targetLesson in targetTopic.Lessons)
@@ -97,7 +98,8 @@ internal static class CoursePresentationMergeHelper
         return new CourseSourceMetadata
         {
             RootPath = current.RootPath,
-            ImportedAt = current.ImportedAt,
+            ImportedAt = existing.ImportedAt ?? current.ImportedAt,
+            LastScannedAtUtc = existing.LastScannedAtUtc ?? current.LastScannedAtUtc,
             ScanVersion = current.ScanVersion,
             Provider = current.Provider,
             IntroSkipEnabled = existing.IntroSkipEnabled,

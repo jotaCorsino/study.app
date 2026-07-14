@@ -66,10 +66,42 @@
                         </button>
                     </div>
                 </div>
+
+                @if (!currentLesson.IsAvailable)
+                {
+                    <div class="availability-warning player-availability-warning"
+                         role="status"
+                         aria-live="polite">
+                        <svg class="availability-warning-icon"
+                             width="20"
+                             height="20"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             stroke-linecap="round"
+                             stroke-linejoin="round"
+                             aria-hidden="true">
+                            <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"></path>
+                            <line x1="12" y1="9" x2="12" y2="13"></line>
+                            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                        </svg>
+                        <div class="availability-warning-content">
+                            <strong>Este arquivo não foi encontrado na última sincronização.</strong>
+                            <span>Seu progresso foi preservado. Se o arquivo voltou para a pasta, execute uma nova sincronização para atualizar o status.</span>
+                        </div>
+                        <button type="button"
+                                class="btn btn-secondary btn-sm availability-warning-action"
+                                @onclick='() => nav.NavigateTo("/settings")'>
+                            Gerenciar armazenamento
+                        </button>
+                    </div>
+                }
             </div>
             <div class="player-video-area">
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
+                                    CourseRootPath="@CurrentCourseRootPath"
                                     Lesson="currentLesson"
                                     InitialStartOffset="initialStartOffset"
                                     RequestedPlaybackSpeed="selectedPlaybackSpeed"
@@ -261,6 +293,11 @@
     private string introSkipSaveError = string.Empty;
     private PlayerControlsSettingsMode settingsInlineMode = PlayerControlsSettingsMode.Normal;
     private TimeSpan initialStartOffset = TimeSpan.Zero;
+    private string CurrentCourseRootPath => course == null
+        ? string.Empty
+        : !string.IsNullOrWhiteSpace(course.SourceMetadata.RootPath)
+            ? course.SourceMetadata.RootPath
+            : course.FolderPath;
 
     private enum PlayerControlsSettingsMode
     {

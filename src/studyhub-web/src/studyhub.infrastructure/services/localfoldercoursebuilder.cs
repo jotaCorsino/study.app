@@ -5,10 +5,10 @@ using studyhub.domain.Entities;
 
 namespace studyhub.infrastructure.services;
 
-public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) : ILocalFolderCourseBuilder
+public class LocalFolderCourseBuilder(ILocalCourseScanner scanner) : ILocalFolderCourseBuilder
 {
     private const string LocalScanVersion = "local-folder-v1";
-    private readonly LocalCourseScanner _scanner = new(videoMetadataReader);
+    private readonly ILocalCourseScanner _scanner = scanner;
 
     public async Task<LocalFolderCourseBuildResult> BuildAsync(LocalFolderCourseBuildRequest request, CancellationToken cancellationToken = default)
     {
@@ -30,6 +30,11 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
         {
             var moduleRawTitle = detectedModule.RawName;
             var moduleTitle = LocalCourseScanner.NormalizeDisplayName(detectedModule.RawName);
+            var moduleSourceRelativePath = LocalCourseStructurePathHelper.TryNormalize(
+                detectedModule.RelativePath,
+                out var normalizedModuleSourceRelativePath)
+                ? normalizedModuleSourceRelativePath
+                : string.Empty;
             var topics = new List<Topic>();
 
             foreach (var detectedTopic in detectedModule.Topics.OrderBy(topic => topic.Order))
@@ -38,6 +43,12 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                 var topicTitle = detectedTopic.RelativePath == "."
                     ? moduleTitle
                     : LocalCourseScanner.NormalizeDisplayName(detectedTopic.RawName);
+                var topicSourceRelativePath = LocalCourseStructurePathHelper.TryCombine(
+                    moduleSourceRelativePath,
+                    detectedTopic.RelativePath,
+                    out var normalizedTopicSourceRelativePath)
+                    ? normalizedTopicSourceRelativePath
+                    : string.Empty;
 
                 var lessons = new List<Lesson>();
 
@@ -54,6 +65,8 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                         Description = string.Empty,
                         SourceType = LessonSourceType.LocalFile,
                         LocalFilePath = detectedLesson.AbsolutePath,
+                        RelativeFilePath = detectedLesson.RelativePath,
+                        IsAvailable = true,
                         Provider = "LocalFileSystem",
                         Duration = detectedLesson.Duration
                     };
@@ -82,6 +95,8 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                     RawDescription = string.Empty,
                     Title = topicTitle,
                     Description = string.Empty,
+                    SourceRelativePath = topicSourceRelativePath,
+                    IsAvailable = true,
                     Lessons = lessons
                 });
             }
@@ -95,6 +110,8 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                 RawDescription = string.Empty,
                 Title = moduleTitle,
                 Description = string.Empty,
+                SourceRelativePath = moduleSourceRelativePath,
+                IsAvailable = true,
                 Topics = topics
             });
         }
@@ -114,6 +131,7 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
             {
                 RootPath = detectedStructure.RootFolderPath,
                 ImportedAt = detectedStructure.ScannedAt,
+                LastScannedAtUtc = detectedStructure.ScannedAt,
                 ScanVersion = LocalScanVersion,
                 Provider = "LocalFileSystem"
             },

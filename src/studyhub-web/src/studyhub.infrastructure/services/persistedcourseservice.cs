@@ -213,7 +213,7 @@ public class PersistedCourseService(
             .FirstOrDefaultAsync(item => item.CourseId == record.Id);
 
         var manifest = TryDeserializeManifest(snapshot?.StructureJson);
-        if (manifest != null)
+        if (manifest != null && manifest.CourseId == record.Id)
         {
             return manifest;
         }
@@ -223,7 +223,32 @@ public class PersistedCourseService(
             return null;
         }
 
-        var legacyManifest = BuildManifestFromCourse(record.ToDomain());
+        if (!LocalCourseSourceRootResolver.TryResolve(
+                record.SourceMetadataJson,
+                record.FolderPath,
+                out var normalizedRootPath))
+        {
+            return null;
+        }
+
+        var sourceMetadata = DeserializeCourseSourceMetadata(record);
+        var scannedAtUtc = sourceMetadata.LastScannedAtUtc ??
+                           sourceMetadata.ImportedAt ??
+                           DateTime.UtcNow;
+        DetectedCourseStructure legacyManifest;
+
+        try
+        {
+            legacyManifest = LocalCourseManifestBuilder.Build(
+                record,
+                normalizedRootPath,
+                scannedAtUtc);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+
         await UpsertLocalManifestAsync(context, legacyManifest);
         return legacyManifest;
     }
@@ -254,7 +279,8 @@ public class PersistedCourseService(
                     Status = lesson.Status,
                     WatchedPercentage = lesson.WatchedPercentage,
                     LastPlaybackPositionSeconds = Math.Max(0, (int)Math.Round(lesson.LastPlaybackPosition.TotalSeconds)),
-                    DurationMinutes = Math.Max(0, (int)Math.Round(lesson.Duration.TotalMinutes))
+                    DurationMinutes = Math.Max(0, (int)Math.Round(lesson.Duration.TotalMinutes)),
+                    IsAvailable = lesson.IsAvailable
                 });
 
         var rebuiltCourse = BuildCourseFromManifest(manifest, existingCourse, preservedLessonState);
@@ -263,34 +289,44 @@ public class PersistedCourseService(
             return null;
         }
 
-        var previousCurrentLessonId = trackedCourse.CurrentLessonId;
-        await CoursePersistenceHelper.UpsertCourseAsync(context, rebuiltCourse);
-
-        if (previousCurrentLessonId.HasValue)
+        await using var transaction = await context.Database.BeginTransactionAsync();
+        try
         {
-            var hasCurrentLesson = await context.Lessons
-                .AsNoTracking()
-                .AnyAsync(lesson =>
-                    lesson.Id == previousCurrentLessonId.Value &&
-                    lesson.Topic != null &&
-                    lesson.Topic.Module != null &&
-                    lesson.Topic.Module.CourseId == courseId);
+            var previousCurrentLessonId = trackedCourse.CurrentLessonId;
+            await CoursePersistenceHelper.UpsertCourseAsync(context, rebuiltCourse);
 
-            if (hasCurrentLesson)
+            if (previousCurrentLessonId.HasValue)
             {
-                var persistedCourse = await context.Courses.FirstOrDefaultAsync(course => course.Id == courseId);
-                if (persistedCourse != null && persistedCourse.CurrentLessonId != previousCurrentLessonId)
+                var hasCurrentLesson = await context.Lessons
+                    .AsNoTracking()
+                    .AnyAsync(lesson =>
+                        lesson.Id == previousCurrentLessonId.Value &&
+                        lesson.Topic != null &&
+                        lesson.Topic.Module != null &&
+                        lesson.Topic.Module.CourseId == courseId);
+
+                if (hasCurrentLesson)
                 {
-                    persistedCourse.CurrentLessonId = previousCurrentLessonId;
-                    await context.SaveChangesAsync();
+                    var persistedCourse = await context.Courses.FirstOrDefaultAsync(course => course.Id == courseId);
+                    if (persistedCourse != null && persistedCourse.CurrentLessonId != previousCurrentLessonId)
+                    {
+                        persistedCourse.CurrentLessonId = previousCurrentLessonId;
+                        await context.SaveChangesAsync();
+                    }
                 }
             }
+
+            var persistedRecord = await BuildCourseQuery(context)
+                .FirstOrDefaultAsync(course => course.Id == courseId);
+
+            await transaction.CommitAsync();
+            return persistedRecord?.ToDomain();
         }
-
-        var persistedRecord = await BuildCourseQuery(context)
-            .FirstOrDefaultAsync(course => course.Id == courseId);
-
-        return persistedRecord?.ToDomain();
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     private static Course BuildCourseFromManifest(
@@ -299,11 +335,22 @@ public class PersistedCourseService(
         IReadOnlyDictionary<Guid, PreservedLessonState> preservedLessonState)
     {
         var modules = new List<Module>();
+        var existingModulesById = existingCourse.Modules.ToDictionary(module => module.Id);
+        var existingTopicsById = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .ToDictionary(topic => topic.Id);
+        var preservedRelativeFilePaths = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(topic => topic.Lessons)
+            .ToDictionary(lesson => lesson.Id, lesson => lesson.RelativeFilePath);
 
         foreach (var detectedModule in manifest.Modules.OrderBy(module => module.Order))
         {
             var moduleRawTitle = FirstNonEmpty(detectedModule.RawName, $"Modulo {detectedModule.Order}");
             var moduleTitle = LocalCourseScanner.NormalizeDisplayName(moduleRawTitle);
+            var moduleSourceRelativePath = ResolveModuleSourceRelativePath(
+                detectedModule,
+                existingModulesById);
             var topics = new List<Topic>();
 
             foreach (var detectedTopic in detectedModule.Topics.OrderBy(topic => topic.Order))
@@ -312,6 +359,10 @@ public class PersistedCourseService(
                 var topicTitle = string.Equals(detectedTopic.RelativePath, ".", StringComparison.Ordinal)
                     ? moduleTitle
                     : LocalCourseScanner.NormalizeDisplayName(topicRawTitle);
+                var topicSourceRelativePath = ResolveTopicSourceRelativePath(
+                    detectedTopic,
+                    moduleSourceRelativePath,
+                    existingTopicsById);
                 var lessons = new List<Lesson>();
 
                 foreach (var detectedLesson in detectedTopic.Lessons.OrderBy(lesson => lesson.Order))
@@ -321,6 +372,12 @@ public class PersistedCourseService(
                         Path.GetFileNameWithoutExtension(detectedLesson.FileName),
                         $"Aula {detectedLesson.Order}");
                     var absolutePath = ResolveAbsolutePath(detectedLesson, manifest.RootFolderPath);
+                    preservedRelativeFilePaths.TryGetValue(detectedLesson.LessonId, out var preservedRelativeFilePath);
+                    var relativeFilePath = ResolvePortableRelativeFilePath(
+                        detectedLesson,
+                        manifest.RootFolderPath,
+                        absolutePath,
+                        preservedRelativeFilePath);
                     var duration = detectedLesson.Duration > TimeSpan.Zero
                         ? detectedLesson.Duration
                         : TimeSpan.Zero;
@@ -344,6 +401,7 @@ public class PersistedCourseService(
                         Description = string.Empty,
                         SourceType = LessonSourceType.LocalFile,
                         LocalFilePath = absolutePath,
+                        RelativeFilePath = relativeFilePath,
                         Provider = "LocalFileSystem",
                         Duration = duration
                     };
@@ -353,6 +411,7 @@ public class PersistedCourseService(
                         lesson.Status = savedState.Status;
                         lesson.WatchedPercentage = savedState.WatchedPercentage;
                         lesson.LastPlaybackPosition = TimeSpan.FromSeconds(savedState.LastPlaybackPositionSeconds);
+                        lesson.IsAvailable = savedState.IsAvailable;
                     }
 
                     lessons.Add(lesson);
@@ -367,6 +426,13 @@ public class PersistedCourseService(
                     RawDescription = string.Empty,
                     Title = topicTitle,
                     Description = string.Empty,
+                    SourceRelativePath = topicSourceRelativePath,
+                    IsAvailable = existingTopicsById.TryGetValue(
+                        detectedTopic.TopicId,
+                        out var existingTopic)
+                        ? existingTopic.IsAvailable
+                        : true,
+                    CompletedAtUtc = existingTopic?.CompletedAtUtc,
                     Lessons = lessons
                 });
             }
@@ -380,6 +446,12 @@ public class PersistedCourseService(
                 RawDescription = string.Empty,
                 Title = moduleTitle,
                 Description = string.Empty,
+                SourceRelativePath = moduleSourceRelativePath,
+                IsAvailable = existingModulesById.TryGetValue(
+                    detectedModule.ModuleId,
+                    out var existingModule)
+                    ? existingModule.IsAvailable
+                    : true,
                 Topics = topics
             });
         }
@@ -412,6 +484,57 @@ public class PersistedCourseService(
         return rebuiltCourse;
     }
 
+    private static string ResolveModuleSourceRelativePath(
+        DetectedModuleStructure detectedModule,
+        IReadOnlyDictionary<Guid, Module> existingModulesById)
+    {
+        if (existingModulesById.TryGetValue(detectedModule.ModuleId, out var existingModule) &&
+            LocalCourseStructurePathHelper.TryNormalize(
+                existingModule.SourceRelativePath,
+                out var sourceRelativePath))
+        {
+            return sourceRelativePath;
+        }
+
+        if (LocalCourseStructurePathHelper.TryNormalize(
+                detectedModule.RelativePath,
+                out sourceRelativePath))
+        {
+            return sourceRelativePath;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveTopicSourceRelativePath(
+        DetectedTopicStructure detectedTopic,
+        string moduleSourceRelativePath,
+        IReadOnlyDictionary<Guid, Topic> existingTopicsById)
+    {
+        if (existingTopicsById.TryGetValue(detectedTopic.TopicId, out var existingTopic) &&
+            LocalCourseStructurePathHelper.TryNormalize(
+                existingTopic.SourceRelativePath,
+                out var sourceRelativePath) &&
+            (string.IsNullOrEmpty(moduleSourceRelativePath) ||
+             LocalCourseStructurePathHelper.TryMakeRelativeToParent(
+                 moduleSourceRelativePath,
+                 sourceRelativePath,
+                 out _)))
+        {
+            return sourceRelativePath;
+        }
+
+        if (LocalCourseStructurePathHelper.TryCombine(
+                moduleSourceRelativePath,
+                detectedTopic.RelativePath,
+                out sourceRelativePath))
+        {
+            return sourceRelativePath;
+        }
+
+        return string.Empty;
+    }
+
     private static CourseSourceMetadata BuildLocalMetadata(DetectedCourseStructure manifest, CourseSourceMetadata existingMetadata)
     {
         var metadata = existingMetadata ?? new CourseSourceMetadata();
@@ -426,40 +549,36 @@ public class PersistedCourseService(
 
     private static bool NeedsLocalRehydration(persistence.models.CourseRecord record, DetectedCourseStructure manifest)
     {
-        var manifestModuleIds = manifest.Modules.Select(module => module.ModuleId).ToHashSet();
-        var manifestLessonIds = manifest.Modules
-            .SelectMany(module => module.Topics)
-            .SelectMany(topic => topic.Lessons)
-            .Select(lesson => lesson.LessonId)
-            .Where(lessonId => lessonId != Guid.Empty)
-            .ToHashSet();
-
-        if (manifestModuleIds.Count == 0 || manifestLessonIds.Count == 0)
+        if (!LocalCourseSourceRootResolver.TryResolve(
+                record.SourceMetadataJson,
+                record.FolderPath,
+                out var currentRootPath) ||
+            !LocalCourseSourceRootResolver.TryNormalize(
+                manifest.RootFolderPath,
+                out var manifestRootPath) ||
+            !string.Equals(currentRootPath, manifestRootPath, PathComparison))
         {
             return false;
         }
 
-        var persistedModules = record.Modules ?? [];
-        var persistedModuleIds = persistedModules
-            .Select(module => module.Id)
-            .ToHashSet();
-        var persistedLessons = persistedModules
+        if (!LocalCourseManifestValidator.TryCorrelatePersistedIdentities(
+                manifest,
+                record,
+                out var identityCorrelation) ||
+            !identityCorrelation.ManifestContainsPersistedTree)
+        {
+            return false;
+        }
+
+        if (!identityCorrelation.IsExactMatch)
+        {
+            return true;
+        }
+
+        var persistedLessons = record.Modules
             .SelectMany(module => module.Topics)
             .SelectMany(topic => topic.Lessons)
             .ToList();
-        var persistedLessonIds = persistedLessons
-            .Select(lesson => lesson.Id)
-            .ToHashSet();
-
-        if (!persistedModuleIds.SetEquals(manifestModuleIds))
-        {
-            return true;
-        }
-
-        if (!persistedLessonIds.SetEquals(manifestLessonIds))
-        {
-            return true;
-        }
 
         var manifestLessonPaths = manifest.Modules
             .SelectMany(module => module.Topics)
@@ -469,6 +588,7 @@ public class PersistedCourseService(
                 lesson => NormalizePath(ResolveAbsolutePath(lesson, manifest.RootFolderPath)));
 
         return persistedLessons.Any(lesson =>
+            LocalLessonPathHelper.TryNormalizePortableRelativePath(lesson.RelativeFilePath, out _) &&
             manifestLessonPaths.TryGetValue(lesson.Id, out var manifestPath) &&
             !string.Equals(
                 NormalizePath(FirstNonEmpty(lesson.LocalFilePath, lesson.FilePath)),
@@ -512,75 +632,15 @@ public class PersistedCourseService(
 
         try
         {
-            return JsonSerializer.Deserialize<DetectedCourseStructure>(manifestJson, JsonOptions);
+            var manifest = JsonSerializer.Deserialize<DetectedCourseStructure>(manifestJson, JsonOptions);
+            return LocalCourseManifestValidator.HasUsableStructure(manifest)
+                ? manifest
+                : null;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
             return null;
         }
-    }
-
-    private static DetectedCourseStructure BuildManifestFromCourse(Course course)
-    {
-        var rootPath = course.FolderPath;
-        var rootName = ResolveRootFolderName(course, rootPath);
-
-        var modules = course.Modules
-            .OrderBy(module => module.Order)
-            .Select(module => new DetectedModuleStructure
-            {
-                ModuleId = module.Id,
-                Order = module.Order,
-                RawName = FirstNonEmpty(module.RawTitle, module.Title),
-                RelativePath = ".",
-                Topics = module.Topics
-                    .OrderBy(topic => topic.Order)
-                    .Select(topic => new DetectedTopicStructure
-                    {
-                        TopicId = topic.Id,
-                        Order = topic.Order,
-                        RawName = FirstNonEmpty(topic.RawTitle, topic.Title),
-                        RelativePath = ".",
-                        Lessons = topic.Lessons
-                            .OrderBy(lesson => lesson.Order)
-                            .Select(lesson =>
-                            {
-                                var absolutePath = FirstNonEmpty(lesson.LocalFilePath, lesson.FilePath);
-                                var fileName = Path.GetFileName(absolutePath);
-                                var relativePath = ResolveRelativePath(rootPath, absolutePath, fileName);
-                                return new DetectedLessonFile
-                                {
-                                    LessonId = lesson.Id,
-                                    Order = lesson.Order,
-                                    RawName = FirstNonEmpty(lesson.RawTitle, lesson.Title),
-                                    FileName = fileName,
-                                    RelativePath = relativePath,
-                                    AbsolutePath = absolutePath,
-                                    Extension = Path.GetExtension(absolutePath),
-                                    FileSizeBytes = 0,
-                                    Duration = lesson.Duration
-                                };
-                            })
-                            .ToList()
-                    })
-                    .ToList()
-            })
-            .ToList();
-
-        return new DetectedCourseStructure
-        {
-            CourseId = course.Id,
-            RootFolderName = rootName,
-            RootFolderPath = rootPath,
-            PresentationRootRelativePath = ".",
-            ScannedAt = course.SourceMetadata.ImportedAt ?? DateTime.UtcNow,
-            RootNode = new DetectedFolderNode
-            {
-                Name = rootName,
-                RelativePath = "."
-            },
-            Modules = modules
-        };
     }
 
     private static bool HasAnyLessons(persistence.models.CourseRecord record)
@@ -604,11 +664,14 @@ public class PersistedCourseService(
         var snapshot = await context.CourseImportSnapshots
             .FirstOrDefaultAsync(item => item.CourseId == manifest.CourseId);
 
-        if (snapshot == null)
+        if (snapshot is null)
         {
             snapshot = new persistence.models.CourseImportSnapshotRecord
             {
-                CourseId = manifest.CourseId
+                CourseId = manifest.CourseId,
+                ImportedAt = manifest.ScannedAt == default
+                    ? DateTime.UtcNow
+                    : manifest.ScannedAt
             };
 
             await context.CourseImportSnapshots.AddAsync(snapshot);
@@ -617,47 +680,8 @@ public class PersistedCourseService(
         snapshot.SourceKind = "local-folder";
         snapshot.RootFolderPath = manifest.RootFolderPath ?? string.Empty;
         snapshot.StructureJson = JsonSerializer.Serialize(manifest, JsonOptions);
-        snapshot.ImportedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync();
-    }
-
-    private static string ResolveRootFolderName(Course course, string rootPath)
-    {
-        if (!string.IsNullOrWhiteSpace(rootPath))
-        {
-            var normalizedPath = rootPath
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            var folderName = Path.GetFileName(normalizedPath);
-            if (!string.IsNullOrWhiteSpace(folderName))
-            {
-                return folderName;
-            }
-        }
-
-        return FirstNonEmpty(course.RawTitle, course.Title, "Curso Local");
-    }
-
-    private static string ResolveRelativePath(string rootPath, string absolutePath, string fallbackFileName)
-    {
-        if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(absolutePath))
-        {
-            return FirstNonEmpty(fallbackFileName, ".");
-        }
-
-        try
-        {
-            var relative = Path.GetRelativePath(rootPath, absolutePath);
-            if (!relative.StartsWith("..", StringComparison.Ordinal))
-            {
-                return NormalizePath(relative);
-            }
-        }
-        catch (ArgumentException)
-        {
-        }
-
-        return FirstNonEmpty(fallbackFileName, ".");
     }
 
     private static string ResolveAbsolutePath(DetectedLessonFile lesson, string rootFolderPath)
@@ -689,6 +713,26 @@ public class PersistedCourseService(
             : path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim();
     }
 
+    private static StringComparison PathComparison => OperatingSystem.IsWindows()
+        ? StringComparison.OrdinalIgnoreCase
+        : StringComparison.Ordinal;
+
+    private static string ResolvePortableRelativeFilePath(
+        DetectedLessonFile lesson,
+        string rootFolderPath,
+        string absolutePath,
+        string? preservedRelativeFilePath)
+    {
+        if (LocalLessonPathHelper.TryNormalizePortableRelativePath(lesson.RelativePath, out var relativeFilePath) ||
+            LocalLessonPathHelper.TryCalculatePortableRelativePath(rootFolderPath, absolutePath, out relativeFilePath) ||
+            LocalLessonPathHelper.TryNormalizePortableRelativePath(preservedRelativeFilePath, out relativeFilePath))
+        {
+            return relativeFilePath;
+        }
+
+        return string.Empty;
+    }
+
     private static string FirstNonEmpty(params string?[] values)
     {
         foreach (var value in values)
@@ -708,5 +752,6 @@ public class PersistedCourseService(
         public double WatchedPercentage { get; set; }
         public int LastPlaybackPositionSeconds { get; set; }
         public int DurationMinutes { get; set; }
+        public bool IsAvailable { get; set; }
     }
 }

@@ -9,6 +9,8 @@ public class Topic
     public string RawDescription { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string SourceRelativePath { get; set; } = string.Empty;
+    public bool IsAvailable { get; set; } = true;
     public DateTime? CompletedAtUtc { get; set; }
     public List<Lesson> Lessons { get; set; } = [];
 }

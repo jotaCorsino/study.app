@@ -152,7 +152,42 @@
                     }
                 </div>
             </div>
-            
+
+            @{
+                var availabilitySummary = CourseAvailabilityPresentationHelper.Summarize(course);
+            }
+
+            @if (availabilitySummary.HasUnavailableContent)
+            {
+                <div class="availability-warning course-availability-warning mb-md"
+                     role="status"
+                     aria-live="polite">
+                    <svg class="availability-warning-icon"
+                         width="20"
+                         height="20"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round"
+                         aria-hidden="true">
+                        <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"></path>
+                        <line x1="12" y1="9" x2="12" y2="13"></line>
+                        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    <div class="availability-warning-content">
+                        <strong>Há conteúdo que não foi encontrado na última sincronização.</strong>
+                        <span>@FormatUnavailableSummary(availabilitySummary). O progresso e o histórico continuam preservados.</span>
+                    </div>
+                    <button type="button"
+                            class="btn btn-secondary btn-sm availability-warning-action"
+                            @onclick='() => nav.NavigateTo("/settings")'>
+                        Gerenciar armazenamento
+                    </button>
+                </div>
+            }
+
             @if (course.Modules != null)
             {
                 var moduleNumber = 1;
@@ -517,5 +552,19 @@
             return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
         }
         return $"{minutes}m";
+    }
+
+    private static string FormatUnavailableSummary(CourseAvailabilitySummary summary)
+    {
+        var availabilityLabel = summary.TotalUnavailableCount == 1 ? "indisponível" : "indisponíveis";
+
+        return $"{FormatCount(summary.UnavailableModuleCount, "módulo", "módulos")}, " +
+               $"{FormatCount(summary.UnavailableTopicCount, "tópico", "tópicos")} e " +
+               $"{FormatCount(summary.UnavailableLessonCount, "aula", "aulas")} {availabilityLabel}";
+    }
+
+    private static string FormatCount(int count, string singular, string plural)
+    {
+        return $"{count} {(count == 1 ? singular : plural)}";
     }
 }

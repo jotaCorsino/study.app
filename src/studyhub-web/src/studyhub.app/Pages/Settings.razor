@@ -1,0 +1,998 @@
+@page "/settings"
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Rendering
+@using studyhub.app.Components.Settings
+@using studyhub.app.state
+@using studyhub.application.Contracts.CourseContentSync
+@using studyhub.application.Contracts.CourseSourceManagement
+@using studyhub.application.Interfaces
+@inject ICourseService CourseService
+@inject IFolderPickerService FolderPickerService
+@inject ICourseSourceManagementService CourseSourceManagementService
+@inject ICourseContentSyncService CourseContentSyncService
+@inject CourseCatalogState CourseCatalogState
+@inject IJSRuntime JSRuntime
+
+<div class="page-container settings-page"
+     inert="@(ActiveDialogCard is not null ? "inert" : null)"
+     aria-hidden="@(ActiveDialogCard is not null ? "true" : null)">
+    <header class="page-header">
+        <h1>Configurações</h1>
+        <p class="page-subtitle">Gerencie as fontes e o armazenamento dos seus cursos.</p>
+    </header>
+
+    <section class="settings-section" aria-labelledby="courses-storage-title">
+        <div class="settings-section-header">
+            <h2 id="courses-storage-title">Cursos e armazenamento</h2>
+            <p>Confira as pastas dos cursos locais, altere uma localização com segurança e sincronize mudanças no conteúdo.</p>
+        </div>
+
+        @if (controller is null || (controller.IsLoading && controller.Cards.Count == 0))
+        {
+            <div class="storage-loading" role="status" aria-live="polite">
+                <span class="spinner" aria-hidden="true"></span>
+                <span>Carregando cursos locais...</span>
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(controller.LoadErrorMessage))
+        {
+            <div class="storage-feedback is-error" role="alert">
+                @controller.LoadErrorMessage
+            </div>
+        }
+        else if (controller.Cards.Count == 0)
+        {
+            <div class="storage-empty-state">
+                <span>Nenhum curso de pasta local foi encontrado.</span>
+            </div>
+        }
+        else
+        {
+            <div class="storage-course-list">
+                @foreach (var card in controller.Cards)
+                {
+                    <article class="storage-course-card" @key="card.Course.Id" aria-busy="@card.IsBusy.ToString().ToLowerInvariant()">
+                        <div class="storage-course-header">
+                            <h3>@card.Course.Title</h3>
+                            <span class="badge source-status @GetSourceBadgeClass(card)" role="status" title="@card.SourceStatusMessage">
+                                @if (card.IsBusy)
+                                {
+                                    <span class="spinner" aria-hidden="true"></span>
+                                }
+                                else
+                                {
+                                    @GetSourceStatusIcon(card)
+                                }
+                                <span>@card.SourceStatusLabel</span>
+                            </span>
+                        </div>
+
+                        <div class="storage-course-source">
+                            <span class="storage-course-label">Pasta atual</span>
+                            <span class="storage-course-path" title="@card.CurrentRootPath">
+                                @(string.IsNullOrWhiteSpace(card.CurrentRootPath) ? "Pasta não configurada" : card.CurrentRootPath)
+                            </span>
+                            @if (!string.IsNullOrWhiteSpace(card.SourceStatusMessage))
+                            {
+                                <span class="text-xs text-tertiary">@card.SourceStatusMessage</span>
+                            }
+                        </div>
+
+                        <dl class="storage-course-stats" aria-label="Resumo do conteúdo persistido">
+                            <div class="storage-course-stat">
+                                <dt>Módulos</dt>
+                                <dd>@card.ModuleCount</dd>
+                            </div>
+                            <div class="storage-course-stat">
+                                <dt>Tópicos</dt>
+                                <dd>@card.TopicCount</dd>
+                            </div>
+                            <div class="storage-course-stat">
+                                <dt>Aulas</dt>
+                                <dd>@card.LessonCount</dd>
+                            </div>
+                            <div class="storage-course-stat">
+                                <dt>Indisponíveis</dt>
+                                <dd>@card.UnavailableItemCount</dd>
+                            </div>
+                        </dl>
+
+                        @if (card.HasUnavailableContent)
+                        {
+                            <div class="storage-unavailable-summary" role="status">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"></path>
+                                    <line x1="12" y1="9" x2="12" y2="13"></line>
+                                    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                                </svg>
+                                <span>@FormatUnavailableSummary(card). O progresso e o histórico permanecem preservados.</span>
+                            </div>
+                        }
+
+                        <div class="storage-course-scan">
+                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <polyline points="12 7 12 12 15 14"></polyline>
+                            </svg>
+                            <span>
+                                Última sincronização:
+                                @if (card.Course.SourceMetadata.LastScannedAtUtc is { } scannedAtUtc)
+                                {
+                                    <time datetime="@scannedAtUtc.ToString("O")">@FormatLocalDateTime(scannedAtUtc)</time>
+                                }
+                                else
+                                {
+                                    <strong>Ainda não sincronizado</strong>
+                                }
+                            </span>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(card.FeedbackMessage))
+                        {
+                            <div class="storage-feedback @GetFeedbackClass(card)"
+                                 role="@(card.FeedbackKind == CourseStorageFeedbackKind.Error ? "alert" : "status")"
+                                 aria-live="polite">
+                                @card.FeedbackMessage
+                            </div>
+                        }
+
+                        <div class="storage-course-actions">
+                            <button type="button"
+                                    id="@GetActionElementId(card.Course.Id, "location")"
+                                    class="btn btn-secondary"
+                                    disabled="@(!card.CanChangeLocation)"
+                                    @onclick="() => SelectLocationAsync(card.Course.Id)">
+                                @if (card.IsBusy && IsLocationOperation(card.Operation))
+                                {
+                                    <span class="spinner" aria-hidden="true"></span>
+                                    <span>@GetOperationLabel(card.Operation)</span>
+                                }
+                                else
+                                {
+                                    <span>@GetLocationActionLabel(card)</span>
+                                }
+                            </button>
+                            <button type="button"
+                                    id="@GetActionElementId(card.Course.Id, "sync")"
+                                    class="btn btn-primary"
+                                    disabled="@(!card.CanSync)"
+                                    @onclick="() => PreviewSyncAsync(card.Course.Id)">
+                                @if (card.IsBusy && IsSyncOperation(card.Operation))
+                                {
+                                    <span class="spinner" aria-hidden="true"></span>
+                                    <span>@GetOperationLabel(card.Operation)</span>
+                                }
+                                else
+                                {
+                                    <span>Sincronizar conteúdo</span>
+                                }
+                            </button>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@if (ActiveDialogCard is { } dialogCard)
+{
+    <div class="storage-dialog-overlay" role="presentation" @onclick="() => CloseDialog(dialogCard)">
+        <div class="storage-dialog-content"
+             id="storage-course-dialog"
+             tabindex="-1"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="storage-dialog-title"
+             aria-busy="@dialogCard.IsBusy.ToString().ToLowerInvariant()"
+             @onkeydown="eventArgs => HandleDialogKeyDownAsync(eventArgs, dialogCard)"
+             @onclick:stopPropagation="true">
+            @if (activeDialogKind == StorageDialogKind.Location)
+            {
+                @RenderLocationDialog(dialogCard)
+            }
+            else
+            {
+                @RenderSyncDialog(dialogCard)
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private readonly CancellationTokenSource lifetimeCancellation = new();
+    private CourseStorageManagementController? controller;
+    private Guid? activeDialogCourseId;
+    private StorageDialogKind activeDialogKind;
+    private string? returnFocusElementId;
+    private bool disposed;
+
+    private CourseStorageCardState? ActiveDialogCard =>
+        activeDialogCourseId is { } courseId
+            ? controller?.Cards.FirstOrDefault(card => card.Course.Id == courseId)
+            : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        controller = new CourseStorageManagementController(
+            CourseService,
+            FolderPickerService,
+            CourseSourceManagementService,
+            CourseContentSyncService,
+            CourseCatalogState.NotifyChanged);
+        controller.Changed += HandleControllerChanged;
+
+        try
+        {
+            await controller.LoadAsync(lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+        lifetimeCancellation.Cancel();
+        if (controller is not null)
+        {
+            controller.Changed -= HandleControllerChanged;
+            controller.Dispose();
+        }
+
+        lifetimeCancellation.Dispose();
+    }
+
+    private async Task SelectLocationAsync(Guid courseId)
+    {
+        if (controller is null)
+        {
+            return;
+        }
+
+        returnFocusElementId = GetActionElementId(courseId, "location");
+
+        try
+        {
+            await controller.SelectLocationAsync(
+                courseId,
+                ConfirmLocationAsync,
+                ConfirmPartialMatchAsync,
+                lifetimeCancellation.Token);
+
+            var card = controller.Cards.FirstOrDefault(item => item.Course.Id == courseId);
+            if (card is not null && ShouldShowLocationResult(card))
+            {
+                activeDialogCourseId = courseId;
+                activeDialogKind = StorageDialogKind.Location;
+                await RequestRenderAsync();
+                await FocusElementAsync("storage-course-dialog");
+            }
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task PreviewSyncAsync(Guid courseId)
+    {
+        if (controller is null)
+        {
+            return;
+        }
+
+        activeDialogCourseId = courseId;
+        activeDialogKind = StorageDialogKind.Sync;
+        returnFocusElementId = GetActionElementId(courseId, "sync");
+        await RequestRenderAsync();
+        await FocusElementAsync("storage-course-dialog");
+
+        try
+        {
+            await controller.PreviewSyncAsync(courseId, lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task ApplySyncAsync(Guid courseId)
+    {
+        if (controller is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await controller.ApplySyncAsync(courseId, lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task<bool> ConfirmLocationAsync(
+        CourseSourceLocationValidationResult validation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (page is null)
+        {
+            return false;
+        }
+
+        var message = validation.Compatibility switch
+        {
+            CourseSourceLocationCompatibility.ExactMatch =>
+                $"A pasta selecionada corresponde ao conteúdo conhecido deste curso. Deseja usar esta localização?{Environment.NewLine}{Environment.NewLine}{FormatValidationSummary(validation)}",
+            CourseSourceLocationCompatibility.CompatibleWithNewContent =>
+                $"Todos os conteúdos conhecidos foram reconhecidos e há {validation.NewCandidateLessonCount} novo(s) vídeo(s) ainda não sincronizado(s). Alterar a localização não adicionará esses itens automaticamente; você poderá sincronizá-los depois.{Environment.NewLine}{Environment.NewLine}{FormatValidationSummary(validation)}",
+            CourseSourceLocationCompatibility.PartialMatch =>
+                $"Apenas parte do conteúdo conhecido foi encontrada nessa pasta. Revise os itens reconhecidos, ausentes e novos antes de continuar.{Environment.NewLine}{Environment.NewLine}{FormatValidationSummary(validation)}",
+            _ => validation.Message
+        };
+
+        var confirmed = await page.DisplayAlertAsync(
+            GetCompatibilityLabel(validation.Compatibility),
+            message,
+            validation.Compatibility == CourseSourceLocationCompatibility.PartialMatch ? "Continuar" : "Usar localização",
+            "Cancelar");
+        cancellationToken.ThrowIfCancellationRequested();
+        return confirmed;
+    }
+
+    private async Task<bool> ConfirmPartialMatchAsync(
+        CourseSourceLocationValidationResult validation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var page = Microsoft.Maui.Controls.Application.Current?.Windows.FirstOrDefault()?.Page;
+        if (page is null)
+        {
+            return false;
+        }
+
+        var confirmed = await page.DisplayAlertAsync(
+            "Confirmar correspondência parcial",
+            $"Esta é a confirmação final. {validation.MatchedExistingLessonCount} aula(s) conhecida(s) foram reconhecidas e {validation.MissingExistingLessonCount} não foram encontradas. Deseja realmente usar esta pasta? O conteúdo persistido e o progresso não serão apagados.",
+            "Confirmar alteração",
+            "Voltar");
+        cancellationToken.ThrowIfCancellationRequested();
+        return confirmed;
+    }
+
+    private RenderFragment RenderLocationDialog(CourseStorageCardState card) => builder =>
+    {
+        var changeResult = card.LocationChangeResult;
+        var validation = changeResult?.Validation ?? card.LocationValidation;
+        var changeFailed = changeResult is { Success: false };
+        var sequence = 0;
+
+        builder.OpenElement(sequence++, "header");
+        builder.AddAttribute(sequence++, "class", "storage-dialog-header");
+        builder.OpenElement(sequence++, "h2");
+        builder.AddAttribute(sequence++, "id", "storage-dialog-title");
+        builder.AddContent(sequence++, "Resultado da validação");
+        builder.CloseElement();
+        AddCloseButton(builder, ref sequence, card);
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-dialog-body");
+
+        if (validation is null)
+        {
+            builder.OpenElement(sequence++, "p");
+            builder.AddAttribute(sequence++, "class", "storage-dialog-message is-error");
+            builder.AddContent(sequence++, card.FeedbackMessage);
+            builder.CloseElement();
+        }
+        else
+        {
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "storage-path-comparison");
+            AddPathPanel(builder, ref sequence, "Pasta atual", validation.CurrentRootPath);
+            AddPathPanel(builder, ref sequence, "Pasta selecionada", validation.CandidateRootPath);
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", $"badge {(changeFailed ? "badge-error" : GetCompatibilityBadgeClass(validation.Compatibility))}");
+            builder.AddContent(sequence++, changeFailed
+                ? GetLocationChangeStatusLabel(changeResult!.Status)
+                : GetCompatibilityLabel(validation.Compatibility));
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "storage-summary-grid");
+            AddSummaryCard(builder, ref sequence, "Aulas conhecidas", validation.ExistingLessonCount);
+            AddSummaryCard(builder, ref sequence, "Aulas reconhecidas", validation.MatchedExistingLessonCount);
+            AddSummaryCard(builder, ref sequence, "Aulas ausentes", validation.MissingExistingLessonCount);
+            AddSummaryCard(builder, ref sequence, "Novos vídeos", validation.NewCandidateLessonCount);
+            builder.CloseElement();
+
+            builder.OpenElement(sequence++, "p");
+            builder.AddAttribute(sequence++, "class", validation.Success && !changeFailed ? "storage-dialog-message" : "storage-dialog-message is-error");
+            builder.AddAttribute(sequence++, "role", validation.Success && !changeFailed ? "status" : "alert");
+            builder.AddContent(sequence++, changeResult?.Message ?? validation.Message);
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "footer");
+        builder.AddAttribute(sequence++, "class", "storage-dialog-footer");
+        AddFooterCloseButton(builder, ref sequence, card);
+        builder.CloseElement();
+    };
+
+    private RenderFragment RenderSyncDialog(CourseStorageCardState card) => builder =>
+    {
+        var sequence = 0;
+        builder.OpenElement(sequence++, "header");
+        builder.AddAttribute(sequence++, "class", "storage-dialog-header");
+        builder.OpenElement(sequence++, "h2");
+        builder.AddAttribute(sequence++, "id", "storage-dialog-title");
+        builder.AddContent(sequence++, $"Sincronização — {card.Course.Title}");
+        builder.CloseElement();
+        AddCloseButton(builder, ref sequence, card);
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-dialog-body");
+
+        if (card.IsBusy)
+        {
+            builder.OpenElement(sequence++, "div");
+            builder.AddAttribute(sequence++, "class", "storage-loading");
+            builder.AddAttribute(sequence++, "role", "status");
+            builder.OpenElement(sequence++, "span");
+            builder.AddAttribute(sequence++, "class", "spinner");
+            builder.AddAttribute(sequence++, "aria-hidden", "true");
+            builder.CloseElement();
+            builder.AddContent(sequence++, GetOperationLabel(card.Operation));
+            builder.CloseElement();
+        }
+        else if (card.SyncApplyResult is { } applyResult)
+        {
+            AddApplyResult(builder, ref sequence, applyResult);
+        }
+        else if (card.SyncPreview is { } preview)
+        {
+            AddSyncPreview(builder, ref sequence, card, preview);
+        }
+        else
+        {
+            builder.OpenElement(sequence++, "p");
+            builder.AddAttribute(sequence++, "class", "storage-dialog-message is-error");
+            builder.AddAttribute(sequence++, "role", "alert");
+            builder.AddContent(sequence++, string.IsNullOrWhiteSpace(card.FeedbackMessage)
+                ? "Não foi possível preparar o preview da sincronização."
+                : card.FeedbackMessage);
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "footer");
+        builder.AddAttribute(sequence++, "class", "storage-dialog-footer");
+        AddSyncFooter(builder, ref sequence, card);
+        builder.CloseElement();
+    };
+
+    private void AddSyncPreview(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        CourseStorageCardState card,
+        CourseContentSyncPreviewResult preview)
+    {
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", preview.Success ? "storage-dialog-message is-success" : "storage-dialog-message is-error");
+        builder.AddAttribute(sequence++, "role", preview.Success ? "status" : "alert");
+        builder.AddContent(sequence++, GetPreviewMessage(preview));
+        builder.CloseElement();
+
+        if (preview.ScannedAtUtc is { } scannedAtUtc)
+        {
+            builder.OpenElement(sequence++, "p");
+            builder.AddAttribute(sequence++, "class", "storage-dialog-intro");
+            builder.AddContent(sequence++, $"Verificação realizada em {FormatLocalDateTime(scannedAtUtc)}.");
+            builder.CloseElement();
+        }
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-grid");
+        AddSyncSummaryCard(builder, ref sequence, "Módulos", preview.NewModuleCount, preview.MissingModuleCount, preview.UnchangedModuleCount);
+        AddSyncSummaryCard(builder, ref sequence, "Tópicos", preview.NewTopicCount, preview.MissingTopicCount, preview.UnchangedTopicCount);
+        AddSyncSummaryCard(builder, ref sequence, "Aulas", preview.NewLessonCount, preview.MissingLessonCount, preview.UnchangedLessonCount);
+        builder.CloseElement();
+
+        if (card.HasMissingPreviewContent)
+        {
+            builder.OpenElement(sequence++, "p");
+            builder.AddAttribute(sequence++, "class", "missing-preservation-notice");
+            builder.AddContent(sequence++, card.MissingContentPreservationMessage);
+            builder.CloseElement();
+        }
+
+        AddSyncDetails(builder, ref sequence, preview);
+    }
+
+    private void AddApplyResult(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        CourseContentSyncApplyResult result)
+    {
+        var success = result.Status is CourseContentSyncApplyStatus.Applied or CourseContentSyncApplyStatus.NoChanges;
+        builder.OpenElement(sequence++, "p");
+        builder.AddAttribute(sequence++, "class", success ? "storage-dialog-message is-success" : "storage-dialog-message is-error");
+        builder.AddAttribute(sequence++, "role", success ? "status" : "alert");
+        builder.AddContent(sequence++, GetApplyResultMessage(result));
+        builder.CloseElement();
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-grid");
+        AddApplySummaryCard(builder, ref sequence, "Adicionados", result.CreatedModuleCount, result.CreatedTopicCount, result.CreatedLessonCount);
+        AddApplySummaryCard(builder, ref sequence, "Ausentes", result.MarkedMissingModuleCount, result.MarkedMissingTopicCount, result.MarkedMissingLessonCount);
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-card");
+        builder.OpenElement(sequence++, "h3");
+        builder.AddContent(sequence++, "Restaurados");
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-values");
+        builder.OpenElement(sequence++, "span");
+        builder.OpenElement(sequence++, "strong");
+        builder.AddContent(sequence++, result.RestoredAvailableItemCount);
+        builder.CloseElement();
+        builder.AddContent(sequence++, " itens disponíveis novamente");
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    }
+
+    private void AddSyncDetails(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        CourseContentSyncPreviewResult preview)
+    {
+        var newItems = preview.Modules
+            .Where(item => item.ChangeKind == CourseContentSyncChangeKind.New)
+            .Select(item => $"Módulo: {ResolvePlanTitle(item.Title, item.DetectedName, item.SourceRelativePath)}")
+            .Concat(preview.Topics
+                .Where(item => item.ChangeKind == CourseContentSyncChangeKind.New)
+                .Select(item => $"Tópico: {ResolvePlanTitle(item.Title, item.DetectedName, item.SourceRelativePath)}"))
+            .Concat(preview.Lessons
+                .Where(item => item.ChangeKind == CourseContentSyncChangeKind.New)
+                .Select(item => $"Aula: {ResolvePlanTitle(item.Title, item.DetectedName, item.RelativeFilePath)}"))
+            .ToList();
+        var missingItems = preview.Modules
+            .Where(item => item.ChangeKind == CourseContentSyncChangeKind.Missing)
+            .Select(item => $"Módulo: {ResolvePlanTitle(item.ExistingTitle, item.Title, item.SourceRelativePath)}")
+            .Concat(preview.Topics
+                .Where(item => item.ChangeKind == CourseContentSyncChangeKind.Missing)
+                .Select(item => $"Tópico: {ResolvePlanTitle(item.ExistingTitle, item.Title, item.SourceRelativePath)}"))
+            .Concat(preview.Lessons
+                .Where(item => item.ChangeKind == CourseContentSyncChangeKind.Missing)
+                .Select(item => $"Aula: {ResolvePlanTitle(item.ExistingTitle, item.Title, item.RelativeFilePath)}"))
+            .ToList();
+
+        if (newItems.Count == 0 && missingItems.Count == 0)
+        {
+            return;
+        }
+
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "sync-details");
+        AddDetailGroup(builder, ref sequence, "Conteúdo novo", newItems);
+        AddDetailGroup(builder, ref sequence, "Conteúdo ausente", missingItems);
+        builder.CloseElement();
+    }
+
+    private void AddDetailGroup(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string title,
+        IReadOnlyList<string> items)
+    {
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        builder.OpenElement(sequence++, "details");
+        builder.OpenElement(sequence++, "summary");
+        builder.AddContent(sequence++, $"{title} ({items.Count})");
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "ul");
+        builder.AddAttribute(sequence++, "class", "sync-detail-list");
+        foreach (var item in items.Take(20))
+        {
+            builder.OpenElement(sequence++, "li");
+            builder.AddContent(sequence++, item);
+            builder.CloseElement();
+        }
+
+        if (items.Count > 20)
+        {
+            builder.OpenElement(sequence++, "li");
+            builder.AddContent(sequence++, $"E mais {items.Count - 20} item(ns).");
+            builder.CloseElement();
+        }
+
+        builder.CloseElement();
+        builder.CloseElement();
+    }
+
+    private void AddSyncFooter(RenderTreeBuilder builder, ref int sequence, CourseStorageCardState card)
+    {
+        if (card.SyncApplyResult is { Status: CourseContentSyncApplyStatus.Blocked or CourseContentSyncApplyStatus.Failed })
+        {
+            AddButton(builder, ref sequence, "Verificar novamente", "btn btn-primary", card.IsBusy, () => PreviewSyncAsync(card.Course.Id));
+        }
+        else if (card.SyncApplyResult is null && card.CanApplySync)
+        {
+            AddButton(builder, ref sequence, card.ApplyActionLabel, "btn btn-primary", card.IsBusy, () => ApplySyncAsync(card.Course.Id));
+        }
+
+        AddFooterCloseButton(builder, ref sequence, card);
+    }
+
+    private void AddCloseButton(RenderTreeBuilder builder, ref int sequence, CourseStorageCardState card)
+    {
+        builder.OpenElement(sequence++, "button");
+        builder.AddAttribute(sequence++, "type", "button");
+        builder.AddAttribute(sequence++, "class", "btn btn-icon");
+        builder.AddAttribute(sequence++, "title", "Fechar");
+        builder.AddAttribute(sequence++, "aria-label", "Fechar diálogo");
+        if (card.IsBusy)
+        {
+            builder.AddAttribute(sequence++, "disabled", true);
+        }
+        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, () => CloseDialog(card)));
+        builder.AddMarkupContent(sequence++, "<svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"></line><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"></line></svg>");
+        builder.CloseElement();
+    }
+
+    private void AddFooterCloseButton(RenderTreeBuilder builder, ref int sequence, CourseStorageCardState card)
+        => AddButton(builder, ref sequence, "Fechar", "btn btn-secondary", card.IsBusy, () => CloseDialog(card));
+
+    private void AddButton(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string label,
+        string cssClass,
+        bool disabled,
+        Func<Task> action)
+    {
+        builder.OpenElement(sequence++, "button");
+        builder.AddAttribute(sequence++, "type", "button");
+        builder.AddAttribute(sequence++, "class", cssClass);
+        if (disabled)
+        {
+            builder.AddAttribute(sequence++, "disabled", true);
+        }
+        builder.AddAttribute(sequence++, "onclick", EventCallback.Factory.Create(this, action));
+        builder.AddContent(sequence++, label);
+        builder.CloseElement();
+    }
+
+    private static void AddPathPanel(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string label,
+        string path)
+    {
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-path-panel");
+        builder.OpenElement(sequence++, "span");
+        builder.AddAttribute(sequence++, "class", "storage-course-label");
+        builder.AddContent(sequence++, label);
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "code");
+        builder.AddContent(sequence++, string.IsNullOrWhiteSpace(path) ? "Não configurada" : path);
+        builder.CloseElement();
+        builder.CloseElement();
+    }
+
+    private static void AddSummaryCard(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string label,
+        int count)
+    {
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-card");
+        builder.OpenElement(sequence++, "h3");
+        builder.AddContent(sequence++, label);
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-values");
+        builder.OpenElement(sequence++, "strong");
+        builder.AddContent(sequence++, count);
+        builder.CloseElement();
+        builder.CloseElement();
+        builder.CloseElement();
+    }
+
+    private static void AddSyncSummaryCard(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string title,
+        int added,
+        int missing,
+        int unchanged)
+    {
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-card");
+        builder.OpenElement(sequence++, "h3");
+        builder.AddContent(sequence++, title);
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-values");
+        AddSummaryValue(builder, ref sequence, added, "novos");
+        AddSummaryValue(builder, ref sequence, missing, "ausentes");
+        AddSummaryValue(builder, ref sequence, unchanged, "inalterados");
+        builder.CloseElement();
+        builder.CloseElement();
+    }
+
+    private static void AddApplySummaryCard(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        string title,
+        int modules,
+        int topics,
+        int lessons)
+    {
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-card");
+        builder.OpenElement(sequence++, "h3");
+        builder.AddContent(sequence++, title);
+        builder.CloseElement();
+        builder.OpenElement(sequence++, "div");
+        builder.AddAttribute(sequence++, "class", "storage-summary-values");
+        AddSummaryValue(builder, ref sequence, modules, "módulos");
+        AddSummaryValue(builder, ref sequence, topics, "tópicos");
+        AddSummaryValue(builder, ref sequence, lessons, "aulas");
+        builder.CloseElement();
+        builder.CloseElement();
+    }
+
+    private static void AddSummaryValue(
+        RenderTreeBuilder builder,
+        ref int sequence,
+        int value,
+        string label)
+    {
+        builder.OpenElement(sequence++, "span");
+        builder.OpenElement(sequence++, "strong");
+        builder.AddContent(sequence++, value);
+        builder.CloseElement();
+        builder.AddContent(sequence++, $" {label}");
+        builder.CloseElement();
+    }
+
+    private async Task CloseDialog(CourseStorageCardState card)
+    {
+        if (card.IsBusy)
+        {
+            return;
+        }
+
+        var focusElementId = returnFocusElementId;
+        activeDialogCourseId = null;
+        returnFocusElementId = null;
+        await RequestRenderAsync();
+
+        if (!string.IsNullOrWhiteSpace(focusElementId))
+        {
+            await FocusElementAsync(focusElementId);
+        }
+    }
+
+    private async Task HandleDialogKeyDownAsync(KeyboardEventArgs eventArgs, CourseStorageCardState card)
+    {
+        if (string.Equals(eventArgs.Key, "Escape", StringComparison.Ordinal))
+        {
+            await CloseDialog(card);
+        }
+    }
+
+    private void HandleControllerChanged()
+    {
+        _ = RequestRenderAsync();
+    }
+
+    private Task RequestRenderAsync()
+        => disposed ? Task.CompletedTask : InvokeAsync(StateHasChanged);
+
+    private async Task FocusElementAsync(string elementId)
+    {
+        if (disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("studyHubSettingsFocus.focusById", elementId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (OperationCanceledException) when (lifetimeCancellation.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static bool ShouldShowLocationResult(CourseStorageCardState card)
+    {
+        if (card.LocationChangeResult is { Success: false })
+        {
+            return true;
+        }
+
+        return card.LocationChangeResult is null && card.LocationValidation is { } validation &&
+            (!validation.Success || validation.Compatibility is
+                CourseSourceLocationCompatibility.Incompatible or
+                CourseSourceLocationCompatibility.InsufficientReferenceData);
+    }
+
+    private static string GetSourceBadgeClass(CourseStorageCardState card)
+        => card.VisualStatus switch
+        {
+            CourseStorageVisualStatus.Available => "badge-success",
+            CourseStorageVisualStatus.Attention => "badge-warning",
+            CourseStorageVisualStatus.Verifying => "badge-info",
+            _ => "badge-error"
+        };
+
+    private static RenderFragment GetSourceStatusIcon(CourseStorageCardState card) => builder =>
+    {
+        var markup = card.VisualStatus == CourseStorageVisualStatus.Available
+            ? "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><polyline points=\"20 6 9 17 4 12\"></polyline></svg>"
+            : "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"12\"></line><line x1=\"12\" y1=\"16\" x2=\"12.01\" y2=\"16\"></line></svg>";
+        builder.AddMarkupContent(0, markup);
+    };
+
+    private static string GetFeedbackClass(CourseStorageCardState card)
+        => card.FeedbackKind switch
+        {
+            CourseStorageFeedbackKind.Success => "is-success",
+            CourseStorageFeedbackKind.Warning => "is-warning",
+            CourseStorageFeedbackKind.Error => "is-error",
+            _ => string.Empty
+        };
+
+    private static string GetLocationActionLabel(CourseStorageCardState card)
+        => string.IsNullOrWhiteSpace(card.CurrentRootPath) ||
+           card.SourceStatus?.Status is CourseSourceStatus.NotFound or CourseSourceStatus.Invalid
+            ? "Localizar curso"
+            : "Alterar localização";
+
+    private static string GetOperationLabel(CourseStorageOperation operation)
+        => operation switch
+        {
+            CourseStorageOperation.SelectingFolder => "Selecionando pasta...",
+            CourseStorageOperation.ValidatingLocation => "Verificando localização...",
+            CourseStorageOperation.ChangingLocation => "Atualizando localização...",
+            CourseStorageOperation.PreviewingSync => "Verificando conteúdo...",
+            CourseStorageOperation.ApplyingSync => "Sincronizando...",
+            _ => "Verificando..."
+        };
+
+    private static bool IsLocationOperation(CourseStorageOperation operation)
+        => operation is CourseStorageOperation.SelectingFolder or
+            CourseStorageOperation.ValidatingLocation or
+            CourseStorageOperation.ChangingLocation;
+
+    private static bool IsSyncOperation(CourseStorageOperation operation)
+        => operation is CourseStorageOperation.PreviewingSync or CourseStorageOperation.ApplyingSync;
+
+    private static string FormatUnavailableSummary(CourseStorageCardState card)
+        => $"{card.UnavailableModuleCount} módulo(s), {card.UnavailableTopicCount} tópico(s) e {card.UnavailableLessonCount} aula(s) indisponíveis";
+
+    private static string FormatLocalDateTime(DateTime value)
+    {
+        var utcValue = value.Kind == DateTimeKind.Utc
+            ? value
+            : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        return utcValue.ToLocalTime().ToString("dd/MM/yyyy 'às' HH:mm");
+    }
+
+    private static string FormatValidationSummary(CourseSourceLocationValidationResult validation)
+        => $"Pasta atual: {DisplayPath(validation.CurrentRootPath)}{Environment.NewLine}" +
+           $"Pasta selecionada: {DisplayPath(validation.CandidateRootPath)}{Environment.NewLine}" +
+           $"Aulas conhecidas: {validation.ExistingLessonCount}{Environment.NewLine}" +
+           $"Aulas reconhecidas: {validation.MatchedExistingLessonCount}{Environment.NewLine}" +
+           $"Aulas ausentes: {validation.MissingExistingLessonCount}{Environment.NewLine}" +
+           $"Novos vídeos: {validation.NewCandidateLessonCount}";
+
+    private static string DisplayPath(string path)
+        => string.IsNullOrWhiteSpace(path) ? "Não configurada" : path;
+
+    private static string GetCompatibilityLabel(CourseSourceLocationCompatibility compatibility)
+        => compatibility switch
+        {
+            CourseSourceLocationCompatibility.ExactMatch => "Correspondência exata",
+            CourseSourceLocationCompatibility.CompatibleWithNewContent => "Compatível com conteúdo novo",
+            CourseSourceLocationCompatibility.PartialMatch => "Correspondência parcial",
+            CourseSourceLocationCompatibility.Incompatible => "Pasta incompatível",
+            CourseSourceLocationCompatibility.InsufficientReferenceData => "Dados insuficientes",
+            _ => "Localização não avaliada"
+        };
+
+    private static string GetCompatibilityBadgeClass(CourseSourceLocationCompatibility compatibility)
+        => compatibility switch
+        {
+            CourseSourceLocationCompatibility.ExactMatch => "badge-success",
+            CourseSourceLocationCompatibility.CompatibleWithNewContent => "badge-info",
+            CourseSourceLocationCompatibility.PartialMatch => "badge-warning",
+            _ => "badge-error"
+        };
+
+    private static string GetLocationChangeStatusLabel(CourseSourceLocationChangeStatus status)
+        => status switch
+        {
+            CourseSourceLocationChangeStatus.PartialConfirmationRequired => "Confirmação necessária",
+            CourseSourceLocationChangeStatus.Blocked => "Alteração bloqueada",
+            CourseSourceLocationChangeStatus.ValidationFailed => "Validação falhou",
+            _ => "Localização não alterada"
+        };
+
+    private static string GetApplyResultMessage(CourseContentSyncApplyResult result)
+        => result.Status switch
+        {
+            CourseContentSyncApplyStatus.Applied => string.IsNullOrWhiteSpace(result.Message)
+                ? "Sincronização aplicada com sucesso."
+                : result.Message,
+            CourseContentSyncApplyStatus.NoChanges => string.IsNullOrWhiteSpace(result.Message)
+                ? "Nenhuma alteração estrutural foi necessária."
+                : $"Nenhuma alteração estrutural foi necessária. {result.Message}",
+            CourseContentSyncApplyStatus.Blocked => $"A sincronização foi bloqueada. {result.Message} Faça uma nova verificação antes de tentar novamente.",
+            CourseContentSyncApplyStatus.Failed => string.IsNullOrWhiteSpace(result.Message)
+                ? "Não foi possível aplicar a sincronização."
+                : result.Message,
+            _ => result.Message
+        };
+
+    private static string GetPreviewMessage(CourseContentSyncPreviewResult preview)
+    {
+        if (preview.Status != CourseContentSyncPreviewStatus.NoChanges)
+        {
+            return preview.Message;
+        }
+
+        return string.IsNullOrWhiteSpace(preview.Message)
+            ? "O conteúdo já está sincronizado."
+            : $"O conteúdo já está sincronizado. {preview.Message}";
+    }
+
+    private static string ResolvePlanTitle(string existingTitle, string title, string path)
+    {
+        if (!string.IsNullOrWhiteSpace(existingTitle))
+        {
+            return existingTitle;
+        }
+
+        return !string.IsNullOrWhiteSpace(title) ? title : path;
+    }
+
+    private static string GetActionElementId(Guid courseId, string action)
+        => $"storage-{action}-{courseId:N}";
+
+    private enum StorageDialogKind
+    {
+        Location,
+        Sync
+    }
+}
