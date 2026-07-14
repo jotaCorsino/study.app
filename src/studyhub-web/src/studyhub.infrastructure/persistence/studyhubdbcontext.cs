@@ -112,6 +112,11 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
                 .HasConversion<int>();
             entity.Property(record => record.LocalFilePath)
                 .HasColumnName("local_file_path");
+            entity.Property(record => record.RelativeFilePath)
+                .HasColumnName("relative_file_path")
+                .HasColumnType("TEXT")
+                .HasDefaultValue(string.Empty)
+                .IsRequired();
             entity.Property(record => record.Provider)
                 .HasColumnName("provider");
             entity.Property(record => record.LastPlaybackPositionSeconds)

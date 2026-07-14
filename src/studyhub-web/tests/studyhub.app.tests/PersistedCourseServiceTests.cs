@@ -838,6 +838,7 @@ public sealed class PersistedCourseServiceTests
         var lesson1Id = Guid.NewGuid();
         var lesson2Id = Guid.NewGuid();
         var rootPath = @"C:\courses\course-a";
+        var outsideLessonPath = Path.GetFullPath(Path.Combine(rootPath, "..", "outside", "lesson-2.mp4"));
 
         await using (var setupContext = new StudyHubDbContext(options))
         {
@@ -954,8 +955,8 @@ public sealed class PersistedCourseServiceTests
                                         Order = 2,
                                         RawName = "lesson-2",
                                         FileName = "lesson-2.mp4",
-                                        RelativePath = "module-1/lesson-2.mp4",
-                                        AbsolutePath = $@"{rootPath}\module-1\lesson-2.mp4",
+                                        RelativePath = "../outside/lesson-2.mp4",
+                                        AbsolutePath = outsideLessonPath,
                                         Extension = ".mp4",
                                         Duration = TimeSpan.FromMinutes(15)
                                     }
@@ -990,8 +991,11 @@ public sealed class PersistedCourseServiceTests
 
         Assert.Equal(2, loadedLessons.Count);
         var restoredLesson = loadedLessons.Single(lesson => lesson.Id == lesson1Id);
+        var addedLesson = loadedLessons.Single(lesson => lesson.Id == lesson2Id);
         Assert.Equal(LessonStatus.Completed, restoredLesson.Status);
         Assert.Equal(100d, restoredLesson.WatchedPercentage);
+        Assert.Equal("module-1/lesson-1.mp4", restoredLesson.RelativeFilePath);
+        Assert.Equal(string.Empty, addedLesson.RelativeFilePath);
 
         await using var assertContext = new StudyHubDbContext(options);
         var persistedCourse = await assertContext.Courses
@@ -1006,6 +1010,12 @@ public sealed class PersistedCourseServiceTests
             .ToList();
 
         Assert.Equal(2, persistedLessons.Count);
+        Assert.Equal(
+            "module-1/lesson-1.mp4",
+            persistedLessons.Single(lesson => lesson.Id == lesson1Id).RelativeFilePath);
+        Assert.Equal(
+            string.Empty,
+            persistedLessons.Single(lesson => lesson.Id == lesson2Id).RelativeFilePath);
         Assert.Equal(lesson1Id, persistedCourse.CurrentLessonId);
     }
 

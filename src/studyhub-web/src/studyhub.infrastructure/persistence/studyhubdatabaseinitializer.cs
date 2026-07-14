@@ -1,9 +1,12 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using studyhub.application.Interfaces;
 using studyhub.domain.Entities;
+using studyhub.infrastructure.persistence.models;
+using studyhub.infrastructure.services;
 
 namespace studyhub.infrastructure.persistence;
 
@@ -12,7 +15,9 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 10;
+    private const int CurrentSchemaVersion = 11;
+
+    private static readonly JsonSerializerOptions SourceMetadataJsonOptions = new(JsonSerializerDefaults.Web);
 
     private static readonly string[] RequiredTables =
     [
@@ -234,7 +239,7 @@ public class StudyHubDatabaseInitializer(
         }
     }
 
-    private static async Task ApplySchemaUpgradesAsync(StudyHubDbContext context)
+    private async Task ApplySchemaUpgradesAsync(StudyHubDbContext context)
     {
         await EnsureCoursePresentationColumnsAsync(context);
         await EnsureModuleDescriptionColumnAsync(context);
@@ -248,9 +253,11 @@ public class StudyHubDatabaseInitializer(
         await EnsureCourseSourceColumnsAsync(context);
         await EnsureCourseLifecycleStatusColumnAsync(context);
         await EnsureLessonSourceColumnsAsync(context);
+        await EnsureLessonRelativeFilePathColumnAsync(context);
         await BackfillLegacyCourseOriginDataAsync(context);
         await BackfillLegacyPresentationDataAsync(context);
         await BackfillLegacyLessonOriginDataAsync(context);
+        await BackfillLegacyLessonRelativeFilePathsAsync(context);
     }
 
     private static async Task EnsureCoursePresentationColumnsAsync(StudyHubDbContext context)
@@ -451,6 +458,19 @@ public class StudyHubDatabaseInitializer(
                 ALTER TABLE lessons ADD COLUMN provider TEXT NOT NULL DEFAULT '';
                 """);
         }
+    }
+
+    private static async Task EnsureLessonRelativeFilePathColumnAsync(StudyHubDbContext context)
+    {
+        if (await ColumnExistsAsync(context, "lessons", "relative_file_path"))
+        {
+            return;
+        }
+
+        await context.Database.ExecuteSqlRawAsync(
+            """
+            ALTER TABLE lessons ADD COLUMN relative_file_path TEXT NOT NULL DEFAULT '';
+            """);
     }
 
     private static async Task<bool> TableExistsAsync(StudyHubDbContext context, string tableName)
@@ -693,5 +713,98 @@ public class StudyHubDatabaseInitializer(
         {
             await context.SaveChangesAsync();
         }
+    }
+
+    private async Task BackfillLegacyLessonRelativeFilePathsAsync(StudyHubDbContext context)
+    {
+        var courses = await context.Courses
+            .Where(course => course.SourceType == CourseSourceType.LocalFolder)
+            .Include(course => course.Modules)
+                .ThenInclude(module => module.Topics)
+                    .ThenInclude(topic => topic.Lessons)
+            .ToListAsync();
+
+        var updatedCount = 0;
+        var skippedCount = 0;
+
+        foreach (var course in courses)
+        {
+            var lessonsToBackfill = course.Modules
+                .SelectMany(module => module.Topics)
+                .SelectMany(topic => topic.Lessons)
+                .Where(lesson =>
+                    lesson.SourceType == LessonSourceType.LocalFile &&
+                    string.IsNullOrWhiteSpace(lesson.RelativeFilePath))
+                .ToList();
+
+            if (lessonsToBackfill.Count == 0)
+            {
+                continue;
+            }
+
+            var rootPath = ResolveCourseRootPath(course);
+            if (string.IsNullOrWhiteSpace(rootPath))
+            {
+                skippedCount += lessonsToBackfill.Count;
+                continue;
+            }
+
+            foreach (var lesson in lessonsToBackfill)
+            {
+                var absoluteLessonPath = string.IsNullOrWhiteSpace(lesson.LocalFilePath)
+                    ? lesson.FilePath
+                    : lesson.LocalFilePath;
+
+                if (!LocalLessonPathHelper.TryCalculatePortableRelativePath(
+                        rootPath,
+                        absoluteLessonPath,
+                        out var relativeFilePath))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                lesson.RelativeFilePath = relativeFilePath;
+                updatedCount++;
+            }
+        }
+
+        if (updatedCount > 0)
+        {
+            await context.SaveChangesAsync();
+        }
+
+        _logger.LogInformation(
+            "StudyHub lesson relative-path backfill completed. Updated: {UpdatedCount}. Skipped unsafe or invalid: {SkippedCount}.",
+            updatedCount,
+            skippedCount);
+    }
+
+    private static string ResolveCourseRootPath(CourseRecord course)
+    {
+        if (!string.IsNullOrWhiteSpace(course.SourceMetadataJson))
+        {
+            try
+            {
+                var metadata = JsonSerializer.Deserialize<CourseSourceMetadata>(
+                    course.SourceMetadataJson,
+                    SourceMetadataJsonOptions);
+
+                if (LocalLessonPathHelper.TryNormalizeFullyQualifiedPath(metadata?.RootPath, out var metadataRootPath))
+                {
+                    return metadataRootPath;
+                }
+            }
+            catch (JsonException)
+            {
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+
+        return LocalLessonPathHelper.TryNormalizeFullyQualifiedPath(course.FolderPath, out var folderPath)
+            ? folderPath
+            : string.Empty;
     }
 }

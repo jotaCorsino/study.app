@@ -299,6 +299,10 @@ public class PersistedCourseService(
         IReadOnlyDictionary<Guid, PreservedLessonState> preservedLessonState)
     {
         var modules = new List<Module>();
+        var preservedRelativeFilePaths = existingCourse.Modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(topic => topic.Lessons)
+            .ToDictionary(lesson => lesson.Id, lesson => lesson.RelativeFilePath);
 
         foreach (var detectedModule in manifest.Modules.OrderBy(module => module.Order))
         {
@@ -321,6 +325,12 @@ public class PersistedCourseService(
                         Path.GetFileNameWithoutExtension(detectedLesson.FileName),
                         $"Aula {detectedLesson.Order}");
                     var absolutePath = ResolveAbsolutePath(detectedLesson, manifest.RootFolderPath);
+                    preservedRelativeFilePaths.TryGetValue(detectedLesson.LessonId, out var preservedRelativeFilePath);
+                    var relativeFilePath = ResolvePortableRelativeFilePath(
+                        detectedLesson,
+                        manifest.RootFolderPath,
+                        absolutePath,
+                        preservedRelativeFilePath);
                     var duration = detectedLesson.Duration > TimeSpan.Zero
                         ? detectedLesson.Duration
                         : TimeSpan.Zero;
@@ -344,6 +354,7 @@ public class PersistedCourseService(
                         Description = string.Empty,
                         SourceType = LessonSourceType.LocalFile,
                         LocalFilePath = absolutePath,
+                        RelativeFilePath = relativeFilePath,
                         Provider = "LocalFileSystem",
                         Duration = duration
                     };
@@ -687,6 +698,22 @@ public class PersistedCourseService(
         return string.IsNullOrWhiteSpace(path)
             ? string.Empty
             : path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).Trim();
+    }
+
+    private static string ResolvePortableRelativeFilePath(
+        DetectedLessonFile lesson,
+        string rootFolderPath,
+        string absolutePath,
+        string? preservedRelativeFilePath)
+    {
+        if (LocalLessonPathHelper.TryNormalizePortableRelativePath(lesson.RelativePath, out var relativeFilePath) ||
+            LocalLessonPathHelper.TryCalculatePortableRelativePath(rootFolderPath, absolutePath, out relativeFilePath) ||
+            LocalLessonPathHelper.TryNormalizePortableRelativePath(preservedRelativeFilePath, out relativeFilePath))
+        {
+            return relativeFilePath;
+        }
+
+        return string.Empty;
     }
 
     private static string FirstNonEmpty(params string?[] values)

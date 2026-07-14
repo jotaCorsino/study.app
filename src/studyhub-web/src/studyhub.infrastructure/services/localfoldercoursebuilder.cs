@@ -54,6 +54,7 @@ public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) 
                         Description = string.Empty,
                         SourceType = LessonSourceType.LocalFile,
                         LocalFilePath = detectedLesson.AbsolutePath,
+                        RelativeFilePath = detectedLesson.RelativePath,
                         Provider = "LocalFileSystem",
                         Duration = detectedLesson.Duration
                     };
