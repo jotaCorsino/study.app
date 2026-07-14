@@ -6,9 +6,9 @@ O runbook principal de build, publish e release fica em:
 
 - `docs/estado-atual/windows-runbook.md`
 
-## Fluxo ativo validado na v1.1.0
+## Fluxo ativo no candidato v1.2.0
 
-O fluxo ativo atual é:
+A release pública atual permanece na v1.1.0. O fluxo do candidato v1.2.0 em preparação é:
 
 1. abrir o StudyHub;
 2. importar um curso por pasta local;
@@ -16,7 +16,8 @@ O fluxo ativo atual é:
 4. acompanhar progresso por vídeo, Aula/Módulo e curso;
 5. configurar rotina por tempo ou por Aulas/Módulos;
 6. validar calendário/histórico local;
-7. usar backup, restore ou reset quando necessário.
+7. gerenciar localização e sincronização em **Configurações → Cursos e armazenamento**;
+8. usar backup, restore ou reset quando necessário.
 
 Cursos online, IA, roadmaps e materiais externos não fazem parte do fluxo ativo da release atual.
 
@@ -32,6 +33,18 @@ Cursos online, IA, roadmaps e materiais externos não fazem parte do fluxo ativo
 8. Confirme que progresso e retomada foram preservados.
 
 Indicador de sucesso: curso visível no catálogo, player funcional e progresso persistido após reinício.
+
+## Validação de origem e sincronização
+
+1. Abra **Configurações → Cursos e armazenamento**.
+2. Confirme que o curso local mostra o estado de sua pasta atual.
+3. Use **Alterar localização** com uma cópia equivalente e confirme que IDs, progresso, retomada e histórico permanecem.
+4. Gere uma prévia de sincronização e confirme que nada é aplicado automaticamente.
+5. Aplique conteúdo novo somente depois da confirmação.
+6. Remova temporariamente um item na cópia de teste e confirme que ele permanece no catálogo como indisponível.
+7. Restaure o item no mesmo caminho relativo e confirme que recupera a mesma identidade.
+
+Não use cursos reais do usuário nessa validação. Rename ou move interno continua sendo tratado como item ausente + item novo.
 
 ## Validação da rotina v1.1.0
 

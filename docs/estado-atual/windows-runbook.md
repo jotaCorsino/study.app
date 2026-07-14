@@ -2,11 +2,14 @@
 
 ## Escopo atual
 
-StudyHub v1.1.0 é um app Windows para cursos locais em pastas.
+A release pública atual é o StudyHub v1.1.0. Este runbook também cobre o candidato v1.2.0 em preparação, ainda sem tag, artefato ou release.
 
 Fluxos ativos:
 
 - importação de curso local por pasta;
+- gerenciamento e validação da raiz física de cursos já importados;
+- prévia e aplicação explícita de sincronização incremental;
+- preservação de conteúdo ausente com indicadores de disponibilidade;
 - player local de vídeos;
 - progresso por vídeo, Aula/Módulo e curso;
 - rotina por tempo ou por Aulas/Módulos;
@@ -72,7 +75,7 @@ Nome público do asset:
 StudyHub-v<versao>-windows-x64.zip
 ```
 
-Asset atual:
+Asset público atual:
 
 ```text
 StudyHub-v1.1.0-windows-x64.zip

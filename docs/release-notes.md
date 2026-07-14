@@ -1,33 +1,34 @@
-# StudyHub v1.1.0
+# StudyHub v1.2.0 (em preparação)
 
-## Metas diárias por tempo ou Aulas/Módulos
+## Gerenciamento de origem e sincronização incremental
 
 ### Novidades
 
-- Adicionada escolha entre meta diária por tempo de estudo ou meta por Aulas/Módulos concluídos.
-- A rotina, o dashboard, o calendário e o menu lateral respeitam o modo escolhido.
-- Uma Aula/Módulo só conta para a meta quando todos os vídeos dela forem concluídos.
-- O histórico antigo baseado em tempo permanece compatível.
-- O banco SQLite migra para o schema 10 com `completed_at_utc` em `topics`.
-- O crédito de Aulas/Módulos é idempotente e evita duplicidade em `daily_records.json`.
-- Não há reconstrução retroativa perfeita do histórico antigo por Aulas/Módulos.
+- Gerenciamento da pasta física dos cursos em **Configurações → Cursos e armazenamento**.
+- Relocalização segura após mudança de unidade ou diretório, com validação antes da aplicação.
+- Prévia de sincronização com conteúdo inalterado, novo e ausente.
+- Aplicação incremental de conteúdo novo sem reconstruir o curso.
+- Indicadores de disponibilidade na página do curso, na árvore de conteúdo e no player.
 
-### Persistência e compatibilidade
+### Segurança de dados
 
-- Bancos existentes são migrados para o schema 10.
-- `topics.completed_at_utc` guarda a primeira conclusão da Aula/Módulo.
-- `daily_records.json` pode armazenar `CompletedStudyUnitIds`.
-- JSON antigo sem `GoalMode` continua como meta por tempo.
-- `CompletedStudyUnitIds` ausente ou `null` é tratado como lista vazia.
+- IDs existentes permanecem estáveis durante relocalização e sincronização.
+- Progresso, retomada, conclusão, aula atual e histórico de rotina são preservados.
+- Conteúdo ausente não é apagado: permanece persistido e marcado como indisponível.
+- Quando um item reaparece no mesmo caminho relativo, recupera a mesma identidade.
 
-### Validação
+### Compatibilidade
 
-- 107 testes automatizados aprovados.
-- Build Windows aprovado.
-- Smoke test do executável aprovado.
+- Bancos existentes são atualizados automaticamente para o schema 13.
+- Caminhos relativos de aulas e identidades estruturais são preenchidos de forma conservadora.
+- Caminhos absolutos antigos continuam disponíveis apenas como fallback de compatibilidade.
 
-### Artefato publicado
+### Limitação conhecida
 
-- Release: https://github.com/jotaCorsino/study.app/releases/tag/v1.1.0
-- Asset: `StudyHub-v1.1.0-windows-x64.zip`
-- SHA256: `5DDFFA3244D7D4A08A76B72B65D1FA70113263CEB2D3426930A9FBEF87BBCD8F`
+- Rename ou move de módulo, tópico ou vídeo continua sendo interpretado como item ausente + item novo.
+
+### Validação da preparação
+
+- Build MAUI Windows aprovado.
+- 302 testes automatizados aprovados.
+- 0 testes ignorados.

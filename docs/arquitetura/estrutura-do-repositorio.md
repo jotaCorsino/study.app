@@ -13,7 +13,7 @@
 - `docs/migracao`
   Centraliza registros de reorganizações e migrações de estrutura.
 - `docs/release-notes.md`
-  Registra as notas da release atual publicada no GitHub.
+  Registra as notas da versão em preparação ou da release pública atual, sem funcionar como changelog acumulado.
 - `assets`
   Centraliza ícones e outros arquivos visuais de referência compartilhados.
 

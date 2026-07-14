@@ -18,7 +18,10 @@ Hoje o app oferece:
 - calendário/histórico local;
 - backup e restauração local;
 - status de curso: Ativo, Pausado e Concluído;
-- edição manual de nome e descrição do curso.
+- edição manual de nome e descrição do curso;
+- gerenciamento da pasta física dos cursos locais;
+- sincronização incremental de conteúdo novo ou ausente;
+- indicadores de disponibilidade sem apagar o histórico do curso.
 
 O app atual é focado em cursos locais/offline. Os dados ficam no computador do próprio usuário.
 
@@ -33,6 +36,26 @@ O app atual é focado em cursos locais/offline. Os dados ficam no computador do 
 Release publicada:
 
 - [StudyHub v1.1.0](https://github.com/jotaCorsino/study.app/releases/tag/v1.1.0)
+
+## Gerenciamento de cursos locais (v1.2.0 em preparação)
+
+O StudyHub agora permite corrigir a origem física de um curso e atualizar seu conteúdo sem recriar o curso. Acesse **Configurações → Cursos e armazenamento**.
+
+### Alterar localização
+
+Use quando a pasta raiz do mesmo curso mudou de unidade ou de diretório. O StudyHub valida a pasta escolhida antes da confirmação e, quando ela corresponde ao curso, atualiza apenas a localização física, preservando identidade, progresso, retomada e histórico.
+
+Alterar a localização não adiciona automaticamente conteúdos novos encontrados na pasta.
+
+### Sincronizar conteúdo
+
+Use para comparar a pasta atual com a estrutura já salva. Antes de aplicar, o StudyHub mostra uma prévia com itens inalterados, novos e ausentes. A aplicação incremental adiciona conteúdo novo e marca ausências sem apagar registros existentes.
+
+Conteúdo ausente mantém IDs, progresso e histórico. Se reaparecer no mesmo caminho relativo, recupera a mesma identidade e volta a ficar disponível. Renomear ou mover conteúdo dentro do curso ainda é interpretado como **ausente + novo**.
+
+### Compatibilidade com cursos antigos
+
+Bancos existentes são atualizados automaticamente para o schema 13. Caminhos relativos e identidades estruturais são preenchidos de forma conservadora, preservando progresso e histórico.
 
 ## Download da release
 
@@ -78,7 +101,8 @@ O pacote de release não inclui dados pessoais de quem publicou a release.
 4. Estude normalmente e acompanhe o progresso.
 5. Configure uma rotina por tempo ou por Aulas/Módulos.
 6. Pause, reative, conclua ou edite nome/descrição do curso quando precisar.
-7. Feche e reabra quando quiser: o app preserva o estado salvo.
+7. Use **Configurações → Cursos e armazenamento** para relocalizar ou sincronizar cursos locais.
+8. Feche e reabra quando quiser: o app preserva o estado salvo.
 
 ## Como adicionar cursos
 
@@ -159,7 +183,8 @@ Boas práticas:
 
 - use numeração como `01`, `02`, `03`;
 - evite nomes genéricos repetidos como `aula1.mp4` em várias pastas;
-- evite mover ou renomear arquivos de cursos já importados, principalmente com o app aberto.
+- ao mover a pasta raiz, use **Alterar localização** para manter a identidade do curso;
+- ao renomear ou mover conteúdo interno, revise a prévia: essa mudança ainda aparece como item ausente + item novo.
 
 ## Player local de aulas
 
@@ -179,4 +204,4 @@ Boas práticas:
 - a rotina por Aulas/Módulos começa a registrar conclusões a partir da versão que possui esse recurso;
 - não há reconstrução retroativa perfeita do histórico antigo por Aulas/Módulos;
 - ainda não há fluxo completo de desconclusão/reversão de crédito de Aula/Módulo;
-- evitar mover ou renomear arquivos de cursos já importados, principalmente com o app aberto.
+- renomear ou mover módulos, tópicos ou vídeos dentro de um curso é tratado como conteúdo ausente + conteúdo novo; não há detecção automática de rename/move.

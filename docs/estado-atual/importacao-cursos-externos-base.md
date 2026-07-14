@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-Na v1.1.0, o fluxo ativo do StudyHub é curso local por pasta.
+O fluxo ativo do StudyHub é curso local por pasta. A versão 1.2.0 em preparação acrescenta gerenciamento da origem física e sincronização incremental para cursos já importados.
 
 Cursos externos, cursos online, IA, roadmaps e materiais complementares não fazem parte do fluxo ativo atual. Existe base técnica preparada para importações externas, mas ela deve ser tratada como histórico/futuro até existir uma tela completa no app.
 
@@ -32,7 +32,25 @@ Regras práticas:
 - a pasta raiz vira o curso;
 - pastas internas agrupam o conteúdo;
 - vídeos devem ter nomes numerados para manter a ordem correta;
-- evitar mover ou renomear arquivos de cursos já importados, principalmente com o app aberto.
+- quando a raiz inteira mudar, use **Configurações → Cursos e armazenamento → Alterar localização**;
+- rename ou move de conteúdo interno continua sendo interpretado como item ausente + item novo.
+
+## Importação, localização e sincronização
+
+Os três fluxos têm responsabilidades diferentes:
+
+1. **Importar curso** cria o catálogo inicial a partir de uma pasta ainda não cadastrada.
+2. **Alterar localização** valida a nova raiz do mesmo curso e atualiza `RootPath`, preservando IDs, progresso, retomada e histórico. Conteúdo novo não é incorporado por essa ação.
+3. **Sincronizar conteúdo** compara a raiz atual com a árvore persistida, apresenta uma prévia e aplica apenas depois de confirmação.
+
+A prévia usa as categorias `Unchanged`, `New` e `Missing`. Na aplicação:
+
+- itens novos recebem identidades permanentes;
+- itens ausentes permanecem persistidos com `IsAvailable = false`; não são apagados;
+- itens que reaparecem no mesmo caminho relativo recuperam a mesma identidade;
+- rename ou move interno continua como `Missing + New`.
+
+A correlação usa `Lesson.RelativeFilePath`, `Module.SourceRelativePath` e `Topic.SourceRelativePath`. A raiz física fica em `Course.SourceMetadata.RootPath` e pode mudar sem substituir o `Course.Id` já persistido.
 
 ## Hierarquia técnica interna
 
@@ -85,4 +103,8 @@ Essa base preserva o objetivo de não quebrar cursos locais, mas ainda não é o
 - `src/studyhub-web/src/studyhub.infrastructure/services/externalcoursejsonparser.cs`
 - `src/studyhub-web/src/studyhub.infrastructure/services/externalcourseimportservice.cs`
 - `src/studyhub-web/src/studyhub.infrastructure/services/localcourseimportservice.cs`
+- `src/studyhub-web/src/studyhub.infrastructure/services/coursesourcemanagementservice.cs`
+- `src/studyhub-web/src/studyhub.infrastructure/services/coursecontentsyncservice.cs`
+- `src/studyhub-web/src/studyhub.application/Contracts/CourseSourceManagement/`
+- `src/studyhub-web/src/studyhub.application/Contracts/CourseContentSync/`
 - `src/studyhub-web/src/studyhub.infrastructure/persistence/studyhubdbcontext.cs`

@@ -152,7 +152,7 @@ It must transform locally organized video courses into a complete learning exper
 - Local modules and topics now persist portable course-root-relative physical identities through `Module.SourceRelativePath` and `Topic.SourceRelativePath`; SQLite schema v12 backfills them from safely correlated import snapshots or conservative lesson-path inference, preserves them through rehydration/upsert/relocation, and prepares the catalog for a later incremental structural diff without implementing synchronization yet
 - Local-folder scanning is now reusable through `ILocalCourseScanner`, so import, source relocation, and content-sync preview share the same deterministic filesystem scan without constructing a temporary course or changing the scanner ID algorithm
 - Local courses now expose a strictly read-only content-sync preview: a pure planner compares persisted and detected modules, topics, and lessons by normalized portable relative paths, reports `Unchanged` / `New` / `Missing` with deterministic counters and diagnostics, ignores scanner IDs for persisted identity, and intentionally treats rename/move as `Missing` plus `New` without updating course data or import snapshots
-- Release prep for the player update now follows semantic patch progression from existing tags (`v1.0.0`, `v1.0.1`) to `v1.0.2`, with MAUI app metadata updated in `studyhub.app.csproj` (`ApplicationDisplayVersion=1.0.2`, `ApplicationVersion=2`) and distributable ZIP staging under `production_artifacts\releases`
+- Release preparation for course source management and incremental sync follows the public `v1.1.0` release with a semantic minor increment to `1.2.0`; `studyhub.app.csproj` now declares `ApplicationDisplayVersion=1.2.0` and monotonic `ApplicationVersion=14`, while tag, publish, ZIP, installation update, and GitHub Release remain pending later tasks.
 - Local course content synchronization now supports a real incremental `ApplyAsync` path that re-scans and re-plans against the current persisted tree inside a SQLite transaction, inserts `NEW` items with permanent IDs, and preserves `MISSING` modules, topics, and lessons without deletion.
 - SQLite schema 13 adds persisted `IsAvailable` state to modules, topics, and lessons; matching content restores availability with the same IDs, while progress, playback, topic completion, current lesson, presentation data, and historical routine records remain unchanged.
 - Successful local content syncs now update `SourceMetadata.LastScannedAtUtc`, recalculate known total duration, and rebuild the import snapshot from the authoritative persisted tree so both newly inserted and currently missing content retain stable identities during later rehydration.
@@ -164,7 +164,4 @@ It must transform locally organized video courses into a complete learning exper
 - Topics with historical `CompletedAtUtc` and a newly available pending lesson now show a derived `Concluído anteriormente · novo conteúdo pendente` state without changing completion, lesson progress, current lesson, routine, or history data.
 
 ## future integrations
-- SQLite for local persistence
-- filesystem indexing for real course import
-- local video player integration
 - broader playback/runtime support for external online lessons
