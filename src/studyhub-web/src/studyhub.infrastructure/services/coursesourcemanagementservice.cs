@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using studyhub.application.Contracts.CourseBuilding;
 using studyhub.application.Contracts.CourseSourceManagement;
 using studyhub.application.Contracts.LocalImport;
 using studyhub.application.Interfaces;
@@ -14,7 +13,7 @@ namespace studyhub.infrastructure.services;
 
 public sealed class CourseSourceManagementService(
     IDbContextFactory<StudyHubDbContext> contextFactory,
-    ILocalFolderCourseBuilder localFolderCourseBuilder,
+    ILocalCourseScanner localCourseScanner,
     ILogger<CourseSourceManagementService> logger) : ICourseSourceManagementService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -23,7 +22,7 @@ public sealed class CourseSourceManagementService(
         : StringComparer.Ordinal;
 
     private readonly IDbContextFactory<StudyHubDbContext> _contextFactory = contextFactory;
-    private readonly ILocalFolderCourseBuilder _localFolderCourseBuilder = localFolderCourseBuilder;
+    private readonly ILocalCourseScanner _localCourseScanner = localCourseScanner;
     private readonly ILogger<CourseSourceManagementService> _logger = logger;
 
     public async Task<CourseSourceLocationValidationResult> ValidateLocationAsync(
@@ -231,7 +230,7 @@ public sealed class CourseSourceManagementService(
         string folderPath,
         CancellationToken cancellationToken)
     {
-        if (!TryNormalizeRootPath(folderPath, out var candidateRootPath))
+        if (!LocalCourseSourceRootResolver.TryNormalize(folderPath, out var candidateRootPath))
         {
             return ValidationOutcome.FromError(
                 courseId,
@@ -323,10 +322,7 @@ public sealed class CourseSourceManagementService(
 
         try
         {
-            var buildResult = await _localFolderCourseBuilder.BuildAsync(
-                new LocalFolderCourseBuildRequest { FolderPath = candidateRootPath },
-                cancellationToken);
-            candidateStructure = buildResult.DetectedStructure;
+            candidateStructure = await _localCourseScanner.ScanAsync(candidateRootPath, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -579,41 +575,12 @@ public sealed class CourseSourceManagementService(
         };
 
     private static string ResolveCurrentRootPath(CourseRecord course)
-    {
-        if (TryReadMetadataRootPath(course.SourceMetadataJson, out var metadataRootPath) &&
-            TryNormalizeRootPath(metadataRootPath, out var normalizedMetadataRootPath))
-        {
-            return normalizedMetadataRootPath;
-        }
-
-        return TryNormalizeRootPath(course.FolderPath, out var normalizedFolderPath)
-            ? normalizedFolderPath
+        => LocalCourseSourceRootResolver.TryResolve(
+            course.SourceMetadataJson,
+            course.FolderPath,
+            out var normalizedRootPath)
+            ? normalizedRootPath
             : course.FolderPath;
-    }
-
-    private static bool TryReadMetadataRootPath(string metadataJson, out string rootPath)
-    {
-        rootPath = string.Empty;
-
-        if (string.IsNullOrWhiteSpace(metadataJson))
-        {
-            return false;
-        }
-
-        try
-        {
-            var root = JsonNode.Parse(metadataJson) as JsonObject;
-            var propertyName = FindPropertyName(root, "rootPath");
-            rootPath = propertyName is null
-                ? string.Empty
-                : root![propertyName]?.GetValue<string>() ?? string.Empty;
-            return !string.IsNullOrWhiteSpace(rootPath);
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-        {
-            return false;
-        }
-    }
 
     private static bool TryRebaseSourceMetadata(
         string metadataJson,
@@ -790,21 +757,9 @@ public sealed class CourseSourceManagementService(
             .Select(property => property.Key)
             .FirstOrDefault(name => string.Equals(name, expectedName, StringComparison.OrdinalIgnoreCase));
 
-    private static bool TryNormalizeRootPath(string? path, out string normalizedPath)
-    {
-        normalizedPath = string.Empty;
-        if (!LocalLessonPathHelper.TryNormalizeFullyQualifiedPath(path, out var fullyQualifiedPath))
-        {
-            return false;
-        }
-
-        normalizedPath = Path.TrimEndingDirectorySeparator(fullyQualifiedPath);
-        return true;
-    }
-
     private static bool AreSamePath(string firstPath, string secondPath)
-        => TryNormalizeRootPath(firstPath, out var normalizedFirstPath) &&
-           TryNormalizeRootPath(secondPath, out var normalizedSecondPath) &&
+        => LocalCourseSourceRootResolver.TryNormalize(firstPath, out var normalizedFirstPath) &&
+           LocalCourseSourceRootResolver.TryNormalize(secondPath, out var normalizedSecondPath) &&
            PathComparer.Equals(normalizedFirstPath, normalizedSecondPath);
 
     private static int CountLessons(CourseRecord course)

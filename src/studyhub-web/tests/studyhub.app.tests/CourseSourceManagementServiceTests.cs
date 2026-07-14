@@ -44,10 +44,11 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
             context.Database.EnsureCreated();
         }
 
-        _builder = new LocalFolderCourseBuilder(new FakeVideoMetadataReader());
+        var scanner = new LocalCourseScanner(new FakeVideoMetadataReader());
+        _builder = new LocalFolderCourseBuilder(scanner);
         _service = new CourseSourceManagementService(
             _contextFactory,
-            _builder,
+            scanner,
             NullLogger<CourseSourceManagementService>.Instance);
     }
 

@@ -19,10 +19,64 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         Guid.NewGuid().ToString("N"));
 
     [Fact]
+    public async Task ScanAsync_ThroughInterface_PreservesDeterministicIds()
+    {
+        var (courseRoot, _) = await CreateCourseFileAsync("scanner-interface-course");
+        ILocalCourseScanner scanner = CreateScanner();
+
+        var firstScan = await scanner.ScanAsync(courseRoot);
+        var secondScan = await scanner.ScanAsync(courseRoot);
+
+        Assert.Equal(firstScan.CourseId, secondScan.CourseId);
+        Assert.Equal(
+            firstScan.Modules.Select(module => module.ModuleId).ToArray(),
+            secondScan.Modules.Select(module => module.ModuleId).ToArray());
+        Assert.Equal(
+            firstScan.Modules.SelectMany(module => module.Topics).Select(topic => topic.TopicId).ToArray(),
+            secondScan.Modules.SelectMany(module => module.Topics).Select(topic => topic.TopicId).ToArray());
+        Assert.Equal(
+            firstScan.Modules
+                .SelectMany(module => module.Topics)
+                .SelectMany(topic => topic.Lessons)
+                .Select(lesson => lesson.LessonId)
+                .ToArray(),
+            secondScan.Modules
+                .SelectMany(module => module.Topics)
+                .SelectMany(topic => topic.Lessons)
+                .Select(lesson => lesson.LessonId)
+                .ToArray());
+    }
+
+    [Fact]
+    public async Task ScanAsync_WithPreCanceledToken_PropagatesCancellationBeforeScanning()
+    {
+        ILocalCourseScanner scanner = CreateScanner();
+        using var cancellationSource = new CancellationTokenSource();
+        await cancellationSource.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scanner.ScanAsync(
+            Path.Combine(_rootDirectory, "missing-course"),
+            cancellationSource.Token));
+    }
+
+    [Fact]
+    public async Task ScanAsync_WhenMetadataReaderCancels_PropagatesCancellation()
+    {
+        var (courseRoot, _) = await CreateCourseFileAsync("scanner-metadata-cancellation-course");
+        using var cancellationSource = new CancellationTokenSource();
+        ILocalCourseScanner scanner = new LocalCourseScanner(
+            new CancelingVideoMetadataReader(cancellationSource));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scanner.ScanAsync(
+            courseRoot,
+            cancellationSource.Token));
+    }
+
+    [Fact]
     public async Task BuildAsync_PreservesAbsoluteAndPortableRelativeLessonPaths()
     {
         var (courseRoot, videoPath) = await CreateCourseFileAsync("builder-course");
-        var builder = new LocalFolderCourseBuilder(new FakeVideoMetadataReader());
+        var builder = CreateBuilder();
 
         var result = await builder.BuildAsync(new LocalFolderCourseBuildRequest
         {
@@ -58,7 +112,7 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
             Path.Combine(moduleDirectory, "Aula 02.mp4"),
             Array.Empty<byte>());
 
-        var builder = new LocalFolderCourseBuilder(new FakeVideoMetadataReader());
+        var builder = CreateBuilder();
         var result = await builder.BuildAsync(new LocalFolderCourseBuildRequest
         {
             FolderPath = courseRoot
@@ -86,7 +140,7 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
             Path.Combine(courseRoot, "Aula raiz.mp4"),
             Array.Empty<byte>());
 
-        var builder = new LocalFolderCourseBuilder(new FakeVideoMetadataReader());
+        var builder = CreateBuilder();
         var result = await builder.BuildAsync(new LocalFolderCourseBuildRequest
         {
             FolderPath = courseRoot
@@ -126,7 +180,7 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         var importService = new LocalCourseImportService(
             contextFactory,
             new UnusedFolderPickerService(),
-            new LocalFolderCourseBuilder(new FakeVideoMetadataReader()),
+            CreateBuilder(),
             NullLogger<LocalCourseImportService>.Instance);
 
         var importResult = await importService.ImportFromFolderAsync(courseRoot);
@@ -185,12 +239,32 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         return (courseRoot, videoPath);
     }
 
+    private static ILocalCourseScanner CreateScanner()
+        => new LocalCourseScanner(new FakeVideoMetadataReader());
+
+    private static LocalFolderCourseBuilder CreateBuilder()
+        => new(CreateScanner());
+
     private sealed class FakeVideoMetadataReader : IVideoMetadataReader
     {
         public Task<TimeSpan?> TryReadDurationAsync(
             string filePath,
             CancellationToken cancellationToken = default)
             => Task.FromResult<TimeSpan?>(TimeSpan.FromMinutes(5));
+    }
+
+    private sealed class CancelingVideoMetadataReader(
+        CancellationTokenSource cancellationSource) : IVideoMetadataReader
+    {
+        private readonly CancellationTokenSource _cancellationSource = cancellationSource;
+
+        public Task<TimeSpan?> TryReadDurationAsync(
+            string filePath,
+            CancellationToken cancellationToken = default)
+        {
+            _cancellationSource.Cancel();
+            return Task.FromResult<TimeSpan?>(TimeSpan.FromMinutes(5));
+        }
     }
 
     private sealed class UnusedFolderPickerService : IFolderPickerService

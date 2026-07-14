@@ -5,10 +5,10 @@ using studyhub.domain.Entities;
 
 namespace studyhub.infrastructure.services;
 
-public class LocalFolderCourseBuilder(IVideoMetadataReader videoMetadataReader) : ILocalFolderCourseBuilder
+public class LocalFolderCourseBuilder(ILocalCourseScanner scanner) : ILocalFolderCourseBuilder
 {
     private const string LocalScanVersion = "local-folder-v1";
-    private readonly LocalCourseScanner _scanner = new(videoMetadataReader);
+    private readonly ILocalCourseScanner _scanner = scanner;
 
     public async Task<LocalFolderCourseBuildResult> BuildAsync(LocalFolderCourseBuildRequest request, CancellationToken cancellationToken = default)
     {

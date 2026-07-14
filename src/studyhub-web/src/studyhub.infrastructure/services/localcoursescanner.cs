@@ -5,7 +5,7 @@ using studyhub.application.Interfaces;
 
 namespace studyhub.infrastructure.services;
 
-internal sealed class LocalCourseScanner(IVideoMetadataReader videoMetadataReader)
+internal sealed class LocalCourseScanner(IVideoMetadataReader videoMetadataReader) : ILocalCourseScanner
 {
     private static readonly string[] VideoExtensions =
     [
@@ -22,6 +22,8 @@ internal sealed class LocalCourseScanner(IVideoMetadataReader videoMetadataReade
 
     public async Task<DetectedCourseStructure> ScanAsync(string rootFolderPath, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var normalizedRootPath = Path.GetFullPath(rootFolderPath);
         var rootDirectory = new DirectoryInfo(normalizedRootPath);
 
@@ -259,6 +261,7 @@ internal sealed class LocalCourseScanner(IVideoMetadataReader videoMetadataReade
             cancellationToken.ThrowIfCancellationRequested();
 
             var duration = await _videoMetadataReader.TryReadDurationAsync(file.FullName, cancellationToken) ?? TimeSpan.Zero;
+            cancellationToken.ThrowIfCancellationRequested();
             var relativePath = NormalizeRelativePath(Path.GetRelativePath(rootDirectoryPath, file.FullName));
 
             lessons.Add(new DetectedLessonFile
