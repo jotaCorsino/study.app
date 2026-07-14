@@ -156,6 +156,10 @@ It must transform locally organized video courses into a complete learning exper
 - Local course content synchronization now supports a real incremental `ApplyAsync` path that re-scans and re-plans against the current persisted tree inside a SQLite transaction, inserts `NEW` items with permanent IDs, and preserves `MISSING` modules, topics, and lessons without deletion.
 - SQLite schema 13 adds persisted `IsAvailable` state to modules, topics, and lessons; matching content restores availability with the same IDs, while progress, playback, topic completion, current lesson, presentation data, and historical routine records remain unchanged.
 - Successful local content syncs now update `SourceMetadata.LastScannedAtUtc`, recalculate known total duration, and rebuild the import snapshot from the authoritative persisted tree so both newly inserted and currently missing content retain stable identities during later rehydration.
+- The `/settings` page now exposes a dedicated `Cursos e armazenamento` section for managing local-folder course sources without changing the existing catalog, course, or player flows.
+- Local-course source status is queried through a lightweight read-only service operation that reports availability and access/configuration problems without scanning course content, mutating persistence, or updating `LastScannedAtUtc`.
+- Course location changes now require candidate-folder validation and explicit user confirmation, including a second confirmation for partial matches, before the existing backend relocation flow can run.
+- Content synchronization is now fully explicit in settings: users review a preview before applying the incremental plan, and the UI states that missing content is preserved with its progress, playback state, and historical records.
 
 ## future integrations
 - SQLite for local persistence

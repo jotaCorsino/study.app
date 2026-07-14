@@ -53,6 +53,99 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSourceStatusAsync_AvailableRoot_UsesMetadataPathWithoutScanningOrMutating()
+    {
+        const string knownLesson = "Module 01/Topic 01/Lesson 01.mp4";
+        var rootPath = CourseRoot("available", "CourseA");
+        var seed = await SeedCourseAsync(rootPath, knownLesson);
+
+        await using (var context = new StudyHubDbContext(_options))
+        {
+            var course = await context.Courses.SingleAsync(record => record.Id == seed.CourseId);
+            course.FolderPath = Path.Combine(_testRoot, "stale-fallback");
+            await context.SaveChangesAsync();
+        }
+
+        var beforeCourse = await LoadCourseAsync(seed.CourseId);
+        var beforeSnapshot = await LoadSnapshotAsync(seed.CourseId);
+        var service = CreateStatusServiceThatFailsIfScannerRuns();
+
+        var result = await service.GetSourceStatusAsync(seed.CourseId);
+
+        Assert.Equal(seed.CourseId, result.CourseId);
+        Assert.Equal(Path.GetFullPath(rootPath), result.RootPath);
+        Assert.Equal(CourseSourceStatus.Available, result.Status);
+        Assert.True(result.IsAvailable);
+        Assert.NotEmpty(result.Message);
+
+        var afterCourse = await LoadCourseAsync(seed.CourseId);
+        var afterSnapshot = await LoadSnapshotAsync(seed.CourseId);
+        Assert.Equal(beforeCourse.FolderPath, afterCourse.FolderPath);
+        Assert.Equal(beforeCourse.SourceMetadataJson, afterCourse.SourceMetadataJson);
+        Assert.Equal(beforeSnapshot.RootFolderPath, afterSnapshot.RootFolderPath);
+        Assert.Equal(beforeSnapshot.StructureJson, afterSnapshot.StructureJson);
+        Assert.Equal(beforeSnapshot.ImportedAt, afterSnapshot.ImportedAt);
+    }
+
+    [Fact]
+    public async Task GetSourceStatusAsync_MissingRoot_ReturnsNotFoundWithoutScanning()
+    {
+        const string knownLesson = "Module 01/Topic 01/Lesson 01.mp4";
+        var rootPath = CourseRoot("missing", "CourseA");
+        var seed = await SeedCourseAsync(rootPath, knownLesson);
+        Directory.Delete(rootPath, recursive: true);
+        var service = CreateStatusServiceThatFailsIfScannerRuns();
+
+        var result = await service.GetSourceStatusAsync(seed.CourseId);
+
+        Assert.Equal(seed.CourseId, result.CourseId);
+        Assert.Equal(Path.GetFullPath(rootPath), result.RootPath);
+        Assert.Equal(CourseSourceStatus.NotFound, result.Status);
+        Assert.False(result.IsAvailable);
+        Assert.NotEmpty(result.Message);
+    }
+
+    [Fact]
+    public async Task GetSourceStatusAsync_UnconfiguredRoot_ReturnsInvalidWithoutScanning()
+    {
+        const string knownLesson = "Module 01/Topic 01/Lesson 01.mp4";
+        var rootPath = CourseRoot("invalid", "CourseA");
+        var seed = await SeedCourseAsync(rootPath, knownLesson);
+
+        await using (var context = new StudyHubDbContext(_options))
+        {
+            var course = await context.Courses.SingleAsync(record => record.Id == seed.CourseId);
+            course.SourceMetadataJson = "{}";
+            course.FolderPath = string.Empty;
+            await context.SaveChangesAsync();
+        }
+
+        var result = await CreateStatusServiceThatFailsIfScannerRuns()
+            .GetSourceStatusAsync(seed.CourseId);
+
+        Assert.Equal(seed.CourseId, result.CourseId);
+        Assert.Empty(result.RootPath);
+        Assert.Equal(CourseSourceStatus.Invalid, result.Status);
+        Assert.False(result.IsAvailable);
+        Assert.NotEmpty(result.Message);
+    }
+
+    [Fact]
+    public async Task GetSourceStatusAsync_UnknownCourse_ReturnsInvalidWithoutScanning()
+    {
+        var courseId = Guid.NewGuid();
+
+        var result = await CreateStatusServiceThatFailsIfScannerRuns()
+            .GetSourceStatusAsync(courseId);
+
+        Assert.Equal(courseId, result.CourseId);
+        Assert.Empty(result.RootPath);
+        Assert.Equal(CourseSourceStatus.Invalid, result.Status);
+        Assert.False(result.IsAvailable);
+        Assert.NotEmpty(result.Message);
+    }
+
+    [Fact]
     public async Task ChangeLocationAsync_EquivalentMovedFolder_PreservesIdentityStateMetadataAndSnapshot()
     {
         var relativePaths = new[]
@@ -636,6 +729,12 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
     private string CourseRoot(string parentName, string courseName)
         => Path.Combine(_testRoot, parentName, courseName);
 
+    private CourseSourceManagementService CreateStatusServiceThatFailsIfScannerRuns()
+        => new(
+            _contextFactory,
+            new FailIfCalledScanner(),
+            NullLogger<CourseSourceManagementService>.Instance);
+
     private async Task<SeededCourse> SeedCourseAsync(string rootPath, params string[] relativePaths)
     {
         await CreateCourseFilesAsync(rootPath, relativePaths);
@@ -866,6 +965,14 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
             string filePath,
             CancellationToken cancellationToken = default)
             => Task.FromResult<TimeSpan?>(TimeSpan.FromMinutes(5));
+    }
+
+    private sealed class FailIfCalledScanner : ILocalCourseScanner
+    {
+        public Task<DetectedCourseStructure> ScanAsync(
+            string rootFolderPath,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("The basic source status query must not run a course scan.");
     }
 
     private sealed class TestDbContextFactory(DbContextOptions<StudyHubDbContext> options)

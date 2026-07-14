@@ -63,6 +63,12 @@
     padding: var(--space-md) var(--space-sm);
 }
 
+.nav-course-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .nav-section-title {
     font-size: var(--font-xs);
     font-weight: var(--weight-semibold);
@@ -269,6 +275,7 @@
     margin-top: auto;
     padding: var(--space-md);
     border-top: 1px solid var(--border-subtle);
+    flex-shrink: 0;
 }
 
 /* --- Page Header --- */

@@ -4,6 +4,10 @@ namespace studyhub.application.Interfaces;
 
 public interface ICourseSourceManagementService
 {
+    Task<CourseSourceStatusResult> GetSourceStatusAsync(
+        Guid courseId,
+        CancellationToken cancellationToken = default);
+
     Task<CourseSourceLocationValidationResult> ValidateLocationAsync(
         Guid courseId,
         string folderPath,

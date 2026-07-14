@@ -1,5 +1,24 @@
 namespace studyhub.application.Contracts.CourseSourceManagement;
 
+public enum CourseSourceStatus
+{
+    Invalid = 0,
+    Available = 1,
+    NotFound = 2,
+    AccessDenied = 3,
+    Unexpected = 4
+}
+
+public sealed class CourseSourceStatusResult
+{
+    public Guid CourseId { get; set; }
+    public string RootPath { get; set; } = string.Empty;
+    public CourseSourceStatus Status { get; set; }
+    public string Message { get; set; } = string.Empty;
+
+    public bool IsAvailable => Status == CourseSourceStatus.Available;
+}
+
 public enum CourseSourceLocationCompatibility
 {
     NotEvaluated = 0,

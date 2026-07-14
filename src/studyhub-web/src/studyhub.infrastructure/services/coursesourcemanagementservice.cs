@@ -25,6 +25,132 @@ public sealed class CourseSourceManagementService(
     private readonly ILocalCourseScanner _localCourseScanner = localCourseScanner;
     private readonly ILogger<CourseSourceManagementService> _logger = logger;
 
+    public async Task<CourseSourceStatusResult> GetSourceStatusAsync(
+        Guid courseId,
+        CancellationToken cancellationToken = default)
+    {
+        SourceStatusCourse? course;
+
+        try
+        {
+            await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            course = await context.Courses
+                .AsNoTracking()
+                .Where(record => record.Id == courseId)
+                .Select(record => new SourceStatusCourse(
+                    record.SourceType,
+                    record.SourceMetadataJson,
+                    record.FolderPath))
+                .SingleOrDefaultAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not load course {CourseId} while checking its source status.", courseId);
+            return CreateSourceStatusResult(
+                courseId,
+                string.Empty,
+                CourseSourceStatus.Unexpected,
+                "Não foi possível verificar a origem do curso.");
+        }
+
+        if (course is null)
+        {
+            return CreateSourceStatusResult(
+                courseId,
+                string.Empty,
+                CourseSourceStatus.Invalid,
+                "O curso não foi encontrado.");
+        }
+
+        if (course.SourceType != CourseSourceType.LocalFolder)
+        {
+            return CreateSourceStatusResult(
+                courseId,
+                ResolveSourceRootForDisplay(course),
+                CourseSourceStatus.Invalid,
+                "A origem desse curso não é uma pasta local.");
+        }
+
+        if (!LocalCourseSourceRootResolver.TryResolve(
+                course.SourceMetadataJson,
+                course.FolderPath,
+                out var rootPath))
+        {
+            return CreateSourceStatusResult(
+                courseId,
+                ResolveSourceRootForDisplay(course),
+                CourseSourceStatus.Invalid,
+                "A pasta de origem do curso não está configurada corretamente.");
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!File.GetAttributes(rootPath).HasFlag(FileAttributes.Directory))
+            {
+                return CreateSourceStatusResult(
+                    courseId,
+                    rootPath,
+                    CourseSourceStatus.Invalid,
+                    "O caminho configurado não corresponde a uma pasta.");
+            }
+
+            using var entries = Directory.EnumerateFileSystemEntries(rootPath).GetEnumerator();
+            _ = entries.MoveNext();
+
+            return CreateSourceStatusResult(
+                courseId,
+                rootPath,
+                CourseSourceStatus.Available,
+                "A pasta de origem está disponível.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            _logger.LogWarning(ex, "Access denied while checking course source {RootPath}.", rootPath);
+            return CreateSourceStatusResult(
+                courseId,
+                rootPath,
+                CourseSourceStatus.AccessDenied,
+                "O acesso à pasta de origem foi negado.");
+        }
+        catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException)
+        {
+            _logger.LogInformation(ex, "Course source {RootPath} was not found.", rootPath);
+            return CreateSourceStatusResult(
+                courseId,
+                rootPath,
+                CourseSourceStatus.NotFound,
+                "A pasta de origem não foi encontrada.");
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            _logger.LogWarning(ex, "Course source {RootPath} is invalid.", rootPath);
+            return CreateSourceStatusResult(
+                courseId,
+                rootPath,
+                CourseSourceStatus.Invalid,
+                "O caminho configurado para a origem é inválido.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error while checking course source {RootPath}.", rootPath);
+            return CreateSourceStatusResult(
+                courseId,
+                rootPath,
+                CourseSourceStatus.Unexpected,
+                "Ocorreu um erro inesperado ao verificar a pasta de origem.");
+        }
+    }
+
     public async Task<CourseSourceLocationValidationResult> ValidateLocationAsync(
         Guid courseId,
         string folderPath,
@@ -582,6 +708,27 @@ public sealed class CourseSourceManagementService(
             ? normalizedRootPath
             : course.FolderPath;
 
+    private static string ResolveSourceRootForDisplay(SourceStatusCourse course)
+        => LocalCourseSourceRootResolver.TryResolve(
+            course.SourceMetadataJson,
+            course.FolderPath,
+            out var normalizedRootPath)
+            ? normalizedRootPath
+            : course.FolderPath;
+
+    private static CourseSourceStatusResult CreateSourceStatusResult(
+        Guid courseId,
+        string rootPath,
+        CourseSourceStatus status,
+        string message)
+        => new()
+        {
+            CourseId = courseId,
+            RootPath = rootPath,
+            Status = status,
+            Message = message
+        };
+
     private static bool TryRebaseSourceMetadata(
         string metadataJson,
         string newRootPath,
@@ -774,6 +921,11 @@ public sealed class CourseSourceManagementService(
         Invalid = 2,
         IdentityMismatch = 3
     }
+
+    private sealed record SourceStatusCourse(
+        CourseSourceType SourceType,
+        string SourceMetadataJson,
+        string FolderPath);
 
     private sealed record ValidationOutcome(
         CourseSourceLocationValidationResult Result,
