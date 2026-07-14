@@ -33,7 +33,7 @@ public sealed class StudyHubDatabaseInitializerTests
             await initializer.InitializeAsync();
 
             Assert.True(await ColumnExistsAsync(options, "topics", "completed_at_utc"));
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
 
             var courseId = Guid.NewGuid();
             var moduleId = Guid.NewGuid();
@@ -109,6 +109,202 @@ public sealed class StudyHubDatabaseInitializerTests
     }
 
     [Fact]
+    public async Task InitializeAsync_NewDatabaseCreatesAvailabilityColumnsAndPersistsExplicitFalse()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+
+        try
+        {
+            await CreateInitializer(options, storageRoot).InitializeAsync();
+
+            await AssertAvailabilityColumnAsync(options, "modules");
+            await AssertAvailabilityColumnAsync(options, "topics");
+            await AssertAvailabilityColumnAsync(options, "lessons");
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
+
+            Assert.True(new Module().IsAvailable);
+            Assert.True(new Topic().IsAvailable);
+            Assert.True(new Lesson().IsAvailable);
+            Assert.True(new ModuleRecord().IsAvailable);
+            Assert.True(new TopicRecord().IsAvailable);
+            Assert.True(new LessonRecord().IsAvailable);
+
+            var courseId = Guid.NewGuid();
+            var moduleId = Guid.NewGuid();
+            var topicId = Guid.NewGuid();
+            var lessonId = Guid.NewGuid();
+            var lastScannedAtUtc = new DateTime(2026, 7, 14, 17, 0, 0, DateTimeKind.Utc);
+            var course = CreateCourseRecord(courseId, moduleId, topicId, lessonId);
+            course.SourceMetadataJson = JsonSerializer.Serialize(new CourseSourceMetadata
+            {
+                RootPath = course.FolderPath,
+                ImportedAt = new DateTime(2026, 7, 1, 8, 0, 0, DateTimeKind.Utc),
+                LastScannedAtUtc = lastScannedAtUtc,
+                ScanVersion = "local-folder-v1",
+                Provider = "LocalFileSystem"
+            }, WebJsonOptions);
+            course.Modules.Single().IsAvailable = false;
+            course.Modules.Single().Topics.Single().IsAvailable = false;
+            course.Modules.Single().Topics.Single().Lessons.Single().IsAvailable = false;
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                setupContext.Courses.Add(course);
+                await setupContext.SaveChangesAsync();
+            }
+
+            await using var assertContext = new StudyHubDbContext(options);
+            var persisted = await assertContext.Courses
+                .AsNoTracking()
+                .Include(item => item.Modules)
+                    .ThenInclude(item => item.Topics)
+                        .ThenInclude(item => item.Lessons)
+                .SingleAsync(item => item.Id == courseId);
+            var persistedModule = Assert.Single(persisted.Modules);
+            var persistedTopic = Assert.Single(persistedModule.Topics);
+            var persistedLesson = Assert.Single(persistedTopic.Lessons);
+
+            Assert.False(persistedModule.IsAvailable);
+            Assert.False(persistedTopic.IsAvailable);
+            Assert.False(persistedLesson.IsAvailable);
+
+            var domain = persisted.ToDomain();
+            Assert.False(Assert.Single(domain.Modules).IsAvailable);
+            Assert.False(Assert.Single(domain.Modules.Single().Topics).IsAvailable);
+            Assert.False(Assert.Single(domain.Modules.Single().Topics.Single().Lessons).IsAvailable);
+            Assert.Equal(lastScannedAtUtc, domain.SourceMetadata.LastScannedAtUtc);
+
+            var roundTrippedRecord = domain.ToRecord();
+            Assert.False(Assert.Single(roundTrippedRecord.Modules).IsAvailable);
+            Assert.False(Assert.Single(roundTrippedRecord.Modules.Single().Topics).IsAvailable);
+            Assert.False(Assert.Single(roundTrippedRecord.Modules.Single().Topics.Single().Lessons).IsAvailable);
+            var roundTrippedMetadata = JsonSerializer.Deserialize<CourseSourceMetadata>(
+                roundTrippedRecord.SourceMetadataJson,
+                WebJsonOptions);
+            Assert.Equal(lastScannedAtUtc, roundTrippedMetadata?.LastScannedAtUtc);
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
+    public async Task InitializeAsync_UpgradesSchema12AvailabilityAndPreservesExistingStateIdempotently()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+
+        var options = CreateOptions(connection);
+        var storageRoot = CreateStorageRoot();
+
+        try
+        {
+            var courseId = Guid.NewGuid();
+            var moduleId = Guid.NewGuid();
+            var topicId = Guid.NewGuid();
+            var lessonId = Guid.NewGuid();
+            var completedAtUtc = new DateTime(2026, 7, 10, 14, 30, 0, DateTimeKind.Utc);
+            const string moduleRelativePath = "Modulo 01";
+            const string topicRelativePath = "Modulo 01/Topico 01";
+            const string lessonRelativePath = "Modulo 01/Topico 01/Aula 01.mp4";
+            var course = CreateCourseRecord(courseId, moduleId, topicId, lessonId, completedAtUtc);
+            course.CurrentLessonId = lessonId;
+            var module = course.Modules.Single();
+            module.SourceRelativePath = moduleRelativePath;
+            var topic = module.Topics.Single();
+            topic.SourceRelativePath = topicRelativePath;
+            var lesson = topic.Lessons.Single();
+            lesson.RelativeFilePath = lessonRelativePath;
+            lesson.Status = LessonStatus.InProgress;
+            lesson.WatchedPercentage = 46.5;
+            lesson.LastPlaybackPositionSeconds = 91;
+
+            await using (var setupContext = new StudyHubDbContext(options))
+            {
+                await setupContext.Database.EnsureCreatedAsync();
+                setupContext.Courses.Add(course);
+                await setupContext.SaveChangesAsync();
+                await setupContext.Database.ExecuteSqlRawAsync("PRAGMA user_version = 12;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE lessons DROP COLUMN is_available;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE topics DROP COLUMN is_available;");
+                await setupContext.Database.ExecuteSqlRawAsync("ALTER TABLE modules DROP COLUMN is_available;");
+            }
+
+            Assert.False(await ColumnExistsAsync(options, "modules", "is_available"));
+            Assert.False(await ColumnExistsAsync(options, "topics", "is_available"));
+            Assert.False(await ColumnExistsAsync(options, "lessons", "is_available"));
+
+            var initializer = CreateInitializer(options, storageRoot);
+            await initializer.InitializeAsync();
+
+            await AssertAvailabilityColumnAsync(options, "modules");
+            await AssertAvailabilityColumnAsync(options, "topics");
+            await AssertAvailabilityColumnAsync(options, "lessons");
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
+
+            await using (var firstAssertContext = new StudyHubDbContext(options))
+            {
+                var persisted = await firstAssertContext.Courses
+                    .AsNoTracking()
+                    .Include(item => item.Modules)
+                        .ThenInclude(item => item.Topics)
+                            .ThenInclude(item => item.Lessons)
+                    .SingleAsync(item => item.Id == courseId);
+
+                AssertAvailabilityUpgradeState(
+                    persisted,
+                    moduleId,
+                    topicId,
+                    lessonId,
+                    completedAtUtc,
+                    expectedAvailability: true);
+            }
+
+            await using (var updateContext = new StudyHubDbContext(options))
+            {
+                var persisted = await updateContext.Courses
+                    .Include(item => item.Modules)
+                        .ThenInclude(item => item.Topics)
+                            .ThenInclude(item => item.Lessons)
+                    .SingleAsync(item => item.Id == courseId);
+                persisted.Modules.Single().IsAvailable = false;
+                persisted.Modules.Single().Topics.Single().IsAvailable = false;
+                persisted.Modules.Single().Topics.Single().Lessons.Single().IsAvailable = false;
+                await updateContext.SaveChangesAsync();
+            }
+
+            await initializer.InitializeAsync();
+            await initializer.InitializeAsync();
+
+            await using var finalAssertContext = new StudyHubDbContext(options);
+            var finalPersisted = await finalAssertContext.Courses
+                .AsNoTracking()
+                .Include(item => item.Modules)
+                    .ThenInclude(item => item.Topics)
+                        .ThenInclude(item => item.Lessons)
+                .SingleAsync(item => item.Id == courseId);
+
+            AssertAvailabilityUpgradeState(
+                finalPersisted,
+                moduleId,
+                topicId,
+                lessonId,
+                completedAtUtc,
+                expectedAvailability: false);
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
+        }
+        finally
+        {
+            DeleteStorageRoot(storageRoot);
+        }
+    }
+
+    [Fact]
     public async Task InitializeAsync_UpgradesLegacyDatabaseAddingTopicCompletionColumn()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
@@ -139,7 +335,7 @@ public sealed class StudyHubDatabaseInitializerTests
             await initializer.InitializeAsync();
 
             Assert.True(await ColumnExistsAsync(options, "topics", "completed_at_utc"));
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
 
             var service = new PersistedCourseService(new TestDbContextFactory(options));
             var loadedCourse = await service.GetCourseByIdAsync(courseId);
@@ -177,7 +373,7 @@ public sealed class StudyHubDatabaseInitializerTests
             await initializer.InitializeAsync();
 
             Assert.True(await ColumnExistsAsync(options, "topics", "completed_at_utc"));
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
         }
         finally
         {
@@ -205,7 +401,7 @@ public sealed class StudyHubDatabaseInitializerTests
             Assert.Equal("TEXT", column!.StoreType, ignoreCase: true);
             Assert.True(column.IsNotNull);
             Assert.Equal("''", column.DefaultValue);
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
         }
         finally
         {
@@ -284,7 +480,7 @@ public sealed class StudyHubDatabaseInitializerTests
             }
 
             Assert.True(await ColumnExistsAsync(options, "lessons", "relative_file_path"));
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
 
             const string preexistingRelativePath = "Already/Preserved.mp4";
             await using (var updateContext = new StudyHubDbContext(options))
@@ -442,7 +638,7 @@ public sealed class StudyHubDatabaseInitializerTests
             Assert.Equal("TEXT", topicColumn!.StoreType, ignoreCase: true);
             Assert.True(topicColumn.IsNotNull);
             Assert.Equal("''", topicColumn.DefaultValue);
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
         }
         finally
         {
@@ -527,7 +723,7 @@ public sealed class StudyHubDatabaseInitializerTests
                 Assert.Equal(87, persistedLesson.LastPlaybackPositionSeconds);
             }
 
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
 
             await using (var updateContext = new StudyHubDbContext(options))
             {
@@ -615,7 +811,7 @@ public sealed class StudyHubDatabaseInitializerTests
 
             Assert.Equal("Modulo 01", module.SourceRelativePath);
             Assert.Equal("Modulo 01", topic.SourceRelativePath);
-            Assert.Equal(12, await GetSchemaVersionAsync(options));
+            Assert.Equal(13, await GetSchemaVersionAsync(options));
         }
         finally
         {
@@ -1033,6 +1229,50 @@ public sealed class StudyHubDatabaseInitializerTests
                 }
             ]
         };
+    }
+
+    private static async Task AssertAvailabilityColumnAsync(
+        DbContextOptions<StudyHubDbContext> options,
+        string tableName)
+    {
+        var column = await GetColumnInfoAsync(options, tableName, "is_available");
+
+        Assert.NotNull(column);
+        Assert.Equal("INTEGER", column!.StoreType, ignoreCase: true);
+        Assert.True(column.IsNotNull);
+        Assert.Equal("1", column.DefaultValue);
+    }
+
+    private static void AssertAvailabilityUpgradeState(
+        CourseRecord persisted,
+        Guid moduleId,
+        Guid topicId,
+        Guid lessonId,
+        DateTime completedAtUtc,
+        bool expectedAvailability)
+    {
+        var module = Assert.Single(persisted.Modules);
+        var topic = Assert.Single(module.Topics);
+        var lesson = Assert.Single(topic.Lessons);
+
+        Assert.Equal(moduleId, module.Id);
+        Assert.Equal(topicId, topic.Id);
+        Assert.Equal(lessonId, lesson.Id);
+        Assert.Equal(lessonId, persisted.CurrentLessonId);
+        Assert.Equal("Modulo", module.Title);
+        Assert.Equal("Modulo 01", module.SourceRelativePath);
+        Assert.Equal("Aula 01", topic.Title);
+        Assert.Equal("Modulo 01/Topico 01", topic.SourceRelativePath);
+        Assert.Equal(completedAtUtc, topic.CompletedAtUtc);
+        Assert.Equal("Video 01", lesson.Title);
+        Assert.Equal("Modulo 01/Topico 01/Aula 01.mp4", lesson.RelativeFilePath);
+        Assert.Equal(10, lesson.DurationMinutes);
+        Assert.Equal(LessonStatus.InProgress, lesson.Status);
+        Assert.Equal(46.5, lesson.WatchedPercentage);
+        Assert.Equal(91, lesson.LastPlaybackPositionSeconds);
+        Assert.Equal(expectedAvailability, module.IsAvailable);
+        Assert.Equal(expectedAvailability, topic.IsAvailable);
+        Assert.Equal(expectedAvailability, lesson.IsAvailable);
     }
 
     private static async Task<bool> ColumnExistsAsync(

@@ -7,4 +7,8 @@ public interface ICourseContentSyncService
     Task<CourseContentSyncPreviewResult> PreviewAsync(
         Guid courseId,
         CancellationToken cancellationToken = default);
+
+    Task<CourseContentSyncApplyResult> ApplyAsync(
+        Guid courseId,
+        CancellationToken cancellationToken = default);
 }

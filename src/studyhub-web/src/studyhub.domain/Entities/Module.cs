@@ -10,5 +10,6 @@ public class Module
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string SourceRelativePath { get; set; } = string.Empty;
+    public bool IsAvailable { get; set; } = true;
     public List<Topic> Topics { get; set; } = [];
 }

@@ -23,7 +23,7 @@ internal static class LocalCourseManifestValidator
             if (module is null ||
                 module.ModuleId == Guid.Empty ||
                 !moduleIds.Add(module.ModuleId) ||
-                module.Topics is not { Count: > 0 })
+                module.Topics is null)
             {
                 return false;
             }
@@ -33,7 +33,7 @@ internal static class LocalCourseManifestValidator
                 if (topic is null ||
                     topic.TopicId == Guid.Empty ||
                     !topicIds.Add(topic.TopicId) ||
-                    topic.Lessons is not { Count: > 0 })
+                    topic.Lessons is null)
                 {
                     return false;
                 }

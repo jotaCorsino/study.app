@@ -16,7 +16,7 @@ public class StudyHubDatabaseInitializer(
     IStoragePathsService storagePathsService,
     ILogger<StudyHubDatabaseInitializer> logger)
 {
-    private const int CurrentSchemaVersion = 12;
+    private const int CurrentSchemaVersion = 13;
 
     private static readonly JsonSerializerOptions SourceMetadataJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -261,6 +261,7 @@ public class StudyHubDatabaseInitializer(
         await EnsureLessonRelativeFilePathColumnAsync(context);
         await EnsureModuleSourceRelativePathColumnAsync(context);
         await EnsureTopicSourceRelativePathColumnAsync(context);
+        await EnsureContentAvailabilityColumnsAsync(context);
         await BackfillLegacyCourseOriginDataAsync(context);
         await BackfillLegacyPresentationDataAsync(context);
         await BackfillLegacyLessonOriginDataAsync(context);
@@ -503,8 +504,35 @@ public class StudyHubDatabaseInitializer(
 
         await context.Database.ExecuteSqlRawAsync(
             """
-            ALTER TABLE topics ADD COLUMN source_relative_path TEXT NOT NULL DEFAULT '';
-            """);
+                ALTER TABLE topics ADD COLUMN source_relative_path TEXT NOT NULL DEFAULT '';
+                """);
+    }
+
+    private static async Task EnsureContentAvailabilityColumnsAsync(StudyHubDbContext context)
+    {
+        if (!await ColumnExistsAsync(context, "modules", "is_available"))
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                """
+                ALTER TABLE modules ADD COLUMN is_available INTEGER NOT NULL DEFAULT 1;
+                """);
+        }
+
+        if (!await ColumnExistsAsync(context, "topics", "is_available"))
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                """
+                ALTER TABLE topics ADD COLUMN is_available INTEGER NOT NULL DEFAULT 1;
+                """);
+        }
+
+        if (!await ColumnExistsAsync(context, "lessons", "is_available"))
+        {
+            await context.Database.ExecuteSqlRawAsync(
+                """
+                ALTER TABLE lessons ADD COLUMN is_available INTEGER NOT NULL DEFAULT 1;
+                """);
+        }
     }
 
     private static async Task<bool> TableExistsAsync(StudyHubDbContext context, string tableName)

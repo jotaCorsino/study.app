@@ -63,6 +63,33 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
         var originalRoot = CourseRoot("original", "CourseA");
         var candidateRoot = CourseRoot("moved", "CourseA");
         var seed = await SeedCourseAsync(originalRoot, relativePaths);
+
+        await using (var availabilityContext = new StudyHubDbContext(_options))
+        {
+            var seededCourse = await availabilityContext.Courses
+                .Include(course => course.Modules)
+                    .ThenInclude(module => module.Topics)
+                        .ThenInclude(topic => topic.Lessons)
+                .SingleAsync(course => course.Id == seed.CourseId);
+
+            foreach (var module in seededCourse.Modules)
+            {
+                module.IsAvailable = false;
+
+                foreach (var topic in module.Topics)
+                {
+                    topic.IsAvailable = false;
+
+                    foreach (var lesson in topic.Lessons)
+                    {
+                        lesson.IsAvailable = false;
+                    }
+                }
+            }
+
+            await availabilityContext.SaveChangesAsync();
+        }
+
         var originalPersisted = await LoadCourseAsync(seed.CourseId);
         var originalModuleSourcePaths = originalPersisted.Modules
             .OrderBy(module => module.Order)
@@ -128,6 +155,9 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
         Assert.Equal("Edited lesson 1", persistedLessons[0].Title);
         Assert.Equal(seed.CurrentLessonId, persisted.CurrentLessonId);
         Assert.Equal(seed.TopicCompletedAtUtc, persistedTopics[0].CompletedAtUtc);
+        Assert.All(persistedModules, module => Assert.False(module.IsAvailable));
+        Assert.All(persistedTopics, topic => Assert.False(topic.IsAvailable));
+        Assert.All(persistedLessons, lesson => Assert.False(lesson.IsAvailable));
         Assert.Equal(LessonStatus.InProgress, persistedLessons[0].Status);
         Assert.Equal(37.5, persistedLessons[0].WatchedPercentage);
         Assert.Equal(73, persistedLessons[0].LastPlaybackPositionSeconds);
@@ -181,6 +211,11 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
             .Select(lesson => lesson.Id)
             .ToArray());
         Assert.Equal(seed.TopicCompletedAtUtc, loadedCourse.Modules[0].Topics[0].CompletedAtUtc);
+        Assert.All(loadedCourse.Modules, module => Assert.False(module.IsAvailable));
+        Assert.All(loadedCourse.Modules.SelectMany(module => module.Topics), topic => Assert.False(topic.IsAvailable));
+        Assert.All(
+            loadedCourse.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons),
+            lesson => Assert.False(lesson.IsAvailable));
     }
 
     [Fact]
@@ -392,9 +427,9 @@ public sealed class CourseSourceManagementServiceTests : IDisposable
             var malformedManifest = JsonSerializer.Deserialize<DetectedCourseStructure>(snapshot.StructureJson, JsonOptions)!;
             malformedManifest.Modules.Add(new DetectedModuleStructure
             {
-                ModuleId = Guid.NewGuid(),
+                ModuleId = Guid.Empty,
                 Order = 99,
-                RawName = "Empty stale module"
+                RawName = "Invalid stale module"
             });
             snapshot.StructureJson = JsonSerializer.Serialize(malformedManifest, JsonOptions);
             await context.SaveChangesAsync();

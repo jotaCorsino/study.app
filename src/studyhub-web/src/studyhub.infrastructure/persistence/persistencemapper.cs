@@ -78,6 +78,7 @@ internal static class PersistenceMapper
             Title = record.Title,
             Description = record.Description,
             SourceRelativePath = record.SourceRelativePath,
+            IsAvailable = record.IsAvailable,
             Topics = record.Topics
                 .OrderBy(topic => topic.Order)
                 .Select(ToDomain)
@@ -97,6 +98,7 @@ internal static class PersistenceMapper
             Title = record.Title,
             Description = record.Description,
             SourceRelativePath = record.SourceRelativePath,
+            IsAvailable = record.IsAvailable,
             CompletedAtUtc = record.CompletedAtUtc,
             Lessons = record.Lessons
                 .OrderBy(lesson => lesson.Order)
@@ -124,6 +126,7 @@ internal static class PersistenceMapper
             SourceType = record.SourceType,
             LocalFilePath = localFilePath,
             RelativeFilePath = record.RelativeFilePath,
+            IsAvailable = record.IsAvailable,
             Provider = record.Provider,
             Duration = TimeSpan.FromMinutes(record.DurationMinutes),
             Status = record.Status,
@@ -144,6 +147,7 @@ internal static class PersistenceMapper
             Title = module.Title,
             Description = module.Description,
             SourceRelativePath = module.SourceRelativePath,
+            IsAvailable = module.IsAvailable,
             Topics = module.Topics
                 .OrderBy(topic => topic.Order)
                 .Select(topic => ToRecord(topic, module.Id))
@@ -163,6 +167,7 @@ internal static class PersistenceMapper
             Title = topic.Title,
             Description = topic.Description,
             SourceRelativePath = topic.SourceRelativePath,
+            IsAvailable = topic.IsAvailable,
             CompletedAtUtc = topic.CompletedAtUtc,
             Lessons = topic.Lessons
                 .OrderBy(lesson => lesson.Order)
@@ -190,6 +195,7 @@ internal static class PersistenceMapper
             SourceType = lesson.SourceType,
             LocalFilePath = localFilePath,
             RelativeFilePath = lesson.RelativeFilePath,
+            IsAvailable = lesson.IsAvailable,
             Provider = lesson.Provider,
             DurationMinutes = ConvertDuration(lesson.Duration),
             Status = lesson.Status,

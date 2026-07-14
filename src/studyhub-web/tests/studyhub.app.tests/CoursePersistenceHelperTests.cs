@@ -12,7 +12,7 @@ namespace studyhub.app.tests;
 public sealed class CoursePersistenceHelperTests
 {
     [Fact]
-    public async Task UpsertCourseAsync_PreservesValidStructuralSourcePathsWhenIncomingPathsAreInvalid()
+    public async Task UpsertCourseAsync_PreservesExistingStructuralAndHistoricalStateWhenRehydrating()
     {
         await using var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -24,6 +24,10 @@ public sealed class CoursePersistenceHelperTests
         var moduleId = Guid.NewGuid();
         var topicId = Guid.NewGuid();
         var lessonId = Guid.NewGuid();
+        var missingCurrentLessonId = Guid.NewGuid();
+        var completedAtUtc = new DateTime(2026, 6, 20, 14, 30, 0, DateTimeKind.Utc);
+        const string existingMetadataJson =
+            "{\"rootPath\":\"C:/original\",\"customSentinel\":{\"keep\":true}}";
         var rootPath = Path.Combine(
             Path.GetTempPath(),
             "studyhub-course-persistence-helper-tests",
@@ -44,10 +48,10 @@ public sealed class CoursePersistenceHelperTests
                 ThumbnailUrl = string.Empty,
                 FolderPath = rootPath,
                 SourceType = CourseSourceType.LocalFolder,
-                SourceMetadataJson = "{}",
+                SourceMetadataJson = existingMetadataJson,
                 TotalDurationMinutes = 10,
                 AddedAt = new DateTime(2026, 7, 14, 10, 0, 0, DateTimeKind.Utc),
-                CurrentLessonId = lessonId,
+                CurrentLessonId = missingCurrentLessonId,
                 Modules =
                 [
                     new ModuleRecord
@@ -60,6 +64,7 @@ public sealed class CoursePersistenceHelperTests
                         Title = "Module 1",
                         Description = string.Empty,
                         SourceRelativePath = "module-1",
+                        IsAvailable = false,
                         Topics =
                         [
                             new TopicRecord
@@ -72,6 +77,8 @@ public sealed class CoursePersistenceHelperTests
                                 Title = "Topic 1",
                                 Description = string.Empty,
                                 SourceRelativePath = "module-1/topic-1",
+                                IsAvailable = false,
+                                CompletedAtUtc = completedAtUtc,
                                 Lessons =
                                 [
                                     new LessonRecord
@@ -87,6 +94,7 @@ public sealed class CoursePersistenceHelperTests
                                         SourceType = LessonSourceType.LocalFile,
                                         LocalFilePath = lessonPath,
                                         RelativeFilePath = "module-1/topic-1/lesson-1.mp4",
+                                        IsAvailable = false,
                                         Provider = "LocalFileSystem",
                                         DurationMinutes = 10,
                                         Status = LessonStatus.InProgress,
@@ -112,7 +120,12 @@ public sealed class CoursePersistenceHelperTests
             Category = "Curso Local",
             ThumbnailUrl = string.Empty,
             SourceType = CourseSourceType.LocalFolder,
-            SourceMetadata = new CourseSourceMetadata { RootPath = rootPath },
+            SourceMetadata = new CourseSourceMetadata
+            {
+                RootPath = rootPath,
+                ImportedAt = new DateTime(2026, 7, 14, 10, 0, 0, DateTimeKind.Utc),
+                LastScannedAtUtc = new DateTime(2026, 7, 14, 11, 0, 0, DateTimeKind.Utc)
+            },
             TotalDuration = TimeSpan.FromMinutes(10),
             AddedAt = new DateTime(2026, 7, 14, 10, 0, 0, DateTimeKind.Utc),
             Modules =
@@ -127,6 +140,7 @@ public sealed class CoursePersistenceHelperTests
                     Title = "Module 1",
                     Description = string.Empty,
                     SourceRelativePath = string.Empty,
+                    IsAvailable = true,
                     Topics =
                     [
                         new Topic
@@ -139,6 +153,7 @@ public sealed class CoursePersistenceHelperTests
                             Title = "Topic 1",
                             Description = string.Empty,
                             SourceRelativePath = "../unsafe-topic",
+                            IsAvailable = true,
                             Lessons =
                             [
                                 new Lesson
@@ -153,6 +168,7 @@ public sealed class CoursePersistenceHelperTests
                                     SourceType = LessonSourceType.LocalFile,
                                     LocalFilePath = lessonPath,
                                     RelativeFilePath = "module-1/topic-1/lesson-1.mp4",
+                                    IsAvailable = true,
                                     Provider = "LocalFileSystem",
                                     Duration = TimeSpan.FromMinutes(10)
                                 }
@@ -184,7 +200,12 @@ public sealed class CoursePersistenceHelperTests
         Assert.Equal(lessonId, persistedLesson.Id);
         Assert.Equal("module-1", persistedModule.SourceRelativePath);
         Assert.Equal("module-1/topic-1", persistedTopic.SourceRelativePath);
-        Assert.Equal(lessonId, persistedCourse.CurrentLessonId);
+        Assert.Equal(missingCurrentLessonId, persistedCourse.CurrentLessonId);
+        Assert.Equal(existingMetadataJson, persistedCourse.SourceMetadataJson);
+        Assert.False(persistedModule.IsAvailable);
+        Assert.False(persistedTopic.IsAvailable);
+        Assert.False(persistedLesson.IsAvailable);
+        Assert.Equal(completedAtUtc, persistedTopic.CompletedAtUtc);
         Assert.Equal(LessonStatus.InProgress, persistedLesson.Status);
         Assert.Equal(42.5, persistedLesson.WatchedPercentage);
         Assert.Equal(123, persistedLesson.LastPlaybackPositionSeconds);

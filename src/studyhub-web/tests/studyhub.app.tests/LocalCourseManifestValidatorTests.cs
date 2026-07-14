@@ -8,6 +8,71 @@ namespace studyhub.app.tests;
 public sealed class LocalCourseManifestValidatorTests
 {
     [Fact]
+    public void HasUsableStructure_AllowsEmptyKnownParentsWhenTheTreeContainsLessons()
+    {
+        var ids = CreateIds();
+        var emptyModuleId = Guid.NewGuid();
+        var emptyTopicId = Guid.NewGuid();
+        var course = CreateCourse(ids);
+        course.Modules[0].Topics.Add(new TopicRecord
+        {
+            Id = emptyTopicId,
+            ModuleId = ids.ModuleId,
+            Lessons = []
+        });
+        course.Modules.Add(new ModuleRecord
+        {
+            Id = emptyModuleId,
+            CourseId = ids.CourseId,
+            Topics = []
+        });
+        var manifest = CreateManifest(ids);
+        manifest.Modules[0].Topics.Add(new DetectedTopicStructure
+        {
+            TopicId = emptyTopicId,
+            RelativePath = "Topico vazio",
+            Lessons = []
+        });
+        manifest.Modules.Add(new DetectedModuleStructure
+        {
+            ModuleId = emptyModuleId,
+            RelativePath = "Modulo vazio",
+            Topics = []
+        });
+
+        Assert.True(LocalCourseManifestValidator.HasUsableStructure(manifest));
+        Assert.True(LocalCourseManifestValidator.HasMatchingPersistedIdentities(manifest, course));
+    }
+
+    [Fact]
+    public void HasUsableStructure_RejectsTreeWithoutAnyLesson()
+    {
+        var manifest = new DetectedCourseStructure
+        {
+            CourseId = Guid.NewGuid(),
+            Modules =
+            [
+                new DetectedModuleStructure
+                {
+                    ModuleId = Guid.NewGuid(),
+                    RelativePath = "Modulo vazio",
+                    Topics =
+                    [
+                        new DetectedTopicStructure
+                        {
+                            TopicId = Guid.NewGuid(),
+                            RelativePath = "Topico vazio",
+                            Lessons = []
+                        }
+                    ]
+                }
+            ]
+        };
+
+        Assert.False(LocalCourseManifestValidator.HasUsableStructure(manifest));
+    }
+
+    [Fact]
     public void TryCorrelatePersistedIdentities_ExactTreeMatchesEveryParentLevel()
     {
         var ids = CreateIds();

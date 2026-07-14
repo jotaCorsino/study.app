@@ -20,6 +20,7 @@ public class Lesson
         set => _localFilePath = value ?? string.Empty;
     }
     public string RelativeFilePath { get; set; } = string.Empty;
+    public bool IsAvailable { get; set; } = true;
     public string Provider { get; set; } = string.Empty;
     public string FilePath
     {

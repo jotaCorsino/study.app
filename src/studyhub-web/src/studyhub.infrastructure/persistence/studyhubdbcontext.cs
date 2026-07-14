@@ -60,6 +60,12 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
                 .HasColumnType("TEXT")
                 .HasDefaultValue(string.Empty)
                 .IsRequired();
+            entity.Property(record => record.IsAvailable)
+                .HasColumnName("is_available")
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true)
+                .HasSentinel(true)
+                .IsRequired();
             entity.HasMany(record => record.Topics)
                 .WithOne(record => record.Module)
                 .HasForeignKey(record => record.ModuleId)
@@ -84,6 +90,12 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
                 .HasColumnName("source_relative_path")
                 .HasColumnType("TEXT")
                 .HasDefaultValue(string.Empty)
+                .IsRequired();
+            entity.Property(record => record.IsAvailable)
+                .HasColumnName("is_available")
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true)
+                .HasSentinel(true)
                 .IsRequired();
             entity.Property(record => record.CompletedAtUtc)
                 .HasColumnName("completed_at_utc")
@@ -126,6 +138,12 @@ public class StudyHubDbContext(DbContextOptions<StudyHubDbContext> options) : Db
                 .HasColumnName("relative_file_path")
                 .HasColumnType("TEXT")
                 .HasDefaultValue(string.Empty)
+                .IsRequired();
+            entity.Property(record => record.IsAvailable)
+                .HasColumnName("is_available")
+                .HasColumnType("INTEGER")
+                .HasDefaultValue(true)
+                .HasSentinel(true)
                 .IsRequired();
             entity.Property(record => record.Provider)
                 .HasColumnName("provider");

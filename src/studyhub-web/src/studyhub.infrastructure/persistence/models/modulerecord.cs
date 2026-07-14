@@ -11,5 +11,6 @@ public class ModuleRecord
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string SourceRelativePath { get; set; } = string.Empty;
+    public bool IsAvailable { get; set; } = true;
     public List<TopicRecord> Topics { get; set; } = [];
 }

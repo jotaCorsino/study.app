@@ -100,6 +100,11 @@ public sealed class LocalFolderCourseBuilderTests : IDisposable
         Assert.DoesNotContain('\\', lesson.RelativeFilePath);
         Assert.Equal("Modulo 01", module.SourceRelativePath);
         Assert.Equal("Modulo 01/Topico 01", topic.SourceRelativePath);
+        Assert.True(module.IsAvailable);
+        Assert.True(topic.IsAvailable);
+        Assert.True(lesson.IsAvailable);
+        Assert.Equal(result.DetectedStructure.ScannedAt, result.Course.SourceMetadata.ImportedAt);
+        Assert.Equal(result.DetectedStructure.ScannedAt, result.Course.SourceMetadata.LastScannedAtUtc);
     }
 
     [Fact]

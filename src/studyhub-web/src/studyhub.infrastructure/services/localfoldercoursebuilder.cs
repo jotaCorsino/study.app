@@ -66,6 +66,7 @@ public class LocalFolderCourseBuilder(ILocalCourseScanner scanner) : ILocalFolde
                         SourceType = LessonSourceType.LocalFile,
                         LocalFilePath = detectedLesson.AbsolutePath,
                         RelativeFilePath = detectedLesson.RelativePath,
+                        IsAvailable = true,
                         Provider = "LocalFileSystem",
                         Duration = detectedLesson.Duration
                     };
@@ -95,6 +96,7 @@ public class LocalFolderCourseBuilder(ILocalCourseScanner scanner) : ILocalFolde
                     Title = topicTitle,
                     Description = string.Empty,
                     SourceRelativePath = topicSourceRelativePath,
+                    IsAvailable = true,
                     Lessons = lessons
                 });
             }
@@ -109,6 +111,7 @@ public class LocalFolderCourseBuilder(ILocalCourseScanner scanner) : ILocalFolde
                 Title = moduleTitle,
                 Description = string.Empty,
                 SourceRelativePath = moduleSourceRelativePath,
+                IsAvailable = true,
                 Topics = topics
             });
         }
@@ -128,6 +131,7 @@ public class LocalFolderCourseBuilder(ILocalCourseScanner scanner) : ILocalFolde
             {
                 RootPath = detectedStructure.RootFolderPath,
                 ImportedAt = detectedStructure.ScannedAt,
+                LastScannedAtUtc = detectedStructure.ScannedAt,
                 ScanVersion = LocalScanVersion,
                 Provider = "LocalFileSystem"
             },

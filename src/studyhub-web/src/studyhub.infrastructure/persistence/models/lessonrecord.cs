@@ -17,6 +17,7 @@ public class LessonRecord
     public LessonSourceType SourceType { get; set; } = LessonSourceType.LocalFile;
     public string LocalFilePath { get; set; } = string.Empty;
     public string RelativeFilePath { get; set; } = string.Empty;
+    public bool IsAvailable { get; set; } = true;
     public string Provider { get; set; } = string.Empty;
     public int DurationMinutes { get; set; }
     public LessonStatus Status { get; set; }

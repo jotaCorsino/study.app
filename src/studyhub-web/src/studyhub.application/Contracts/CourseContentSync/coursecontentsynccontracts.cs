@@ -23,6 +23,15 @@ public enum CourseContentSyncPreviewStatus
     Unexpected = 11
 }
 
+public enum CourseContentSyncApplyStatus
+{
+    NotEvaluated = 0,
+    Applied = 1,
+    NoChanges = 2,
+    Blocked = 3,
+    Failed = 4
+}
+
 public sealed class CourseContentSyncPreviewResult
 {
     public Guid CourseId { get; set; }
@@ -110,4 +119,22 @@ public sealed class CourseContentSyncLessonPlanItem
     public int? ExistingOrder { get; set; }
     public int? DetectedOrder { get; set; }
     public CourseContentSyncChangeKind ChangeKind { get; set; }
+}
+
+public sealed class CourseContentSyncApplyResult
+{
+    public Guid CourseId { get; set; }
+    public CourseContentSyncApplyStatus Status { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public CourseContentSyncPreviewResult Preview { get; set; } = new();
+    public int CreatedModuleCount { get; set; }
+    public int CreatedTopicCount { get; set; }
+    public int CreatedLessonCount { get; set; }
+    public int MarkedMissingModuleCount { get; set; }
+    public int MarkedMissingTopicCount { get; set; }
+    public int MarkedMissingLessonCount { get; set; }
+    public int RestoredAvailableItemCount { get; set; }
+
+    public bool Success => Status is CourseContentSyncApplyStatus.Applied or CourseContentSyncApplyStatus.NoChanges;
+    public bool AppliedChanges => Status == CourseContentSyncApplyStatus.Applied;
 }
