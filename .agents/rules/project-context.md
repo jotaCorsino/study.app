@@ -160,6 +160,8 @@ It must transform locally organized video courses into a complete learning exper
 - Local-course source status is queried through a lightweight read-only service operation that reports availability and access/configuration problems without scanning course content, mutating persistence, or updating `LastScannedAtUtc`.
 - Course location changes now require candidate-folder validation and explicit user confirmation, including a second confirmation for partial matches, before the existing backend relocation flow can run.
 - Content synchronization is now fully explicit in settings: users review a preview before applying the incremental plan, and the UI states that missing content is preserved with its progress, playback state, and historical records.
+- Persisted `IsAvailable` state is now surfaced in the normal course experience: Course Detail summarizes unavailable modules, topics, and lessons; the shared course tree marks fully or partially unavailable modules plus unavailable topics and lessons; and the player shows a non-blocking warning while still attempting the real file through the existing resolver/runtime path.
+- Topics with historical `CompletedAtUtc` and a newly available pending lesson now show a derived `Concluído anteriormente · novo conteúdo pendente` state without changing completion, lesson progress, current lesson, routine, or history data.
 
 ## future integrations
 - SQLite for local persistence

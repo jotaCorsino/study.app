@@ -1,36 +1,59 @@
 @using studyhub.domain.Entities
 @using studyhub.shared.Enums
 
-<div class="module-accordion @(isOpen ? "open" : "") @(IsActive ? "active" : "")">
-    <div class="module-accordion-header" @onclick="Toggle">
-        @{
-            var totalLessons = GetTotalLessons();
-            var completedLessons = GetCompletedLessons();
-        }
-        <div class="module-accordion-left">
-            <div class="module-accordion-number">@ModuleNumber</div>
-            <div class="module-accordion-content">
-                <div class="module-accordion-title">@Module?.Title</div>
-                <div class="module-accordion-progress @(IsModuleCompleted(completedLessons, totalLessons) ? "module-accordion-progress-completed" : string.Empty)">
+@{
+    var totalLessons = GetTotalLessons();
+    var completedLessons = GetCompletedLessons();
+    var availabilityState = CourseAvailabilityPresentationHelper.GetModuleState(Module);
+    var unavailableDescendantCount = CourseAvailabilityPresentationHelper.CountUnavailableDescendants(Module);
+}
+
+<div class="module-accordion @(isOpen ? "open" : "") @(IsActive ? "active" : "") @GetAvailabilityClass(availabilityState)">
+    <button type="button"
+            class="module-accordion-header"
+            aria-expanded="@isOpen.ToString().ToLowerInvariant()"
+            aria-controls="@ContentElementId"
+            @onclick="Toggle">
+        <span class="module-accordion-left">
+            <span class="module-accordion-number">@ModuleNumber</span>
+            <span class="module-accordion-content">
+                <span class="module-accordion-title">@Module?.Title</span>
+                <span class="module-accordion-progress @(IsModuleCompleted(completedLessons, totalLessons) ? "module-accordion-progress-completed" : string.Empty)">
                     @completedLessons / @totalLessons concluidas
-                </div>
-                <div class="module-accordion-meta">
+                </span>
+                <span class="module-accordion-meta">
                     @totalLessons aulas - @FormatDuration(GetTotalDurationMinutes())
-                </div>
-            </div>
-        </div>
-        <div class="module-accordion-right">
+                </span>
+                @if (availabilityState == ModuleAvailabilityPresentationState.Unavailable)
+                {
+                    <span class="badge badge-warning availability-badge module-availability-badge"
+                          title="Este módulo não foi encontrado na última sincronização.">
+                        Módulo indisponível
+                    </span>
+                }
+                else if (availabilityState == ModuleAvailabilityPresentationState.PartiallyUnavailable)
+                {
+                    <span class="badge badge-warning availability-badge module-availability-badge"
+                          title="Este módulo possui tópicos ou aulas que não foram encontrados na última sincronização.">
+                        @FormatUnavailableItems(unavailableDescendantCount)
+                    </span>
+                }
+            </span>
+        </span>
+        <span class="module-accordion-right">
             <svg class="module-accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-        </div>
-    </div>
+        </span>
+    </button>
     
-    <div class="module-accordion-body @(EnableInternalScroll ? "scrollable" : string.Empty)">
+    <div id="@ContentElementId"
+         class="module-accordion-body @(EnableInternalScroll ? "scrollable" : string.Empty)"
+         inert="@(!isOpen ? "inert" : null)"
+         aria-hidden="@(!isOpen).ToString().ToLowerInvariant()">
         @if (Module?.Topics != null)
         {
             @foreach (var topic in Module.Topics.OrderBy(t => t.Order))
             {
-                <LessonList TopicTitle="@topic.Title" 
-                            Lessons="@topic.Lessons" 
+                <LessonList Topic="@topic"
                             LessonStatuses="@LessonStatuses"
                             ActiveLessonId="@ActiveLessonId"
                             OnLessonSelected="@OnLessonSelected" />
@@ -53,6 +76,7 @@
     private Guid? lastActiveLessonId;
     
     private bool IsActive => ActiveLessonId.HasValue && Module?.Topics != null && Module.Topics.Any(t => t.Lessons != null && t.Lessons.Any(l => l.Id == ActiveLessonId.Value));
+    private string ContentElementId => $"module-content-{Module.Id:N}";
 
     protected override void OnParametersSet()
     {
@@ -104,5 +128,20 @@
             return minutes > 0 ? $"{hours}h {minutes}m" : $"{hours}h";
         }
         return $"{minutes}m";
+    }
+
+    private static string GetAvailabilityClass(ModuleAvailabilityPresentationState state)
+    {
+        return state switch
+        {
+            ModuleAvailabilityPresentationState.Unavailable => "module-unavailable",
+            ModuleAvailabilityPresentationState.PartiallyUnavailable => "module-partially-unavailable",
+            _ => string.Empty
+        };
+    }
+
+    private static string FormatUnavailableItems(int count)
+    {
+        return count == 1 ? "1 item indisponível" : $"{count} itens indisponíveis";
     }
 }

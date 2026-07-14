@@ -210,6 +210,27 @@ public sealed class LocalLessonFilePathResolverTests
     }
 
     [Fact]
+    public void Resolve_UnavailableLesson_StillResolvesCurrentCourseRootAndRelativePath()
+    {
+        var courseRoot = CreateCourseRoot("persisted-unavailable");
+        var lesson = new Lesson
+        {
+            RelativeFilePath = "Modulo 05/Topico 02/Aula 07.mp4",
+            IsAvailable = false
+        };
+        var expectedPath = Path.GetFullPath(Path.Combine(
+            courseRoot,
+            "Modulo 05",
+            "Topico 02",
+            "Aula 07.mp4"));
+
+        var result = _resolver.Resolve(courseRoot, lesson);
+
+        Assert.Equal(expectedPath, result);
+        Assert.False(lesson.IsAvailable);
+    }
+
+    [Fact]
     public void Resolve_DoesNotMutateLessonPaths()
     {
         var courseRoot = CreateCourseRoot("non-mutating");

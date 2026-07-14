@@ -33,6 +33,10 @@
     <Compile Include="..\..\src\studyhub.app\Components\Settings\coursestoragemanagementcontroller.cs" Link="Components\Settings\coursestoragemanagementcontroller.cs" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('..\..\src\studyhub.app\Components\Course\courseavailabilitypresentationhelper.cs')">
+    <Compile Include="..\..\src\studyhub.app\Components\Course\courseavailabilitypresentationhelper.cs" Link="Components\Course\courseavailabilitypresentationhelper.cs" />
+  </ItemGroup>
+
   <ItemGroup Condition="!Exists('..\..\src\studyhub.app\services\localvideosourceresolver.cs')">
     <Compile Remove="LocalVideoSourceResolverTests.cs" />
   </ItemGroup>

@@ -3,22 +3,57 @@
 @using studyhub.shared.Helpers
 
 <div class="lesson-list">
-    @if (!string.IsNullOrEmpty(TopicTitle))
+    @{
+        var hasHistoricallyCompletedPendingContent =
+            CourseAvailabilityPresentationHelper.HasHistoricallyCompletedWithPendingAvailableContent(
+                Topic,
+                LessonStatuses);
+    }
+
+    @if (!string.IsNullOrEmpty(Topic.Title) || !Topic.IsAvailable || hasHistoricallyCompletedPendingContent)
     {
-        <div class="topic-title">@TopicTitle</div>
+        <div class="topic-heading @(!Topic.IsAvailable ? "topic-unavailable" : string.Empty)">
+            @if (!string.IsNullOrEmpty(Topic.Title))
+            {
+                <div class="topic-title">@Topic.Title</div>
+            }
+
+            <div class="topic-availability-indicators">
+                @if (!Topic.IsAvailable)
+                {
+                    <span class="badge badge-warning availability-badge topic-availability-badge"
+                          title="Este tópico não foi encontrado na última sincronização.">
+                        Tópico indisponível
+                    </span>
+                }
+
+                @if (hasHistoricallyCompletedPendingContent)
+                {
+                    <span class="topic-history-badge"
+                          title="O tópico mantém sua conclusão histórica e possui uma aula disponível ainda pendente.">
+                        Concluído anteriormente · novo conteúdo pendente
+                    </span>
+                }
+            </div>
+        </div>
     }
     
-    @foreach (var lesson in Lessons)
+    @foreach (var lesson in Topic.Lessons)
     {
-        <div class="lesson-item @GetItemClass(lesson)"
-             data-lesson-anchor="@lesson.Id"
-             @onclick="() => OnLessonClick(lesson)">
-            <div class="lesson-status-icon">
-                @if (GetStatus(lesson.Id) == LessonStatus.Completed)
+        var presentation = CourseAvailabilityPresentationHelper.GetLessonPresentation(lesson, LessonStatuses);
+
+        <button type="button"
+                class="lesson-item @GetItemClass(lesson, presentation)"
+                data-lesson-anchor="@lesson.Id"
+                aria-label="@GetLessonAriaLabel(lesson, presentation)"
+                title="@GetLessonTitle(presentation)"
+                @onclick="() => OnLessonClick(lesson)">
+            <span class="lesson-status-icon">
+                @if (presentation.ProgressStatus == LessonStatus.Completed)
                 {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
                 }
-                else if (GetStatus(lesson.Id) == LessonStatus.InProgress)
+                else if (presentation.ProgressStatus == LessonStatus.InProgress)
                 {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                 }
@@ -26,41 +61,65 @@
                 {
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
                 }
-            </div>
+            </span>
             
-            <div class="lesson-info">
-                <div class="lesson-title">@lesson.Title</div>
-            </div>
+            <span class="lesson-info">
+                <span class="lesson-title">@lesson.Title</span>
+                @if (presentation.IsUnavailable)
+                {
+                    <span class="lesson-availability-badge">Arquivo não encontrado</span>
+                }
+            </span>
             
-            <div class="lesson-duration">
+            <span class="lesson-duration">
                 @((int)lesson.Duration.TotalMinutes)m
-            </div>
-        </div>
+            </span>
+        </button>
     }
 </div>
 
 @code {
-    [Parameter] public string TopicTitle { get; set; } = string.Empty;
-    [Parameter] public List<Lesson> Lessons { get; set; } = new();
+    [Parameter, EditorRequired] public Topic Topic { get; set; } = default!;
     [Parameter] public Dictionary<Guid, LessonStatus> LessonStatuses { get; set; } = new();
     [Parameter] public Guid? ActiveLessonId { get; set; }
     [Parameter] public EventCallback<Lesson> OnLessonSelected { get; set; }
 
-    private LessonStatus GetStatus(Guid lessonId)
+    private string GetItemClass(
+        Lesson lesson,
+        LessonAvailabilityPresentation presentation)
     {
-        return LessonStatuses.TryGetValue(lessonId, out var status) ? status : LessonStatus.NotStarted;
-    }
-
-    private string GetItemClass(Lesson lesson)
-    {
-        var status = GetStatus(lesson.Id);
         var classes = new List<string>();
         
         if (ActiveLessonId == lesson.Id) classes.Add("active");
-        if (status == LessonStatus.Completed) classes.Add("completed");
-        if (status == LessonStatus.InProgress) classes.Add("in-progress");
+        if (presentation.ProgressStatus == LessonStatus.Completed) classes.Add("completed");
+        if (presentation.ProgressStatus == LessonStatus.InProgress) classes.Add("in-progress");
+        if (presentation.IsUnavailable) classes.Add("lesson-unavailable");
         
         return string.Join(" ", classes);
+    }
+
+    private static string? GetLessonTitle(LessonAvailabilityPresentation presentation)
+    {
+        return presentation.IsUnavailable
+            ? "Arquivo não encontrado na última sincronização. O progresso foi preservado."
+            : null;
+    }
+
+    private static string GetLessonAriaLabel(
+        Lesson lesson,
+        LessonAvailabilityPresentation presentation)
+    {
+        var progressLabel = presentation.ProgressStatus switch
+        {
+            LessonStatus.Completed => "concluída",
+            LessonStatus.InProgress => "em progresso",
+            _ => "não iniciada"
+        };
+        var availabilityLabel = presentation.IsUnavailable
+            ? " Arquivo não encontrado na última sincronização; o progresso foi preservado."
+            : string.Empty;
+
+        return $"Aula {lesson.Title}. Status: {progressLabel}.{availabilityLabel}";
     }
 
     private async Task OnLessonClick(Lesson lesson)
