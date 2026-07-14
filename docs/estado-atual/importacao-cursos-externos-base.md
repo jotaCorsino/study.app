@@ -2,7 +2,7 @@
 
 ## Estado atual
 
-O fluxo ativo do StudyHub é curso local por pasta. A versão 1.2.0 em preparação acrescenta gerenciamento da origem física e sincronização incremental para cursos já importados.
+O fluxo ativo do StudyHub é curso local por pasta. A versão 1.2.0 acrescenta gerenciamento da origem física e sincronização incremental para cursos já importados.
 
 Cursos externos, cursos online, IA, roadmaps e materiais complementares não fazem parte do fluxo ativo atual. Existe base técnica preparada para importações externas, mas ela deve ser tratada como histórico/futuro até existir uma tela completa no app.
 

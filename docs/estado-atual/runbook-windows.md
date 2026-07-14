@@ -6,9 +6,9 @@ O runbook principal de build, publish e release fica em:
 
 - `docs/estado-atual/windows-runbook.md`
 
-## Fluxo ativo no candidato v1.2.0
+## Fluxo ativo na v1.2.0
 
-A release pública atual permanece na v1.1.0. O fluxo do candidato v1.2.0 em preparação é:
+A release pública atual é a v1.2.0. O fluxo ativo é:
 
 1. abrir o StudyHub;
 2. importar um curso por pasta local;

@@ -1,4 +1,4 @@
-# StudyHub v1.2.0 (em preparação)
+# StudyHub v1.2.0
 
 ## Gerenciamento de origem e sincronização incremental
 
@@ -27,8 +27,22 @@
 
 - Rename ou move de módulo, tópico ou vídeo continua sendo interpretado como item ausente + item novo.
 
-### Validação da preparação
+### Validação da release
 
 - Build MAUI Windows aprovado.
 - 302 testes automatizados aprovados.
 - 0 testes ignorados.
+- Staging limpo e ZIP final validados contra a manifestação da Tarefa 13.
+- Release pública validada após um novo download do asset.
+- Tamanho e SHA-256 do download público idênticos ao ZIP local enviado.
+- Artefato público extraído e executado com sucesso a partir da pasta QA.
+
+### Artefato publicado
+
+- Data: `14/07/2026`.
+- Release: [StudyHub v1.2.0](https://github.com/jotaCorsino/study.app/releases/tag/v1.2.0).
+- Tag: `v1.2.0`.
+- Commit do binário: `a7d277649da8f3401f555c1eceb4b15c237c2900`.
+- Asset: `studyhub-windows-x64.zip`.
+- Tamanho: `70.921.059 bytes`.
+- SHA-256: `E3C7F6D1621B21F67D011BC781DE6F430B13D1D10D684AB6A5D44571F8A1399D`.

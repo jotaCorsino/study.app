@@ -2,7 +2,7 @@
 
 ## Escopo atual
 
-A release pública atual é o StudyHub v1.1.0. Este runbook também cobre o candidato v1.2.0 em preparação, ainda sem tag, artefato ou release.
+A release pública atual é o StudyHub v1.2.0, publicada em 14/07/2026.
 
 Fluxos ativos:
 
@@ -63,28 +63,30 @@ Essa pasta contém:
 
 ## Empacotamento
 
-Zipar a pasta wrapper limpa:
+A release v1.2.0 foi empacotada exclusivamente a partir do conteúdo do runtime limpo:
 
 ```text
-dist\windows\studyhub-windows-x64\
+dist\windows\studyhub-windows-x64\runtime\
 ```
 
-Nome público do asset:
+Ao extrair o asset, `studyhub.app.exe` fica diretamente na raiz, sem um nível `runtime\` adicional.
+
+Nome do asset público:
 
 ```text
-StudyHub-v<versao>-windows-x64.zip
+studyhub-windows-x64.zip
 ```
 
-Asset público atual:
+Tamanho publicado:
 
 ```text
-StudyHub-v1.1.0-windows-x64.zip
+70.921.059 bytes
 ```
 
 SHA256 publicado:
 
 ```text
-5DDFFA3244D7D4A08A76B72B65D1FA70113263CEB2D3426930A9FBEF87BBCD8F
+E3C7F6D1621B21F67D011BC781DE6F430B13D1D10D684AB6A5D44571F8A1399D
 ```
 
 ## GitHub Release
@@ -95,7 +97,7 @@ Página de releases:
 
 Release atual:
 
-- https://github.com/jotaCorsino/study.app/releases/tag/v1.1.0
+- https://github.com/jotaCorsino/study.app/releases/tag/v1.2.0
 
 Fluxo recomendado:
 

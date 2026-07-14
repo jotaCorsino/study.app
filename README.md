@@ -33,11 +33,11 @@ O app atual é focado em cursos locais/offline. Os dados ficam no computador do 
 - Histórico antigo por tempo permanece compatível.
 - Crédito de Aulas/Módulos evita duplicidade.
 
-Release publicada:
+Release histórica desta versão:
 
 - [StudyHub v1.1.0](https://github.com/jotaCorsino/study.app/releases/tag/v1.1.0)
 
-## Gerenciamento de cursos locais (v1.2.0 em preparação)
+## Gerenciamento de cursos locais (v1.2.0)
 
 O StudyHub agora permite corrigir a origem física de um curso e atualizar seu conteúdo sem recriar o curso. Acesse **Configurações → Cursos e armazenamento**.
 
@@ -59,27 +59,19 @@ Bancos existentes são atualizados automaticamente para o schema 13. Caminhos re
 
 ## Download da release
 
-Baixe sempre pela página oficial de releases:
+Release publicada mais recente:
 
-- [https://github.com/jotaCorsino/study.app/releases](https://github.com/jotaCorsino/study.app/releases)
+- [StudyHub v1.2.0](https://github.com/jotaCorsino/study.app/releases/tag/v1.2.0)
 
 Arquivo principal para Windows:
 
-- `StudyHub-v<versao>-windows-x64.zip`
-
-Exemplo atual:
-
-- `StudyHub-v1.1.0-windows-x64.zip`
+- `studyhub-windows-x64.zip`
 
 ## Como instalar e abrir no Windows
 
 1. Baixe o `.zip` da versão mais recente na página de releases.
 2. Extraia o arquivo em qualquer pasta do computador.
-3. Abra `abrir-studyhub.cmd`.
-
-Alternativa:
-
-- execute diretamente `runtime\studyhub.app.exe`.
+3. Execute `studyhub.app.exe` na raiz da pasta extraída.
 
 ## Onde os dados ficam
 
