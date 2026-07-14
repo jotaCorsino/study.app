@@ -70,6 +70,7 @@
             <div class="player-video-area">
                 <LessonPlaybackHost @key="@($"{LessonId}:{currentLesson.SourceType}")"
                                     CourseId="CourseId"
+                                    CourseRootPath="@CurrentCourseRootPath"
                                     Lesson="currentLesson"
                                     InitialStartOffset="initialStartOffset"
                                     RequestedPlaybackSpeed="selectedPlaybackSpeed"
@@ -261,6 +262,11 @@
     private string introSkipSaveError = string.Empty;
     private PlayerControlsSettingsMode settingsInlineMode = PlayerControlsSettingsMode.Normal;
     private TimeSpan initialStartOffset = TimeSpan.Zero;
+    private string CurrentCourseRootPath => course == null
+        ? string.Empty
+        : !string.IsNullOrWhiteSpace(course.SourceMetadata.RootPath)
+            ? course.SourceMetadata.RootPath
+            : course.FolderPath;
 
     private enum PlayerControlsSettingsMode
     {

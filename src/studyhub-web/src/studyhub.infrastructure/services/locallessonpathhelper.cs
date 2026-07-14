@@ -2,6 +2,43 @@ namespace studyhub.infrastructure.services;
 
 internal static class LocalLessonPathHelper
 {
+    public static bool TryResolvePhysicalPath(
+        string? rootPath,
+        string? relativeFilePath,
+        out string resolvedFilePath)
+    {
+        resolvedFilePath = string.Empty;
+
+        if (!TryNormalizeFullyQualifiedPath(rootPath, out var normalizedRootPath) ||
+            !TryNormalizePortableRelativePath(relativeFilePath, out var normalizedRelativeFilePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var platformRelativeFilePath = normalizedRelativeFilePath.Replace(
+                '/',
+                Path.DirectorySeparatorChar);
+            var candidate = Path.GetFullPath(Path.Combine(normalizedRootPath, platformRelativeFilePath));
+
+            if (!TryCalculatePortableRelativePath(
+                    normalizedRootPath,
+                    candidate,
+                    out _))
+            {
+                return false;
+            }
+
+            resolvedFilePath = candidate;
+            return true;
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or IOException)
+        {
+            return false;
+        }
+    }
+
     public static bool TryCalculatePortableRelativePath(
         string rootPath,
         string absoluteLessonPath,

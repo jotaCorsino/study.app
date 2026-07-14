@@ -1,8 +1,10 @@
 @using Microsoft.JSInterop
 @using studyhub.app.services
+@using studyhub.application.Interfaces
 @using studyhub.domain.Entities
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject ILocalLessonFilePathResolver FilePathResolver
 @inject NativeLessonPlaybackService PlaybackService
 
 <div @ref="hostAnchor" class="local-video-player-shell">
@@ -18,6 +20,7 @@
 
 @code {
     [Parameter, EditorRequired] public Guid CourseId { get; set; }
+    [Parameter] public string? CourseRootPath { get; set; }
     [Parameter, EditorRequired] public Lesson? Lesson { get; set; }
     [Parameter] public TimeSpan InitialStartOffset { get; set; } = TimeSpan.Zero;
     [Parameter] public double RequestedPlaybackSpeed { get; set; } = 1.0;
@@ -59,16 +62,18 @@
         }
 
         var requestedPlaybackSpeed = NormalizePlaybackSpeed(RequestedPlaybackSpeed);
+        var resolvedFilePath = FilePathResolver.Resolve(CourseRootPath, Lesson);
         var shouldActivateSession = currentLessonId != Lesson.Id ||
-            !string.Equals(currentFilePath, Lesson.FilePath, StringComparison.OrdinalIgnoreCase) ||
+            !FilePathsEqual(currentFilePath, resolvedFilePath) ||
             currentSessionToken <= 0;
 
         if (shouldActivateSession)
         {
             currentLessonId = Lesson.Id;
-            currentFilePath = Lesson.FilePath;
+            currentFilePath = resolvedFilePath;
             currentSessionToken = await PlaybackService.ActivateAsync(
                 CourseId,
+                CourseRootPath,
                 Lesson,
                 requestedPlaybackSpeed,
                 InitialStartOffset);
@@ -147,6 +152,15 @@
             0.5 or 1.0 or 1.5 or 2.0 or 2.5 => speed,
             _ => 1.0
         };
+    }
+
+    private static bool FilePathsEqual(string left, string right)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        return string.Equals(left, right, comparison);
     }
 
     private async void HandleLessonCompleted(object? sender, NativeLessonPlaybackCompletedEventArgs e)
