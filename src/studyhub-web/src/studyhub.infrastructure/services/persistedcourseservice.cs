@@ -480,6 +480,7 @@ public class PersistedCourseService(
                 lesson => NormalizePath(ResolveAbsolutePath(lesson, manifest.RootFolderPath)));
 
         return persistedLessons.Any(lesson =>
+            LocalLessonPathHelper.TryNormalizePortableRelativePath(lesson.RelativeFilePath, out _) &&
             manifestLessonPaths.TryGetValue(lesson.Id, out var manifestPath) &&
             !string.Equals(
                 NormalizePath(FirstNonEmpty(lesson.LocalFilePath, lesson.FilePath)),
@@ -523,9 +524,12 @@ public class PersistedCourseService(
 
         try
         {
-            return JsonSerializer.Deserialize<DetectedCourseStructure>(manifestJson, JsonOptions);
+            var manifest = JsonSerializer.Deserialize<DetectedCourseStructure>(manifestJson, JsonOptions);
+            return LocalCourseManifestValidator.HasUsableStructure(manifest)
+                ? manifest
+                : null;
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
             return null;
         }
@@ -615,11 +619,14 @@ public class PersistedCourseService(
         var snapshot = await context.CourseImportSnapshots
             .FirstOrDefaultAsync(item => item.CourseId == manifest.CourseId);
 
-        if (snapshot == null)
+        if (snapshot is null)
         {
             snapshot = new persistence.models.CourseImportSnapshotRecord
             {
-                CourseId = manifest.CourseId
+                CourseId = manifest.CourseId,
+                ImportedAt = manifest.ScannedAt == default
+                    ? DateTime.UtcNow
+                    : manifest.ScannedAt
             };
 
             await context.CourseImportSnapshots.AddAsync(snapshot);
@@ -628,7 +635,6 @@ public class PersistedCourseService(
         snapshot.SourceKind = "local-folder";
         snapshot.RootFolderPath = manifest.RootFolderPath ?? string.Empty;
         snapshot.StructureJson = JsonSerializer.Serialize(manifest, JsonOptions);
-        snapshot.ImportedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync();
     }

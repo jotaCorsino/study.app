@@ -22,6 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ICourseResumeService, CourseResumeService>();
         services.AddSingleton<ILocalFolderCourseBuilder, LocalFolderCourseBuilder>();
         services.AddSingleton<ILocalCourseImportService, LocalCourseImportService>();
+        services.AddSingleton<ICourseSourceManagementService, CourseSourceManagementService>();
         services.AddSingleton<ILocalLessonFilePathResolver, LocalLessonFilePathResolver>();
         services.AddSingleton<IRoutineService, RoutineService>();
         services.AddSingleton<IProgressService, PersistedProgressService>();
