@@ -143,10 +143,17 @@ public sealed class CourseContentSyncService(
 
                 course.SourceMetadataJson = updatedSourceMetadataJson;
 
+                var snapshot = await context.CourseImportSnapshots
+                    .SingleOrDefaultAsync(record => record.CourseId == courseId, cancellationToken);
+                var previousManifest = TryDeserializeManifest(
+                    snapshot?.StructureJson,
+                    courseId);
                 var manifest = LocalCourseManifestBuilder.Build(
                     course,
                     execution.ScannedRootPath,
-                    scannedAtUtc);
+                    scannedAtUtc,
+                    execution.DetectedStructure,
+                    previousManifest);
                 if (!LocalCourseManifestValidator.HasUsableStructure(manifest) ||
                     !LocalCourseManifestValidator.HasMatchingPersistedIdentities(manifest, course))
                 {
@@ -154,8 +161,6 @@ public sealed class CourseContentSyncService(
                         "The rebuilt local course manifest does not match the tracked course tree.");
                 }
 
-                var snapshot = await context.CourseImportSnapshots
-                    .SingleOrDefaultAsync(record => record.CourseId == courseId, cancellationToken);
                 if (snapshot is null)
                 {
                     snapshot = new CourseImportSnapshotRecord
@@ -207,6 +212,28 @@ public sealed class CourseContentSyncService(
                 courseId,
                 effectivePlan,
                 "Não foi possível salvar a sincronização. Nenhuma alteração parcial foi mantida.");
+        }
+    }
+
+    private static DetectedCourseStructure? TryDeserializeManifest(
+        string? structureJson,
+        Guid courseId)
+    {
+        if (string.IsNullOrWhiteSpace(structureJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            var manifest = JsonSerializer.Deserialize<DetectedCourseStructure>(
+                structureJson,
+                JsonOptions);
+            return manifest?.CourseId == courseId ? manifest : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

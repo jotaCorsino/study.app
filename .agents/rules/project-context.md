@@ -162,6 +162,7 @@ It must transform locally organized video courses into a complete learning exper
 - Content synchronization is now fully explicit in settings: users review a preview before applying the incremental plan, and the UI states that missing content is preserved with its progress, playback state, and historical records.
 - Persisted `IsAvailable` state is now surfaced in the normal course experience: Course Detail summarizes unavailable modules, topics, and lessons; the shared course tree marks fully or partially unavailable modules plus unavailable topics and lessons; and the player shows a non-blocking warning while still attempting the real file through the existing resolver/runtime path.
 - Topics with historical `CompletedAtUtc` and a newly available pending lesson now show a derived `Concluído anteriormente · novo conteúdo pendente` state without changing completion, lesson progress, current lesson, routine, or history data.
+- Local content-sync snapshot rebuilding now preserves physical scan metadata (`PresentationRootRelativePath`, exact lesson duration, and file size) while retaining persisted identities; temporarily missing lessons fall back to their previous snapshot metadata instead of being degraded during an otherwise safe apply.
 
 ## future integrations
 - broader playback/runtime support for external online lessons

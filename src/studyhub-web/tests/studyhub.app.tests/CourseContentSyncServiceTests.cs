@@ -300,7 +300,8 @@ public sealed class CourseContentSyncServiceTests : IDisposable
                 "Module 01",
                 "Module 01/Topic 01",
                 LessonRelativePath,
-                TimeSpan.FromMinutes(5)));
+                TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(17)));
+        detected.PresentationRootRelativePath = "Module 01";
         var scannerIds = GetDetectedIds(detected);
         var service = CreateService(new DelegateScanner((_, _) => Task.FromResult(detected)));
 
@@ -310,6 +311,13 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         var manifest = JsonSerializer.Deserialize<DetectedCourseStructure>(
             snapshot.StructureJson,
             JsonOptions)!;
+        var manifestLesson = Assert.Single(
+            manifest.Modules.SelectMany(item => item.Topics).SelectMany(item => item.Lessons));
+        var rootManifestLesson = Assert.Single(EnumerateRootLessons(manifest.RootNode));
+        var firstStructureJson = snapshot.StructureJson;
+
+        var secondResult = await service.ApplyAsync(seed.CourseId);
+        var secondSnapshot = await LoadSnapshotAsync(seed.CourseId);
 
         Assert.Equal(CourseContentSyncApplyStatus.NoChanges, result.Status);
         Assert.True(result.Success);
@@ -348,6 +356,13 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         Assert.Equal(seed.CourseId, manifest.CourseId);
         Assert.Equal(seed.CurrentIds, GetManifestIds(manifest));
         Assert.Empty(scannerIds.Intersect(seed.CurrentIds));
+        Assert.Equal("Module 01", manifest.PresentationRootRelativePath);
+        Assert.Equal(100, manifestLesson.FileSizeBytes);
+        Assert.Equal(TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(17), manifestLesson.Duration);
+        Assert.Equal(manifestLesson.FileSizeBytes, rootManifestLesson.FileSizeBytes);
+        Assert.Equal(manifestLesson.Duration, rootManifestLesson.Duration);
+        Assert.Equal(CourseContentSyncApplyStatus.NoChanges, secondResult.Status);
+        Assert.Equal(firstStructureJson, secondSnapshot.StructureJson);
     }
 
     [Fact]
@@ -571,6 +586,30 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         var rootPath = CourseRoot("apply-missing-module");
         Directory.CreateDirectory(rootPath);
         var seed = await SeedCourseAsync(rootPath);
+        var previousManifest = CreateDetectedStructure(
+            rootPath,
+            new DateTime(2026, 7, 14, 15, 39, 0, DateTimeKind.Utc),
+            new DetectedLessonSpec(
+                "Module 01",
+                "Module 01/Topic 01",
+                LessonRelativePath,
+                TimeSpan.FromMinutes(17) + TimeSpan.FromSeconds(29)));
+        previousManifest.CourseId = seed.CourseId;
+        var previousModule = Assert.Single(previousManifest.Modules);
+        previousModule.ModuleId = seed.ModuleId;
+        var previousTopic = Assert.Single(previousModule.Topics);
+        previousTopic.TopicId = seed.TopicId;
+        var previousLesson = Assert.Single(previousTopic.Lessons);
+        previousLesson.LessonId = seed.LessonId;
+        previousLesson.FileSizeBytes = 987_654;
+        await using (var context = new StudyHubDbContext(_options))
+        {
+            var existingSnapshot = await context.CourseImportSnapshots
+                .SingleAsync(record => record.CourseId == seed.CourseId);
+            existingSnapshot.StructureJson = JsonSerializer.Serialize(previousManifest, JsonOptions);
+            await context.SaveChangesAsync();
+        }
+
         var currentScan = CreateDetectedStructure(
             rootPath,
             new DateTime(2026, 7, 14, 15, 40, 0, DateTimeKind.Utc),
@@ -600,6 +639,16 @@ public sealed class CourseContentSyncServiceTests : IDisposable
         Assert.Contains(manifest.Modules, module => module.ModuleId == seed.ModuleId);
         Assert.Contains(manifest.Modules.SelectMany(module => module.Topics), topic => topic.TopicId == seed.TopicId);
         Assert.Contains(manifest.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons), lesson => lesson.LessonId == seed.LessonId);
+        var missingManifestLesson = manifest.Modules
+            .SelectMany(module => module.Topics)
+            .SelectMany(topic => topic.Lessons)
+            .Single(lesson => lesson.LessonId == seed.LessonId);
+        var missingRootLesson = EnumerateRootLessons(manifest.RootNode)
+            .Single(lesson => lesson.LessonId == seed.LessonId);
+        Assert.Equal(987_654, missingManifestLesson.FileSizeBytes);
+        Assert.Equal(TimeSpan.FromMinutes(17) + TimeSpan.FromSeconds(29), missingManifestLesson.Duration);
+        Assert.Equal(missingManifestLesson.FileSizeBytes, missingRootLesson.FileSizeBytes);
+        Assert.Equal(missingManifestLesson.Duration, missingRootLesson.Duration);
 
         var idsAfterMissing = GetPersistedIds(course);
         currentScan = CreateDetectedStructure(
@@ -1464,6 +1513,22 @@ public sealed class CourseContentSyncServiceTests : IDisposable
             .Concat(manifest.Modules.SelectMany(module => module.Topics).SelectMany(topic => topic.Lessons).Select(lesson => lesson.LessonId))
             .Order()
             .ToArray();
+
+    private static IEnumerable<DetectedLessonFile> EnumerateRootLessons(DetectedFolderNode node)
+    {
+        foreach (var lesson in node.DirectLessons)
+        {
+            yield return lesson;
+        }
+
+        foreach (var child in node.Children)
+        {
+            foreach (var lesson in EnumerateRootLessons(child))
+            {
+                yield return lesson;
+            }
+        }
+    }
 
     private static Guid[] GetDomainIds(Course course)
         => course.Modules

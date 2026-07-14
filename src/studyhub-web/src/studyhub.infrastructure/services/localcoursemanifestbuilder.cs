@@ -5,10 +5,27 @@ namespace studyhub.infrastructure.services;
 
 internal static class LocalCourseManifestBuilder
 {
+    private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+
     public static DetectedCourseStructure Build(
         CourseRecord course,
         string normalizedRootPath,
         DateTime scannedAtUtc)
+        => Build(
+            course,
+            normalizedRootPath,
+            scannedAtUtc,
+            detectedStructure: null,
+            previousManifest: null);
+
+    public static DetectedCourseStructure Build(
+        CourseRecord course,
+        string normalizedRootPath,
+        DateTime scannedAtUtc,
+        DetectedCourseStructure? detectedStructure,
+        DetectedCourseStructure? previousManifest = null)
     {
         ArgumentNullException.ThrowIfNull(course);
 
@@ -29,9 +46,21 @@ internal static class LocalCourseManifestBuilder
             throw new ArgumentException("The manifest scan time is required.", nameof(scannedAtUtc));
         }
 
+        var currentDetectedStructure = HasMatchingRoot(detectedStructure, rootPath)
+            ? detectedStructure
+            : null;
+        var previousCourseManifest = previousManifest?.CourseId == course.Id
+            ? previousManifest
+            : null;
+        var detectedLessonsByPath = CreateLessonMetadataIndex(currentDetectedStructure);
+        var previousLessonsByPath = CreateLessonMetadataIndex(previousCourseManifest);
         var rootName = ResolveRootFolderName(course, rootPath);
         var modules = course.Modules
-            .Select(module => BuildModule(module, rootPath))
+            .Select(module => BuildModule(
+                module,
+                rootPath,
+                detectedLessonsByPath,
+                previousLessonsByPath))
             .OrderBy(module => module.Order)
             .ThenBy(module => module.RelativePath, StringComparer.OrdinalIgnoreCase)
             .ThenBy(module => module.ModuleId)
@@ -42,7 +71,9 @@ internal static class LocalCourseManifestBuilder
             CourseId = course.Id,
             RootFolderName = rootName,
             RootFolderPath = rootPath,
-            PresentationRootRelativePath = ".",
+            PresentationRootRelativePath = ResolvePresentationRootRelativePath(
+                currentDetectedStructure,
+                previousCourseManifest),
             ScannedAt = NormalizeUtc(scannedAtUtc),
             RootNode = new DetectedFolderNode
             {
@@ -56,7 +87,11 @@ internal static class LocalCourseManifestBuilder
         return manifest;
     }
 
-    private static DetectedModuleStructure BuildModule(ModuleRecord module, string rootPath)
+    private static DetectedModuleStructure BuildModule(
+        ModuleRecord module,
+        string rootPath,
+        IReadOnlyDictionary<string, DetectedLessonFile> detectedLessonsByPath,
+        IReadOnlyDictionary<string, DetectedLessonFile> previousLessonsByPath)
     {
         var moduleRelativePath = LocalCourseStructurePathHelper.TryNormalize(
             module.SourceRelativePath,
@@ -71,7 +106,12 @@ internal static class LocalCourseManifestBuilder
             RawName = FirstNonEmpty(module.RawTitle, module.Title),
             RelativePath = moduleRelativePath,
             Topics = module.Topics
-                .Select(topic => BuildTopic(topic, moduleRelativePath, rootPath))
+                .Select(topic => BuildTopic(
+                    topic,
+                    moduleRelativePath,
+                    rootPath,
+                    detectedLessonsByPath,
+                    previousLessonsByPath))
                 .OrderBy(topic => topic.Order)
                 .ThenBy(topic => topic.RelativePath, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(topic => topic.TopicId)
@@ -82,7 +122,9 @@ internal static class LocalCourseManifestBuilder
     private static DetectedTopicStructure BuildTopic(
         TopicRecord topic,
         string moduleRelativePath,
-        string rootPath)
+        string rootPath,
+        IReadOnlyDictionary<string, DetectedLessonFile> detectedLessonsByPath,
+        IReadOnlyDictionary<string, DetectedLessonFile> previousLessonsByPath)
     {
         var topicRelativePath = LocalCourseStructurePathHelper.TryMakeRelativeToParent(
             moduleRelativePath,
@@ -98,7 +140,11 @@ internal static class LocalCourseManifestBuilder
             RawName = FirstNonEmpty(topic.RawTitle, topic.Title),
             RelativePath = topicRelativePath,
             Lessons = topic.Lessons
-                .Select(lesson => BuildLesson(lesson, rootPath))
+                .Select(lesson => BuildLesson(
+                    lesson,
+                    rootPath,
+                    detectedLessonsByPath,
+                    previousLessonsByPath))
                 .OrderBy(lesson => lesson.Order)
                 .ThenBy(lesson => lesson.RelativePath, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(lesson => lesson.LessonId)
@@ -106,7 +152,11 @@ internal static class LocalCourseManifestBuilder
         };
     }
 
-    private static DetectedLessonFile BuildLesson(LessonRecord lesson, string rootPath)
+    private static DetectedLessonFile BuildLesson(
+        LessonRecord lesson,
+        string rootPath,
+        IReadOnlyDictionary<string, DetectedLessonFile> detectedLessonsByPath,
+        IReadOnlyDictionary<string, DetectedLessonFile> previousLessonsByPath)
     {
         if (!TryResolveLessonPath(lesson, rootPath, out var relativePath, out var absolutePath))
         {
@@ -115,6 +165,8 @@ internal static class LocalCourseManifestBuilder
         }
 
         var fileName = relativePath.Split('/').Last();
+        detectedLessonsByPath.TryGetValue(relativePath, out var detectedLesson);
+        previousLessonsByPath.TryGetValue(relativePath, out var previousLesson);
 
         return new DetectedLessonFile
         {
@@ -125,10 +177,104 @@ internal static class LocalCourseManifestBuilder
             RelativePath = relativePath,
             AbsolutePath = absolutePath,
             Extension = Path.GetExtension(fileName),
-            FileSizeBytes = 0,
-            Duration = TimeSpan.FromMinutes(Math.Max(0, lesson.DurationMinutes))
+            FileSizeBytes = ResolveFileSizeBytes(detectedLesson, previousLesson),
+            Duration = ResolveDuration(detectedLesson, previousLesson, lesson.DurationMinutes)
         };
     }
+
+    private static IReadOnlyDictionary<string, DetectedLessonFile> CreateLessonMetadataIndex(
+        DetectedCourseStructure? structure)
+    {
+        var index = new Dictionary<string, DetectedLessonFile>(PathComparer);
+        if (structure?.Modules is null)
+        {
+            return index;
+        }
+
+        var ambiguousPaths = new HashSet<string>(PathComparer);
+        foreach (var lesson in structure.Modules
+                     .Where(module => module?.Topics is not null)
+                     .SelectMany(module => module.Topics)
+                     .Where(topic => topic?.Lessons is not null)
+                     .SelectMany(topic => topic.Lessons))
+        {
+            if (lesson is null ||
+                !LocalLessonPathHelper.TryNormalizePortableRelativePath(
+                    lesson.RelativePath,
+                    out var relativePath) ||
+                ambiguousPaths.Contains(relativePath))
+            {
+                continue;
+            }
+
+            if (!index.TryAdd(relativePath, lesson))
+            {
+                index.Remove(relativePath);
+                ambiguousPaths.Add(relativePath);
+            }
+        }
+
+        return index;
+    }
+
+    private static long ResolveFileSizeBytes(
+        DetectedLessonFile? detectedLesson,
+        DetectedLessonFile? previousLesson)
+    {
+        if (detectedLesson?.FileSizeBytes >= 0)
+        {
+            return detectedLesson.FileSizeBytes;
+        }
+
+        return previousLesson?.FileSizeBytes >= 0
+            ? previousLesson.FileSizeBytes
+            : 0;
+    }
+
+    private static TimeSpan ResolveDuration(
+        DetectedLessonFile? detectedLesson,
+        DetectedLessonFile? previousLesson,
+        int persistedDurationMinutes)
+    {
+        if (detectedLesson?.Duration > TimeSpan.Zero)
+        {
+            return detectedLesson.Duration;
+        }
+
+        if (previousLesson?.Duration > TimeSpan.Zero)
+        {
+            return previousLesson.Duration;
+        }
+
+        return TimeSpan.FromMinutes(Math.Max(0, persistedDurationMinutes));
+    }
+
+    private static string ResolvePresentationRootRelativePath(
+        DetectedCourseStructure? detectedStructure,
+        DetectedCourseStructure? previousManifest)
+    {
+        if (LocalCourseStructurePathHelper.TryNormalize(
+                detectedStructure?.PresentationRootRelativePath,
+                out var detectedPresentationRoot))
+        {
+            return detectedPresentationRoot;
+        }
+
+        return LocalCourseStructurePathHelper.TryNormalize(
+            previousManifest?.PresentationRootRelativePath,
+            out var previousPresentationRoot)
+            ? previousPresentationRoot
+            : ".";
+    }
+
+    private static bool HasMatchingRoot(
+        DetectedCourseStructure? detectedStructure,
+        string rootPath)
+        => detectedStructure is not null &&
+           LocalCourseSourceRootResolver.TryNormalize(
+               detectedStructure.RootFolderPath,
+               out var detectedRootPath) &&
+           PathComparer.Equals(detectedRootPath, rootPath);
 
     private static bool TryResolveLessonPath(
         LessonRecord lesson,
