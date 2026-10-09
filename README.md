@@ -1,10 +1,10 @@
-## Nota importante
-
-Este projeto é 100% pessoal, 110% amador e 1000% criado para satisfazer uma vontade particular: organizar meus cursos de um jeito que funcione para mim. Não foi feito em padrão de mercado e pode ter decisões simples ou improvisadas. Sou estudante e construo este app "vibe codando" com Codex, para me ajudar a estudar.
-
 # StudyHub
 
-StudyHub é um app Windows para organizar cursos locais em pastas. Ele transforma uma pasta de vídeos em um catálogo de cursos com player local, progresso e rotina de estudos.
+**Aplicativo Windows para organizar cursos locais, acompanhar progresso e estruturar rotinas de estudo.**
+
+O StudyHub nasceu de uma necessidade pessoal: transformar pastas de cursos e vídeos armazenados localmente em uma experiência de estudo organizada, com catálogo, reprodução, acompanhamento de progresso, metas e histórico.
+
+O projeto evolui a partir do uso real. O foco é manter uma aplicação local e simples de operar, preservando o progresso do usuário mesmo quando cursos mudam de pasta, recebem novos conteúdos ou ficam temporariamente indisponíveis.
 
 Hoje o app oferece:
 
